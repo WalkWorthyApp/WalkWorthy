@@ -74,6 +74,10 @@ async function recordCalendarSyncStatus(
           },
         }),
       );
+      console.log('scan-runner: recorded successful calendar sync', {
+        sub,
+        lastSyncedAt: now,
+      });
     } else {
       await dynamo.send(
         new UpdateCommand({
@@ -86,6 +90,11 @@ async function recordCalendarSyncStatus(
           },
         }),
       );
+      console.warn('scan-runner: recorded failed calendar sync', {
+        sub,
+        lastSyncedAt: now,
+        error: errorMessage,
+      });
     }
   } catch (updateError) {
     console.error('Failed to record calendar sync status', updateError);
@@ -100,13 +109,20 @@ export async function runScanForUser(sub: string): Promise<RunScanResult> {
 
   const calendarLink = toCalendarLinkRecord(calendarLinkRaw);
   if (!calendarLink) {
+    console.warn('scan-runner: calendar link missing', { sub });
     throw new CalendarLinkMissingError(sub);
   }
 
   if (calendarLink.status !== 'ACTIVE') {
+    console.warn('scan-runner: calendar link not active', { sub, status: calendarLink.status });
     throw new CalendarLinkMissingError(sub, calendarLink.status);
   }
 
+  console.log('scan-runner: starting scan', {
+    sub,
+    lastSyncedAt: calendarLink.lastSyncedAt,
+    lastSyncStatus: calendarLink.lastSyncStatus,
+  });
   await clearPendingEncouragements(sub);
 
   const translationPref = normalizeTranslation(
@@ -123,6 +139,13 @@ export async function runScanForUser(sub: string): Promise<RunScanResult> {
   await persistEncouragement(sub, result.encouragement);
   await recordScan(sub, result.log);
 
+  console.log('scan-runner: finished scan', {
+    sub,
+    encouragementId: result.encouragement.id,
+    status: result.log.status,
+    stressfulCount: result.log.stressfulCount,
+    candidateCount: result.log.candidateCount,
+  });
   return {
     encouragementId: result.encouragement.id,
     status: result.log.status,
@@ -138,18 +161,37 @@ interface CalendarLinkRecord {
 }
 
 async function loadCalendarLink(sub: string) {
-  const result = await dynamo.send(
-    new GetCommand({
-      TableName: TABLE_NAME,
-      Key: {
-        pk: `USER#${sub}`,
-        sk: 'CANVAS_LINK',
-      },
-    }),
-  );
+  const candidateKeys: Array<Record<string, string>> = [
+    { pk: `USER#${sub}`, sk: 'CALENDAR_LINK' },
+    { PK: `USER#${sub}`, SK: 'CALENDAR_LINK' },
+  ];
 
-  return result.Item ?? null;
+  for (const key of candidateKeys) {
+    const result = await dynamo.send(
+      new GetCommand({
+        TableName: TABLE_NAME,
+        Key: key,
+        ConsistentRead: true,
+      }),
+    );
+
+    if (result.Item) {
+      console.log('scan-runner: loadCalendarLink', {
+        sub,
+        table: TABLE_NAME,
+        keyVariant: Object.keys(key).join(','),
+      });
+      return result.Item;
+    }
+  }
+
+  console.warn('scan-runner: loadCalendarLink not found', {
+    sub,
+    table: TABLE_NAME,
+  });
+  return null;
 }
+
 
 function toCalendarLinkRecord(raw: any): CalendarLinkRecord | null {
   if (!raw) return null;
@@ -374,6 +416,19 @@ function excludeVerses<T extends { ref: string }>(items: T[], excluded: Set<stri
 
 const EXCLUDED_REFS = parseExcludedRefs();
 
+interface CalendarAgendaEntry {
+  id: string;
+  title: string;
+  kind: CalendarEventItem['kind'];
+  startAt?: string | null;
+  endAt?: string | null;
+  dueAt?: string | null;
+  course?: string | null;
+  location?: string | null;
+  url?: string | null;
+  timeZoneId?: string | null;
+}
+
 async function executeScanPipeline(
   params: ScanPipelineParams,
 ): Promise<{ encouragement: ReturnType<typeof finalizeEncouragement>; log: ScanLog }> {
@@ -388,14 +443,26 @@ async function executeScanPipeline(
       calendarUrl: calendarLink.calendarUrl,
       windowDays: 14,
     });
+    console.log('scan-runner: fetched calendar events', {
+      sub,
+      eventCount: calendarEvents.length,
+    });
 
     stressfulItems = mapCalendarEventsToStressfulItems(calendarEvents, {
       translation,
       maxItems: 25,
     });
+    console.log('scan-runner: mapped stressful items', {
+      sub,
+      stressfulCount: stressfulItems.length,
+    });
 
     verseCandidates = await buildVerseCandidates(mcp, stressfulItems, translation);
     verseCandidates = excludeVerses(verseCandidates, EXCLUDED_REFS);
+    console.log('scan-runner: built verse candidates', {
+      sub,
+      candidateCount: verseCandidates.length,
+    });
 
     const uniqueTags = Array.from(
       new Set(
@@ -406,8 +473,13 @@ async function executeScanPipeline(
     );
 
     await recordCalendarSyncStatus(sub, 'SUCCESS');
+    await persistCalendarSnapshot(sub, calendarEvents);
 
     if (verseCandidates.length === 0) {
+      console.warn('scan-runner: no verse candidates, using fallback', {
+        sub,
+        stressfulCount: stressfulItems.length,
+      });
       return buildFallbackResult({
         translation,
         plannerCount: calendarEvents.length,
@@ -460,6 +532,19 @@ async function executeScanPipeline(
       'ERROR',
       error instanceof Error ? error.message : 'Unknown error',
     );
+    if (calendarEvents.length > 0) {
+      try {
+        await persistCalendarSnapshot(sub, calendarEvents);
+      } catch (persistError) {
+        console.error('scan-runner: failed to persist snapshot after error', persistError);
+      }
+    }
+    console.warn('scan-runner: falling back after pipeline error', {
+      sub,
+      error: error instanceof Error ? error.message : String(error),
+      stressfulCount: stressfulItems.length,
+      candidateCount: verseCandidates.length,
+    });
 
     return buildFallbackResult({
       translation,
@@ -470,6 +555,47 @@ async function executeScanPipeline(
       reason: error instanceof Error ? error.message : 'Unknown error',
     });
   }
+}
+
+async function persistCalendarSnapshot(sub: string, events: CalendarEventItem[]) {
+  const now = nowIso();
+  const sorted = [...events]
+    .sort((a, b) => {
+      const aTime = Date.parse(a.dueAt ?? a.startAt ?? a.endAt ?? '');
+      const bTime = Date.parse(b.dueAt ?? b.startAt ?? b.endAt ?? '');
+      if (Number.isNaN(aTime) && Number.isNaN(bTime)) return 0;
+      if (Number.isNaN(aTime)) return 1;
+      if (Number.isNaN(bTime)) return -1;
+      return aTime - bTime;
+    })
+    .slice(0, 40);
+
+  const items: CalendarAgendaEntry[] = sorted.map((event) => ({
+    id: event.id,
+    title: event.title ?? event.summary ?? 'Calendar item',
+    kind: event.kind,
+    startAt: event.startAt ?? null,
+    endAt: event.endAt ?? null,
+    dueAt: event.dueAt ?? null,
+    course: event.course ?? null,
+    location: event.location ?? null,
+    url: event.url ?? null,
+    timeZoneId: event.timeZoneId ?? null,
+  }));
+
+  await dynamo.send(
+    new PutCommand({
+      TableName: TABLE_NAME,
+      Item: {
+        pk: `USER#${sub}`,
+        sk: 'CALENDAR_SNAPSHOT',
+        PK: `USER#${sub}`,
+        SK: 'CALENDAR_SNAPSHOT',
+        fetchedAt: now,
+        items,
+      },
+    }),
+  );
 }
 
 function pickFallbackEncouragement(translation: Translation) {

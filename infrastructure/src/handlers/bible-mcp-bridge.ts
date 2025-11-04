@@ -78,7 +78,11 @@ const KEYWORD_MAP: Record<string, string[]> = {
   strength: ['Isaiah 41:10', 'Psalm 46:1-2'],
   hope: ['Romans 8:38-39', 'Psalm 23:4'],
   exam: ['James 1:5', 'Philippians 4:6-7'],
-  deadline: ['Philippians 4:6-7', 'Matthew 11:28-30']
+  deadline: ['Philippians 4:6-7', 'Matthew 11:28-30'],
+  urgency: ['Isaiah 41:10', 'Matthew 11:28-30'],
+  overdue: ['Psalm 4:8', 'John 14:27'],
+  encouragement: ['John 14:27', 'Romans 8:38-39'],
+  community: ['Romans 8:38-39', 'Psalm 23:4']
 };
 
 const DEFAULT_TRANSLATION: Translation = 'ESV';

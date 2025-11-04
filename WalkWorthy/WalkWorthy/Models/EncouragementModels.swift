@@ -13,6 +13,7 @@ protocol EncouragementAPI {
     func fetchTodayCanvas() async throws -> TodayCanvas
     func triggerScanNow() async throws -> ScanNowResponse
     func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws
+    func fetchCalendarAgenda() async throws -> CalendarAgendaResponse
     func fetchCalendarLinkStatus() async throws -> CalendarLinkStatus
     func updateCalendarLink(_ payload: CalendarLinkUpdateRequest) async throws -> CalendarLinkStatus
     func deleteCalendarLink() async throws
@@ -53,6 +54,48 @@ struct ScanNowResponse: Codable {
     let encouragementId: String?
     let status: ScanStatus
     let log: ScanLogSummary?
+}
+
+struct CalendarAgendaResponse: Codable {
+    let fetchedAt: Date?
+    let items: [CalendarAgendaItem]
+}
+
+struct CalendarAgendaItem: Codable, Identifiable {
+    let id: String
+    let title: String
+    let kind: CalendarAgendaKind
+    let startAt: Date?
+    let endAt: Date?
+    let dueAt: Date?
+    let course: String?
+    let location: String?
+    let url: URL?
+    let timeZoneId: String?
+}
+
+enum CalendarAgendaKind: String, Codable, CaseIterable, Identifiable {
+    case assignment
+    case exam
+    case event
+
+    var id: String { rawValue }
+
+    var iconName: String {
+        switch self {
+        case .assignment: return "doc.text"
+        case .exam: return "checkmark.seal"
+        case .event: return "calendar"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .assignment: return "Assignment"
+        case .exam: return "Exam"
+        case .event: return "Event"
+        }
+    }
 }
 
 struct CalendarLinkStatus: Codable, Equatable {

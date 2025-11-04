@@ -10,6 +10,16 @@ interface HeuristicOptions {
 
 const DEFAULT_TAGS = ['anxiety', 'stress', 'rest', 'peace'];
 const GROUP_RE = /\bgroup\b/i;
+const STOPWORDS = new Set(['the','and','for','with','your','from','that','this','into','about','over','under','into','onto','exam','assignment','event','today','tonight','meeting','class','work']);
+const INTERNAL_ONLY_TAGS = new Set(['encouragement', 'calendar', 'event', 'assignment', 'course', 'all-day']);
+
+function extractKeywords(input: string): string[] {
+  const words = input.toLowerCase().match(/[a-z0-9']+/g) ?? [];
+  const filtered = words
+    .filter((word) => word.length > 3 && !STOPWORDS.has(word))
+    .slice(0, 5);
+  return Array.from(new Set(filtered));
+}
 
 export function mapCalendarEventsToStressfulItems(
   items: CalendarEventItem[],
@@ -44,12 +54,16 @@ export async function buildVerseCandidates(
   const rankedTags = Array.from(tagCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4)
-    .map(([tag]) => tag);
+    .map(([tag]) => tag)
+    .filter((tag) => !INTERNAL_ONLY_TAGS.has(tag));
+
+  const fallbackTags = DEFAULT_TAGS.filter((tag) => !rankedTags.includes(tag));
+  const searchTags = [...rankedTags, ...fallbackTags];
 
   const verses: VerseCandidate[] = [];
   const seen = new Set<string>();
 
-  for (const tag of rankedTags) {
+  for (const tag of searchTags) {
     try {
       const found = await mcp.searchByKeywords([tag], translation, 5);
       for (const candidate of found) {
@@ -80,7 +94,7 @@ function calendarEventToStressfulItem(
     return null;
   }
 
-  const dueIso = item.startAt ?? item.endAt;
+  const dueIso = item.dueAt ?? item.startAt ?? item.endAt;
   const dueDate = dueIso ? new Date(dueIso) : undefined;
   const now = new Date();
   const hoursUntilDue = dueDate ? (dueDate.getTime() - now.getTime()) / (1000 * 60 * 60) : undefined;
@@ -123,7 +137,15 @@ function calendarEventToStressfulItem(
     tags.add(normalized);
   }
 
-  const stressTags = Array.from(tags).slice(0, options.maxTags ?? 6);
+  for (const keyword of extractKeywords(item.title ?? item.summary ?? '')) {
+    tags.add(keyword);
+  }
+  for (const keyword of extractKeywords(item.description ?? '')) {
+    tags.add(keyword);
+  }
+
+  const maxTags = options.maxTags ?? 10;
+  const stressTags = Array.from(tags).slice(0, maxTags);
 
   return {
     type: item.kind,

@@ -30,10 +30,20 @@ export async function handler(event: APIGatewayProxyEventV2) {
   try {
     const sub = getUserSub(event);
     if (!sub) {
+      console.warn('calendar-link: unauthorized request', {
+        requestId: event.requestContext.requestId,
+        method: event.requestContext.http?.method,
+      });
       return unauthorized();
     }
 
     const method = event.requestContext.http?.method ?? '';
+    console.log('calendar-link: incoming request', {
+      method,
+      sub,
+      path: event.requestContext.http?.path,
+      requestId: event.requestContext.requestId,
+    });
     switch (method.toUpperCase()) {
       case 'GET':
         return await handleGet(sub);
@@ -57,27 +67,43 @@ async function handleGet(sub: string) {
   const record = await loadCalendarLink(sub);
 
   if (!record) {
+    console.log('calendar-link: no record found', { sub });
     return json(200, {
       status: 'PENDING',
     });
   }
 
+  console.log('calendar-link: returning record', {
+    sub,
+    status: record.status,
+    lastValidatedAt: record.lastValidatedAt,
+  });
   return json(200, toResponse(record));
 }
 
 async function handlePut(sub: string, event: APIGatewayProxyEventV2) {
   const body = parseBody(event);
   if (!body.calendarUrl) {
+    console.warn('calendar-link: missing calendarUrl in request body', { sub });
     return badRequest('calendarUrl is required');
   }
 
   const sanitizedUrl = sanitizeCalendarUrl(body.calendarUrl);
   if (!sanitizedUrl.valid) {
+    console.warn('calendar-link: invalid calendar url', {
+      sub,
+      error: sanitizedUrl.error,
+    });
     return badRequest(sanitizedUrl.error ?? 'Invalid calendar URL');
   }
 
   const validation = await validateCalendarFeed(sanitizedUrl.url);
   if (!validation.valid) {
+    console.warn('calendar-link: calendar validation failed', {
+      sub,
+      host: sanitizedUrl.host,
+      error: validation.error,
+    });
     return badRequest(validation.error ?? 'Calendar link could not be validated');
   }
 
@@ -106,25 +132,40 @@ async function handlePut(sub: string, event: APIGatewayProxyEventV2) {
       Item: {
         pk: toPartitionKey(sub),
         sk: CALENDAR_ITEM_SK,
+        PK: toPartitionKey(sub),
+        SK: CALENDAR_ITEM_SK,
         ...record,
       },
     }),
   );
 
+  console.log('calendar-link: saved calendar link', {
+    sub,
+    host,
+    status: record.status,
+    lastValidatedAt: record.lastValidatedAt,
+  });
   return json(200, toResponse(record));
 }
 
 async function handleDelete(sub: string) {
-  await dynamo.send(
-    new DeleteCommand({
-      TableName: TABLE_NAME,
-      Key: {
-        pk: toPartitionKey(sub),
-        sk: CALENDAR_ITEM_SK,
-      },
-    }),
+  const keys: Array<Record<string, string>> = [
+    { pk: toPartitionKey(sub), sk: CALENDAR_ITEM_SK },
+    { PK: toPartitionKey(sub), SK: CALENDAR_ITEM_SK },
+  ];
+
+  await Promise.all(
+    keys.map((key) =>
+      dynamo.send(
+        new DeleteCommand({
+          TableName: TABLE_NAME,
+          Key: key,
+        }),
+      ),
+    ),
   );
 
+  console.log('calendar-link: deleted calendar link', { sub });
   return noContent();
 }
 
@@ -254,12 +295,18 @@ async function validateCalendarFeed(url: string): Promise<{ valid: true } | { va
 
     const text = await response.text();
     if (!text.includes('BEGIN:VCALENDAR')) {
+      console.warn('calendar-link: validation response missing VCALENDAR', {
+        url,
+        status: response.status,
+      });
       return { valid: false, error: 'Canvas response is not a valid iCal feed' };
     }
 
+    console.log('calendar-link: validation succeeded', { url });
     return { valid: true };
   } catch (error) {
     if ((error as Error).name === 'AbortError') {
+      console.warn('calendar-link: validation timed out', { url });
       return { valid: false, error: 'Canvas calendar request timed out' };
     }
     return { valid: false, error: 'Canvas calendar link could not be reached' };

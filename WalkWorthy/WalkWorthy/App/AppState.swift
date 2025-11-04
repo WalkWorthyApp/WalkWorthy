@@ -22,6 +22,8 @@ final class AppState: ObservableObject {
     @Published var useProfilePersonalization: Bool
     @Published var useFakeCanvas: Bool
     @Published var canvasSummary: TodayCanvas?
+    @Published var calendarAgenda: [CalendarAgendaItem]
+    @Published var calendarAgendaFetchedAt: Date?
     @Published private(set) var calendarLinkStatus: CalendarLinkStatus?
     @Published var isAuthenticated: Bool {
         didSet {
@@ -104,6 +106,8 @@ final class AppState: ObservableObject {
         verseDeck = MockData.verses
         history = (try? defaults.decode([Verse].self, forKey: StorageKey.history)) ?? []
         canvasSummary = try? defaults.decode(TodayCanvas.self, forKey: StorageKey.canvasSummary)
+        calendarAgenda = []
+        calendarAgendaFetchedAt = nil
         isScanning = false
         latestScanSummary = nil
         latestScanError = nil
@@ -124,6 +128,33 @@ final class AppState: ObservableObject {
 
     var currentVerse: Verse {
         verseDeck[safe: currentVerseIndex] ?? MockData.verses.first ?? Verse.placeholder
+    }
+
+    var weeklyCalendarAgenda: [CalendarAgendaItem] {
+        guard let bounds = currentWeekBounds else { return calendarAgenda }
+        return calendarAgenda
+            .filter { item in
+                guard let date = agendaDate(for: item) else { return false }
+                return date >= bounds.start && date <= bounds.end
+            }
+            .sorted { lhs, rhs in
+                let lhsDate = agendaDate(for: lhs) ?? .distantFuture
+                let rhsDate = agendaDate(for: rhs) ?? .distantFuture
+                if lhsDate == rhsDate {
+                    return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                }
+                return lhsDate < rhsDate
+            }
+    }
+
+    var currentWeekLabel: String {
+        guard let bounds = currentWeekBounds else { return "This Week" }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.setLocalizedDateFormatFromTemplate("MMM d")
+        let startText = formatter.string(from: bounds.start)
+        let endText = formatter.string(from: bounds.end)
+        return "\(startText) – \(endText)"
     }
 
     func markOnboardingComplete() {
@@ -165,6 +196,8 @@ final class AppState: ObservableObject {
         defaults.set(isOn, forKey: StorageKey.useFakeCanvas)
         if isOn {
             calendarLinkStatus = nil
+            calendarAgenda = []
+            calendarAgendaFetchedAt = nil
             isCanvasLinked = defaults.object(forKey: StorageKey.canvasLinked) as? Bool ?? false
         } else {
             defaults.removeObject(forKey: StorageKey.canvasLinked)
@@ -191,14 +224,17 @@ final class AppState: ObservableObject {
         guard !useFakeCanvas else { return }
         guard config.apiMode == "live", isAuthenticated else { return }
 
+        print("[AppState] Refreshing calendar link status", force ? "(force)" : "")
         if !force {
             if let status = calendarLinkStatus, status.status == .active {
+                print("[AppState] Skipping refresh; status already ACTIVE")
                 return
             }
         }
 
         do {
             let status = try await apiClient.fetchCalendarLinkStatus()
+            print("[AppState] Calendar link status fetched", status.status.rawValue)
             updateStoredCalendarStatus(status)
         } catch {
             print("[AppState] Failed to refresh calendar link status: \(error)")
@@ -266,15 +302,20 @@ final class AppState: ObservableObject {
         }
 
         do {
+            print("[AppState] Submitting calendar link", trimmed)
             let status = try await apiClient.updateCalendarLink(CalendarLinkUpdateRequest(calendarUrl: trimmed))
+            print("[AppState] Calendar link saved", status.status.rawValue)
             updateStoredCalendarStatus(status)
+            await fetchCalendarAgenda()
             return status
         } catch {
+            print("[AppState] Calendar link save failed: \(error)")
             throw error
         }
     }
 
     func removeCalendarLink() async {
+        print("[AppState] Removing calendar link")
         if useFakeCanvas {
             isCanvasLinked = false
             defaults.set(false, forKey: StorageKey.canvasLinked)
@@ -293,6 +334,8 @@ final class AppState: ObservableObject {
         }
 
         updateStoredCalendarStatus(nil)
+        calendarAgenda = []
+        calendarAgendaFetchedAt = nil
     }
 
     func goToNextVerse() {
@@ -419,7 +462,7 @@ final class AppState: ObservableObject {
                             latestScanSummary = metadata
                             encouragementStatusMessage = statusMessage(forMetadata: metadata)
                         } else if response.shouldNotify == false {
-                            encouragementStatusMessage = "No new encouragement yet. We'll try again soon."
+                            encouragementStatusMessage = "Scan for new encouragement."
                         }
                         hasFreshEncouragement = response.shouldNotify
                         latestScanError = nil
@@ -446,6 +489,25 @@ final class AppState: ObservableObject {
             } catch {
                 print("[AppState] Failed to fetch canvas summary: \(error)")
             }
+        }
+    }
+
+    func refreshCalendarAgenda() {
+        guard config.apiMode == "live", isAuthenticated else { return }
+        Task { [weak self] in
+            await self?.fetchCalendarAgenda()
+        }
+    }
+
+    private func fetchCalendarAgenda() async {
+        do {
+            let response = try await apiClient.fetchCalendarAgenda()
+            await MainActor.run { [self] in
+                calendarAgenda = response.items
+                calendarAgendaFetchedAt = response.fetchedAt
+            }
+        } catch {
+            print("[AppState] Failed to fetch calendar agenda: \(error)")
         }
     }
 
@@ -509,10 +571,33 @@ final class AppState: ObservableObject {
         if let status {
             isCanvasLinked = status.status == .active
             try? defaults.encode(status, forKey: StorageKey.calendarLinkStatus)
+            if status.status == .active {
+                refreshCalendarAgenda()
+            }
         } else {
             isCanvasLinked = false
             defaults.removeObject(forKey: StorageKey.calendarLinkStatus)
+            calendarAgenda = []
+            calendarAgendaFetchedAt = nil
         }
+    }
+
+    private var currentWeekBounds: (start: Date, end: Date)? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.firstWeekday = 1 // Sunday
+        let today = Date()
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: today) else {
+            return nil
+        }
+        let startOfWeek = calendar.startOfDay(for: interval.start)
+        guard let endOfWeek = calendar.date(byAdding: DateComponents(day: 7, second: -1), to: startOfWeek) else {
+            return nil
+        }
+        return (startOfWeek, endOfWeek)
+    }
+
+    private func agendaDate(for item: CalendarAgendaItem) -> Date? {
+        item.dueAt ?? item.startAt ?? item.endAt
     }
 
     private func syncProfile(age: Int?, major: String, gender: Gender, hobbies: Set<String>, optIn: Bool) {

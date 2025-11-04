@@ -148,6 +148,10 @@ export class InfrastructureStack extends cdk.Stack {
         timeout: Duration.seconds(30),
       },
     );
+    const calendarAgendaFn = createHandler(
+      'CalendarAgendaFunction',
+      'calendar-agenda.ts',
+    );
     const scanUserFn = createHandler('ScanUserFunction', 'scan-user.ts', {
       timeout: Duration.seconds(60),
     });
@@ -169,6 +173,7 @@ export class InfrastructureStack extends cdk.Stack {
     });
 
     table.grantReadWriteData(calendarLinkFn);
+    table.grantReadData(calendarAgendaFn);
     table.grantReadWriteData(scanUserFn);
     table.grantReadWriteData(notifyUserFn);
     table.grantReadWriteData(registerDeviceFn);
@@ -212,6 +217,16 @@ export class InfrastructureStack extends cdk.Stack {
       integration: new apigwIntegrations.HttpLambdaIntegration(
         'CalendarLinkIntegration',
         calendarLinkFn,
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: '/user/calendar-agenda',
+      methods: [apigwv2.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new apigwIntegrations.HttpLambdaIntegration(
+        'CalendarAgendaIntegration',
+        calendarAgendaFn,
       ),
     });
 

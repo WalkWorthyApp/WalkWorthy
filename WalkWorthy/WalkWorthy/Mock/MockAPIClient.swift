@@ -40,6 +40,37 @@ struct MockAPIClient: EncouragementAPI {
         }
     }
 
+    func fetchCalendarAgenda() async throws -> CalendarAgendaResponse {
+        let now = Date()
+        let items: [CalendarAgendaItem] = [
+            CalendarAgendaItem(
+                id: UUID().uuidString,
+                title: "Math homework 5",
+                kind: .assignment,
+                startAt: now.addingTimeInterval(3600),
+                endAt: now.addingTimeInterval(7200),
+                dueAt: now.addingTimeInterval(7200),
+                course: "Calculus",
+                location: nil,
+                url: URL(string: "https://example.com/math"),
+                timeZoneId: TimeZone.current.identifier
+            ),
+            CalendarAgendaItem(
+                id: UUID().uuidString,
+                title: "Physics midterm",
+                kind: .exam,
+                startAt: now.addingTimeInterval(10800),
+                endAt: now.addingTimeInterval(14400),
+                dueAt: now.addingTimeInterval(14400),
+                course: "Physics",
+                location: "Hall A",
+                url: nil,
+                timeZoneId: TimeZone.current.identifier
+            ),
+        ]
+        return CalendarAgendaResponse(fetchedAt: now, items: items)
+    }
+
     func fetchCalendarLinkStatus() async throws -> CalendarLinkStatus {
         let defaults = UserDefaults.standard
         if let data = defaults.data(forKey: calendarLinkKey) {

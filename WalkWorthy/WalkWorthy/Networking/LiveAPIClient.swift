@@ -50,6 +50,11 @@ final class LiveAPIClient: EncouragementAPI {
         try await sendExpectingNoContent(request)
     }
 
+    func fetchCalendarAgenda() async throws -> CalendarAgendaResponse {
+        let request = try await makeRequest(path: "user/calendar-agenda", method: "GET")
+        return try await send(request, decode: CalendarAgendaResponse.self)
+    }
+
     func fetchCalendarLinkStatus() async throws -> CalendarLinkStatus {
         let request = try await makeRequest(path: "user/calendar-link", method: "GET")
         return try await send(request, decode: CalendarLinkStatus.self)

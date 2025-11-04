@@ -10,7 +10,7 @@ const USER_PK_PREFIX = 'USER#';
 export const handler: ScheduledHandler = async () => {
   const subs = await listLinkedUserSubs();
 
-  console.log('weekday-scan starting', { userCount: subs.length });
+  console.log('weekday-scan: starting batch', { userCount: subs.length });
 
   const results: Array<{ sub: string; outcome: 'SUCCESS' | 'FALLBACK' | 'ERROR'; message?: string }> = [];
 
@@ -18,21 +18,28 @@ export const handler: ScheduledHandler = async () => {
     try {
       const result = await runScanForUser(sub);
       results.push({ sub, outcome: result.status, message: result.encouragementId });
-      console.log('weekday-scan success', { sub, status: result.status, encouragementId: result.encouragementId });
+      console.log('weekday-scan: scan success', {
+        sub,
+        status: result.status,
+        encouragementId: result.encouragementId,
+      });
     } catch (error) {
       if (error instanceof CalendarLinkMissingError) {
         results.push({ sub, outcome: 'ERROR', message: error.message });
-        console.warn('weekday-scan skipped user without calendar link', { sub });
+        console.warn('weekday-scan: skipped user without calendar link', {
+          sub,
+          status: error.status ?? 'MISSING',
+        });
         continue;
       }
 
       const message = error instanceof Error ? error.message : 'Unknown error';
       results.push({ sub, outcome: 'ERROR', message });
-      console.error('weekday-scan failed', { sub, message, error });
+      console.error('weekday-scan: scan failed', { sub, message, error });
     }
   }
 
-  console.log('weekday-scan finished', {
+  console.log('weekday-scan: batch finished', {
     totals: {
       users: subs.length,
       successes: results.filter((r) => r.outcome !== 'ERROR').length,

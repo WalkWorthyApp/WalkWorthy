@@ -7,12 +7,14 @@ export interface CalendarEventItem {
   course?: string;
   startAt?: string;
   endAt?: string;
+  dueAt?: string;
   isAllDay: boolean;
   location?: string;
   description?: string;
   url?: string;
   categories?: string[];
   kind: CalendarEventKind;
+  timeZoneId?: string;
 }
 
 interface FetchOptions {
@@ -102,8 +104,11 @@ export async function fetchCalendarEvents(options: FetchOptions): Promise<Calend
     }
 
     return events.sort((a, b) => {
-      const aTime = a.startAt ? Date.parse(a.startAt) : Number.MAX_SAFE_INTEGER;
-      const bTime = b.startAt ? Date.parse(b.startAt) : Number.MAX_SAFE_INTEGER;
+      const aTime = Date.parse(a.dueAt ?? a.startAt ?? a.endAt ?? '');
+      const bTime = Date.parse(b.dueAt ?? b.startAt ?? b.endAt ?? '');
+      if (Number.isNaN(aTime) && Number.isNaN(bTime)) return 0;
+      if (Number.isNaN(aTime)) return 1;
+      if (Number.isNaN(bTime)) return -1;
       return aTime - bTime;
     });
   } finally {
@@ -144,6 +149,10 @@ function parseEventLines(
 
   let startIso: string | undefined;
   let endIso: string | undefined;
+  let dueIso: string | undefined;
+  let startTimeZone: string | undefined;
+  let endTimeZone: string | undefined;
+  let dueTimeZone: string | undefined;
   let isAllDay = false;
 
   for (const line of lines) {
@@ -174,6 +183,9 @@ function parseEventLines(
         if (parsedDate?.isDateOnly) {
           isAllDay = true;
         }
+        if (parsedDate?.timeZoneId) {
+          startTimeZone = parsedDate.timeZoneId;
+        }
         break;
       }
       case 'DTEND': {
@@ -181,6 +193,20 @@ function parseEventLines(
         endIso = parsedDate?.iso;
         if (parsedDate?.isDateOnly) {
           isAllDay = true;
+        }
+        if (parsedDate?.timeZoneId) {
+          endTimeZone = parsedDate.timeZoneId;
+        }
+        break;
+      }
+      case 'DUE': {
+        const parsedDate = parseDateTime(value, params);
+        dueIso = parsedDate?.iso;
+        if (parsedDate?.isDateOnly) {
+          isAllDay = true;
+        }
+        if (parsedDate?.timeZoneId) {
+          dueTimeZone = parsedDate.timeZoneId;
         }
         break;
       }
@@ -194,12 +220,20 @@ function parseEventLines(
     }
   }
 
-  if (!startIso && !endIso) {
+  if (!startIso && !endIso && !dueIso) {
     return null;
   }
 
-  const startDate = startIso ? new Date(startIso) : undefined;
-  const endDate = endIso ? new Date(endIso) : undefined;
+  const startDate = startIso
+    ? new Date(startIso)
+    : dueIso
+      ? new Date(dueIso)
+      : undefined;
+  const endDate = endIso
+    ? new Date(endIso)
+    : dueIso
+      ? new Date(dueIso)
+      : undefined;
 
   if (!isWithinWindow(startDate, endDate, windowStart, windowEnd)) {
     return null;
@@ -217,12 +251,14 @@ function parseEventLines(
     course,
     startAt: startIso,
     endAt: endIso,
+    dueAt: dueIso,
     isAllDay,
     location,
     description,
     url,
     categories: normalizedCategories.length > 0 ? normalizedCategories : undefined,
     kind: eventKind,
+    timeZoneId: dueTimeZone ?? startTimeZone ?? endTimeZone,
   };
 }
 
@@ -268,9 +304,10 @@ function unescapeICSValue(value: string): string {
 function parseDateTime(
   value: string,
   params: Record<string, string>,
-): { iso: string; isDateOnly: boolean } | undefined {
+): { iso: string; isDateOnly: boolean; timeZoneId?: string } | undefined {
   const trimmed = value.trim();
   const upper = trimmed.toUpperCase();
+  const timeZone = resolveTimeZone(params.TZID);
 
   const isDateOnly = params.VALUE?.toUpperCase() === 'DATE' || /^[0-9]{8}$/.test(upper);
   if (isDateOnly) {
@@ -280,7 +317,7 @@ function parseDateTime(
     const month = Number(match[2]) - 1;
     const day = Number(match[3]);
     const date = new Date(Date.UTC(year, month, day));
-    return { iso: date.toISOString(), isDateOnly: true };
+    return { iso: date.toISOString(), isDateOnly: true, timeZoneId: timeZone ?? 'floating' };
   }
 
   const zuluMatch = upper.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
@@ -288,6 +325,7 @@ function parseDateTime(
     return {
       iso: `${zuluMatch[1]}-${zuluMatch[2]}-${zuluMatch[3]}T${zuluMatch[4]}:${zuluMatch[5]}:${zuluMatch[6]}Z`,
       isDateOnly: false,
+      timeZoneId: 'UTC',
     };
   }
 
@@ -299,8 +337,17 @@ function parseDateTime(
     const hour = Number(localMatch[4]);
     const minute = Number(localMatch[5]);
     const second = Number(localMatch[6]);
-    const date = new Date(year, month, day, hour, minute, second);
-    return { iso: date.toISOString(), isDateOnly: false };
+    if (timeZone) {
+      const utcDate = convertToUTCFromTimeZone(
+        { year, month, day, hour, minute, second },
+        timeZone,
+      );
+      if (utcDate) {
+        return { iso: utcDate.toISOString(), isDateOnly: false, timeZoneId: timeZone };
+      }
+    }
+    const date = new Date(Date.UTC(year, month, day, hour, minute, second));
+    return { iso: date.toISOString(), isDateOnly: false, timeZoneId: timeZone ?? 'floating' };
   }
 
   const parsed = new Date(trimmed);
@@ -309,6 +356,82 @@ function parseDateTime(
   }
 
   return undefined;
+}
+
+function resolveTimeZone(raw?: string): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.replace(/^"|"$/g, '').trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith('/')) {
+    const parts = trimmed.split('/').filter(Boolean);
+    if (parts.length === 0) {
+      return undefined;
+    }
+    if (parts.length > 1 && parts[0].includes('.')) {
+      return parts.slice(1).join('/');
+    }
+    return parts.join('/');
+  }
+  return trimmed;
+}
+
+function convertToUTCFromTimeZone(
+  components: {
+    year: number;
+    month: number;
+    day: number;
+    hour: number;
+    minute: number;
+    second: number;
+  },
+  timeZone: string,
+): Date | undefined {
+  const { year, month, day, hour, minute, second } = components;
+  const tentativeUtc = new Date(Date.UTC(year, month, day, hour, minute, second));
+  const offset = getTimeZoneOffsetMilliseconds(timeZone, tentativeUtc);
+  if (offset === undefined) {
+    return undefined;
+  }
+  return new Date(tentativeUtc.getTime() - offset);
+}
+
+function getTimeZoneOffsetMilliseconds(timeZone: string, date: Date): number | undefined {
+  try {
+    const dtf = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    });
+
+    const parts = dtf.formatToParts(date);
+    const map: Record<string, number> = {};
+    for (const part of parts) {
+      if (part.type === 'literal') continue;
+      const num = Number(part.value);
+      if (!Number.isNaN(num)) {
+        map[part.type] = num;
+      }
+    }
+
+    const asIf = Date.UTC(
+      map.year ?? date.getUTCFullYear(),
+      (map.month ?? date.getUTCMonth() + 1) - 1,
+      map.day ?? date.getUTCDate(),
+      map.hour ?? date.getUTCHours(),
+      map.minute ?? date.getUTCMinutes(),
+      map.second ?? date.getUTCSeconds(),
+    );
+
+    return asIf - date.getTime();
+  } catch (error) {
+    console.warn('calendar-ical: failed to resolve timezone offset', { timeZone, error });
+    return undefined;
+  }
 }
 
 function isWithinWindow(start: Date | undefined, end: Date | undefined, windowStart: Date, windowEnd: Date): boolean {
