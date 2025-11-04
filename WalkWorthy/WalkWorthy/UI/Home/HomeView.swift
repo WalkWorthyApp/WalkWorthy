@@ -18,12 +18,7 @@ struct HomeView: View {
                 VerseCard(verse: appState.currentVerse, selectedTranslation: appState.selectedTranslation)
                     .overlay(alignment: .bottomLeading) {
                         if !appState.hasFreshEncouragement {
-                            Text(appState.encouragementStatusMessage ?? "You’re all caught up for now.")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .padding(12)
-                                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                                .padding()
+                            encouragementOverlay
                         }
                     }
 
@@ -45,6 +40,22 @@ struct HomeView: View {
                 appState.dismissPopups()
             }
         }
+    }
+
+    private var encouragementOverlay: some View {
+        let message = appState.encouragementStatusMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "You’re all caught up for now."
+        return HStack {
+            Spacer(minLength: 0)
+            Text(message)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .multilineTextAlignment(.center)
+            Spacer(minLength: 0)
+        }
+        .padding(12)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding()
     }
 
     private var translationMenu: some View {
@@ -169,13 +180,14 @@ struct HomeView: View {
                 }
 
                 if let message = appState.encouragementStatusMessage {
-                    Text(message)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    statusMessageLabel(for: message)
                 } else if appState.latestScanSummary == nil {
                     Text("Tap Scan Now to refresh today’s encouragement.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(1)
                 }
             }
         }
@@ -196,6 +208,32 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func statusMessageLabel(for message: String) -> some View {
+        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        if normalized == "Scan for new encouragement." {
+            return AnyView(
+                HStack {
+                    Spacer(minLength: 0)
+                    Text(normalized)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .multilineTextAlignment(.center)
+                    Spacer(minLength: 0)
+                }
+            )
+        } else {
+            return AnyView(
+                Text(message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+            )
+        }
     }
 
     private var backgroundGradient: some View {
