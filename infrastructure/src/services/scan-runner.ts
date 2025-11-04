@@ -7,15 +7,15 @@ import {
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 
-import { TABLE_NAME, CANVAS_CLIENT_SECRET_NAME } from '../shared/env';
+import { TABLE_NAME } from '../shared/env';
 import { dynamo } from '../shared/dynamo';
 import { nowIso, futureEpochSeconds } from '../shared/time';
 import { getUserProfileOnce } from '../shared/profile';
 import { bibleMcpFromEnv } from '../lib/bibleMcp';
 import { runVerseSelectionAgent } from '../lib/walkworthy-agent';
-import { fetchPlannerItems } from '../lib/canvas-client';
-import type { CanvasPlannerItem } from '../lib/canvas-client';
-import { mapPlannerToStressfulItems, buildVerseCandidates } from '../lib/stress-heuristics';
+import { fetchCalendarEvents } from '../lib/calendar-ical';
+import type { CalendarEventItem } from '../lib/calendar-ical';
+import { mapCalendarEventsToStressfulItems, buildVerseCandidates } from '../lib/stress-heuristics';
 import type {
   StressfulItem,
   VerseCandidate,
@@ -31,22 +31,80 @@ export interface RunScanResult {
   log: ScanLog;
 }
 
-export class CanvasLinkMissingError extends Error {
-  constructor(sub: string) {
-    super(`Canvas account not linked for ${sub}`);
-    this.name = 'CanvasLinkMissingError';
+export type CalendarLinkStatus = 'ACTIVE' | 'PENDING' | 'ERROR' | 'MIGRATION_REQUIRED';
+
+export class CalendarLinkMissingError extends Error {
+  readonly status?: CalendarLinkStatus;
+
+  constructor(sub: string, status?: CalendarLinkStatus) {
+    super(
+      status === 'MIGRATION_REQUIRED'
+        ? 'Canvas OAuth tokens are no longer supported. Paste your read-only calendar link to continue.'
+        : 'Canvas calendar link not found. Add your personal Canvas calendar feed in WalkWorthy.',
+    );
+    this.name = 'CalendarLinkMissingError';
+    this.status = status;
+  }
+}
+
+async function recordCalendarSyncStatus(
+  sub: string,
+  status: 'SUCCESS' | 'ERROR',
+  errorMessage?: string,
+) {
+  const now = nowIso();
+
+  const baseParams = {
+    TableName: TABLE_NAME,
+    Key: {
+      pk: `USER#${sub}`,
+      sk: 'CANVAS_LINK',
+    },
+  } as const;
+
+  try {
+    if (status === 'SUCCESS') {
+      await dynamo.send(
+        new UpdateCommand({
+          ...baseParams,
+          UpdateExpression: 'SET lastSyncedAt = :at, lastSyncStatus = :status REMOVE lastSyncError',
+          ExpressionAttributeValues: {
+            ':at': now,
+            ':status': status,
+          },
+        }),
+      );
+    } else {
+      await dynamo.send(
+        new UpdateCommand({
+          ...baseParams,
+          UpdateExpression: 'SET lastSyncedAt = :at, lastSyncStatus = :status, lastSyncError = :error',
+          ExpressionAttributeValues: {
+            ':at': now,
+            ':status': status,
+            ':error': errorMessage ?? 'Unknown error',
+          },
+        }),
+      );
+    }
+  } catch (updateError) {
+    console.error('Failed to record calendar sync status', updateError);
   }
 }
 
 export async function runScanForUser(sub: string): Promise<RunScanResult> {
-  const [canvasLinkRaw, profile] = await Promise.all([
-    loadCanvasLink(sub),
+  const [calendarLinkRaw, profile] = await Promise.all([
+    loadCalendarLink(sub),
     getUserProfileOnce(sub),
   ]);
 
-  const canvasLink = toCanvasLinkRecord(canvasLinkRaw);
-  if (!canvasLink) {
-    throw new CanvasLinkMissingError(sub);
+  const calendarLink = toCalendarLinkRecord(calendarLinkRaw);
+  if (!calendarLink) {
+    throw new CalendarLinkMissingError(sub);
+  }
+
+  if (calendarLink.status !== 'ACTIVE') {
+    throw new CalendarLinkMissingError(sub, calendarLink.status);
   }
 
   await clearPendingEncouragements(sub);
@@ -57,7 +115,7 @@ export async function runScanForUser(sub: string): Promise<RunScanResult> {
 
   const result = await executeScanPipeline({
     sub,
-    canvasLink,
+    calendarLink,
     profile: (profile ?? null) as UserProfilePayload | null,
     translation: translationPref,
   });
@@ -72,12 +130,14 @@ export async function runScanForUser(sub: string): Promise<RunScanResult> {
   };
 }
 
-interface CanvasLinkRecord {
-  canvasBaseUrl: string;
-  refreshSecretArn: string;
+interface CalendarLinkRecord {
+  calendarUrl: string;
+  status: CalendarLinkStatus;
+  lastSyncedAt?: string;
+  lastSyncStatus?: 'SUCCESS' | 'ERROR';
 }
 
-async function loadCanvasLink(sub: string) {
+async function loadCalendarLink(sub: string) {
   const result = await dynamo.send(
     new GetCommand({
       TableName: TABLE_NAME,
@@ -91,17 +151,35 @@ async function loadCanvasLink(sub: string) {
   return result.Item ?? null;
 }
 
-function toCanvasLinkRecord(raw: any): CanvasLinkRecord | null {
+function toCalendarLinkRecord(raw: any): CalendarLinkRecord | null {
   if (!raw) return null;
-  const baseUrl = typeof raw.canvasBaseUrl === 'string' ? raw.canvasBaseUrl : undefined;
-  const refreshArn = typeof raw.refreshSecretArn === 'string' ? raw.refreshSecretArn : undefined;
-  if (!baseUrl || !refreshArn) {
+
+  const calendarUrl = typeof raw.calendarUrl === 'string' ? raw.calendarUrl.trim() : undefined;
+  if (!calendarUrl) {
     return null;
   }
+
+  const status = normalizeCalendarStatus(raw.status);
+
   return {
-    canvasBaseUrl: baseUrl,
-    refreshSecretArn: refreshArn,
+    calendarUrl,
+    status,
+    lastSyncedAt: typeof raw.lastSyncedAt === 'string' ? raw.lastSyncedAt : undefined,
+    lastSyncStatus: raw.lastSyncStatus === 'SUCCESS' || raw.lastSyncStatus === 'ERROR' ? raw.lastSyncStatus : undefined,
   };
+}
+
+function normalizeCalendarStatus(value: any): CalendarLinkStatus {
+  const normalized = typeof value === 'string' ? value.toUpperCase() : '';
+  switch (normalized) {
+    case 'ACTIVE':
+    case 'PENDING':
+    case 'ERROR':
+    case 'MIGRATION_REQUIRED':
+      return normalized;
+    default:
+      return 'PENDING';
+  }
 }
 
 async function clearPendingEncouragements(sub: string) {
@@ -202,7 +280,7 @@ function finalizeEncouragement(ref: string, text: string, encouragement: string,
 
 interface ScanPipelineParams {
   sub: string;
-  canvasLink: CanvasLinkRecord;
+  calendarLink: CalendarLinkRecord;
   profile: UserProfilePayload | null;
   translation: Translation;
 }
@@ -299,24 +377,19 @@ const EXCLUDED_REFS = parseExcludedRefs();
 async function executeScanPipeline(
   params: ScanPipelineParams,
 ): Promise<{ encouragement: ReturnType<typeof finalizeEncouragement>; log: ScanLog }> {
-  const { canvasLink, profile, translation } = params;
+  const { sub, calendarLink, profile, translation } = params;
   const mcp = bibleMcpFromEnv();
-  let plannerItems: CanvasPlannerItem[] = [];
+  let calendarEvents: CalendarEventItem[] = [];
   let stressfulItems: StressfulItem[] = [];
   let verseCandidates: VerseCandidate[] = [];
 
   try {
-    if (!canvasLink.refreshSecretArn) {
-      throw new Error('Canvas refresh secret missing');
-    }
-
-    plannerItems = await fetchPlannerItems({
-      baseUrl: canvasLink.canvasBaseUrl,
-      refreshSecretArn: canvasLink.refreshSecretArn,
-      clientSecretName: CANVAS_CLIENT_SECRET_NAME,
+    calendarEvents = await fetchCalendarEvents({
+      calendarUrl: calendarLink.calendarUrl,
+      windowDays: 14,
     });
 
-    stressfulItems = mapPlannerToStressfulItems(plannerItems, {
+    stressfulItems = mapCalendarEventsToStressfulItems(calendarEvents, {
       translation,
       maxItems: 25,
     });
@@ -332,10 +405,12 @@ async function executeScanPipeline(
       ),
     );
 
+    await recordCalendarSyncStatus(sub, 'SUCCESS');
+
     if (verseCandidates.length === 0) {
       return buildFallbackResult({
         translation,
-        plannerCount: plannerItems.length,
+        plannerCount: calendarEvents.length,
         stressfulCount: stressfulItems.length,
         candidateCount: 0,
         tags: uniqueTags,
@@ -362,7 +437,7 @@ async function executeScanPipeline(
       log: {
         encouragementId: encouragement.id,
         status: 'SUCCESS',
-        plannerCount: plannerItems.length,
+        plannerCount: calendarEvents.length,
         stressfulCount: stressfulItems.length,
         candidateCount: verseCandidates.length,
         translation,
@@ -371,6 +446,7 @@ async function executeScanPipeline(
     };
   } catch (error) {
     console.error('Scan pipeline error', error);
+
     const uniqueTags = Array.from(
       new Set(
         stressfulItems
@@ -379,9 +455,15 @@ async function executeScanPipeline(
       ),
     );
 
+    await recordCalendarSyncStatus(
+      sub,
+      'ERROR',
+      error instanceof Error ? error.message : 'Unknown error',
+    );
+
     return buildFallbackResult({
       translation,
-      plannerCount: plannerItems.length,
+      plannerCount: calendarEvents.length,
       stressfulCount: stressfulItems.length,
       candidateCount: verseCandidates.length,
       tags: uniqueTags,

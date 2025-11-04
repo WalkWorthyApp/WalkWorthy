@@ -2,7 +2,7 @@ import type { APIGatewayProxyEventV2 } from 'aws-lambda';
 
 import { getUserSub } from '../shared/auth';
 import { json, internalError, unauthorized } from '../shared/http';
-import { runScanForUser, CanvasLinkMissingError } from '../services/scan-runner';
+import { runScanForUser, CalendarLinkMissingError } from '../services/scan-runner';
 
 export async function handler(event: APIGatewayProxyEventV2) {
   const sub = getUserSub(event);
@@ -19,8 +19,11 @@ export async function handler(event: APIGatewayProxyEventV2) {
       status: result.status,
     });
   } catch (error) {
-    if (error instanceof CanvasLinkMissingError) {
-      return json(409, { message: 'Canvas account not linked' });
+    if (error instanceof CalendarLinkMissingError) {
+      return json(409, {
+        message: error.message,
+        status: error.status ?? 'MISSING',
+      });
     }
 
     console.error('scanUser failed', error);

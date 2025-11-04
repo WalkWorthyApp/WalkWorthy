@@ -52,6 +52,7 @@ struct WalkWorthyApp: App {
                     if config.apiMode == "live" {
                         await appState.evaluateAuthentication()
                         if appState.isAuthenticated {
+                            await appState.refreshCalendarLinkStatus(force: false)
                             BackgroundTasksManager.shared.scheduleNextRefresh()
                         }
                     }

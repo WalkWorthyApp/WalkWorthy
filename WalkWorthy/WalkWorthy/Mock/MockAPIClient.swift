@@ -10,6 +10,7 @@ import Foundation
 struct MockAPIClient: EncouragementAPI {
     private let decoder: JSONDecoder
     private let bundle: Bundle
+    private let calendarLinkKey = "walkworthy.mock.calendar.link"
 
     init(bundle: Bundle = .main) {
         self.bundle = bundle
@@ -37,6 +38,46 @@ struct MockAPIClient: EncouragementAPI {
         if let data = try? encoder.encode(payload) {
             defaults.set(data, forKey: "walkworthy.mock.profile.remote")
         }
+    }
+
+    func fetchCalendarLinkStatus() async throws -> CalendarLinkStatus {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: calendarLinkKey) {
+            let decoder = JSONDecoder()
+            decoder.dateDecodingStrategy = .iso8601
+            if let status = try? decoder.decode(CalendarLinkStatus.self, from: data) {
+                return status
+            }
+        }
+
+        return CalendarLinkStatus(
+            calendarUrl: nil,
+            status: .pending,
+            lastValidatedAt: nil,
+            lastError: nil,
+            updatedAt: nil
+        )
+    }
+
+    func updateCalendarLink(_ payload: CalendarLinkUpdateRequest) async throws -> CalendarLinkStatus {
+        let status = CalendarLinkStatus(
+            calendarUrl: payload.calendarUrl.trimmingCharacters(in: .whitespacesAndNewlines),
+            status: .active,
+            lastValidatedAt: Date(),
+            lastError: nil,
+            updatedAt: Date()
+        )
+        let defaults = UserDefaults.standard
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        if let data = try? encoder.encode(status) {
+            defaults.set(data, forKey: calendarLinkKey)
+        }
+        return status
+    }
+
+    func deleteCalendarLink() async throws {
+        UserDefaults.standard.removeObject(forKey: calendarLinkKey)
     }
 
     private func load<T: Decodable>(named name: String, type: T.Type) async throws -> T {
