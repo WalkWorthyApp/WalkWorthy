@@ -5,6 +5,7 @@ import {
   PutCommand,
   QueryCommand,
   UpdateCommand,
+  DeleteCommand,
 } from '@aws-sdk/lib-dynamodb';
 
 import { TABLE_NAME } from '../shared/env';
@@ -138,6 +139,7 @@ export async function runScanForUser(sub: string): Promise<RunScanResult> {
 
   await persistEncouragement(sub, result.encouragement);
   await recordScan(sub, result.log);
+  await pruneScanHistory(sub, 1);
 
   console.log('scan-runner: finished scan', {
     sub,
@@ -225,36 +227,39 @@ function normalizeCalendarStatus(value: any): CalendarLinkStatus {
 }
 
 async function clearPendingEncouragements(sub: string) {
-  const result = await dynamo.send(
-    new QueryCommand({
-      TableName: TABLE_NAME,
-      KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
-      ExpressionAttributeValues: {
-        ':pk': `USER#${sub}`,
-        ':prefix': 'PENDING#',
-      },
-    }),
-  );
+  const baseParams = {
+    TableName: TABLE_NAME,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+    ExpressionAttributeValues: {
+      ':pk': `USER#${sub}`,
+      ':prefix': 'PENDING#',
+    },
+  } as const;
 
-  const now = nowIso();
+  let lastEvaluatedKey: Record<string, any> | undefined;
+  do {
+    const result = await dynamo.send(
+      new QueryCommand({
+        ...baseParams,
+        ExclusiveStartKey: lastEvaluatedKey,
+      }),
+    );
 
-  const items = (result.Items ?? []) as Array<{ pk: string; sk: string }>;
-
-  await Promise.all(
-    items.map(({ pk, sk }) =>
-      dynamo.send(
-        new UpdateCommand({
+    const items = (result.Items ?? []) as Array<Record<string, any>>;
+    for (const item of items) {
+      const pkValue = (item.pk ?? item.PK) as string | undefined;
+      const skValue = (item.sk ?? item.SK) as string | undefined;
+      if (!pkValue || !skValue) continue;
+      await dynamo.send(
+        new DeleteCommand({
           TableName: TABLE_NAME,
-          Key: { pk, sk },
-          UpdateExpression: 'SET delivered = :true, deliveredAt = :at',
-          ExpressionAttributeValues: {
-            ':true': true,
-            ':at': now,
-          },
+          Key: { pk: pkValue, sk: skValue },
         }),
-      ),
-    ),
-  );
+      );
+    }
+
+    lastEvaluatedKey = result.LastEvaluatedKey;
+  } while (lastEvaluatedKey);
 }
 
 async function persistEncouragement(
@@ -295,6 +300,56 @@ async function recordScan(sub: string, log: ScanLog) {
       },
     }),
   );
+}
+
+async function pruneScanHistory(sub: string, keepLatest: number) {
+  if (keepLatest < 0) {
+    return;
+  }
+
+  const baseParams = {
+    TableName: TABLE_NAME,
+    KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+    ExpressionAttributeValues: {
+      ':pk': `USER#${sub}`,
+      ':prefix': 'SCAN#',
+    },
+    ScanIndexForward: true,
+  } as const;
+
+  const all: Array<{ pk: string; sk: string }> = [];
+  let lastEvaluatedKey: Record<string, any> | undefined;
+
+  do {
+    const result = await dynamo.send(
+      new QueryCommand({
+        ...baseParams,
+        ExclusiveStartKey: lastEvaluatedKey,
+      }),
+    );
+    const items = (result.Items ?? []) as Array<Record<string, any>>;
+    for (const item of items) {
+      const pkValue = (item.pk ?? item.PK) as string | undefined;
+      const skValue = (item.sk ?? item.SK) as string | undefined;
+      if (!pkValue || !skValue) continue;
+      all.push({ pk: pkValue, sk: skValue });
+    }
+    lastEvaluatedKey = result.LastEvaluatedKey;
+  } while (lastEvaluatedKey);
+
+  if (all.length <= keepLatest) {
+    return;
+  }
+
+  const toDelete = all.slice(0, all.length - keepLatest);
+  for (const { pk, sk } of toDelete) {
+    await dynamo.send(
+      new DeleteCommand({
+        TableName: TABLE_NAME,
+        Key: { pk, sk },
+      }),
+    );
+  }
 }
 
 function normalizeTranslation(value: string): Translation {
