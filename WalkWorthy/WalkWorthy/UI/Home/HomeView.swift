@@ -149,36 +149,34 @@ struct HomeView: View {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
                     .font(.footnote)
                     .foregroundStyle(Color.red)
-            } else if let summary = appState.latestScanSummary {
-                Label(summary.status == .success ? "Fresh encouragement" : "Fallback encouragement", systemImage: summary.status == .success ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(summary.status == .success ? Color.green : Color.orange)
+            } else {
+                if let summary = appState.latestScanSummary {
+                    Label(summary.status == .success ? "Fresh encouragement" : "Fallback encouragement", systemImage: summary.status == .success ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(summary.status == .success ? Color.green : Color.orange)
 
-                HStack(spacing: 12) {
-                    metricView(title: "Planner", value: summary.plannerCount)
-                    metricView(title: "Stressful", value: summary.stressfulCount)
-                    metricView(title: "Candidates", value: summary.candidateCount)
-                }
+                    HStack(spacing: 12) {
+                        metricView(title: "Planner", value: summary.plannerCount)
+                        metricView(title: "Stressful", value: summary.stressfulCount)
+                        metricView(title: "Candidates", value: summary.candidateCount)
+                    }
 
-                if let tags = summary.tags, !tags.isEmpty {
-                    Text("Tags: \(tags.joined(separator: ", "))")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if let tags = summary.tags, !tags.isEmpty {
+                        Text("Tags: \(tags.joined(separator: ", "))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if let message = appState.encouragementStatusMessage {
                     Text(message)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                } else if appState.latestScanSummary == nil {
+                    Text("Tap Scan Now to refresh today’s encouragement.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
                 }
-            } else if let message = appState.encouragementStatusMessage {
-                Text(message)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Tap Scan Now to refresh today’s encouragement.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
             }
         }
         .padding()

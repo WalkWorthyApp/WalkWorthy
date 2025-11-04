@@ -38,6 +38,11 @@ private struct MainTabView: View {
                 Label("Home", systemImage: "house.fill")
             }
 
+            TodaysAgendaView()
+                .tabItem {
+                    Label("Agenda", systemImage: "calendar")
+                }
+
             HistoryView()
                 .tabItem {
                     Label("History", systemImage: "clock.arrow.circlepath")

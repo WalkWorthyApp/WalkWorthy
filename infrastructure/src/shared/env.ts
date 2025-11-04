@@ -8,4 +8,3 @@ export function requireEnv(name: string): string {
 }
 
 export const TABLE_NAME = requireEnv('TABLE_NAME');
-export const CANVAS_CLIENT_SECRET_NAME = requireEnv('CANVAS_CLIENT_SECRET_NAME');

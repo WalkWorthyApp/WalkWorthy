@@ -5,6 +5,7 @@
 .env
 .env.*
 !.env.example
+*.example
 
 # Editors/IDEs
 .vscode/

@@ -59,12 +59,6 @@ export class InfrastructureStack extends cdk.Stack {
       'walkworthy',
     );
 
-    const canvasSecret = secretsmanager.Secret.fromSecretNameV2(
-      this,
-      'CanvasClientSecret',
-      'walkworthy/canvas/client',
-    );
-
     // Secret for OpenAI API key used by AgentKit (string secret)
     const openAiSecret = secretsmanager.Secret.fromSecretNameV2(
       this,
@@ -104,7 +98,10 @@ export class InfrastructureStack extends cdk.Stack {
       },
       environment: {
         TABLE_NAME: table.tableName,
-        CANVAS_CLIENT_SECRET_NAME: canvasSecret.secretName,
+        CANVAS_ALLOWED_HOSTS:
+          this.node.tryGetContext('CANVAS_ALLOWED_HOSTS') ??
+          process.env.CANVAS_ALLOWED_HOSTS ??
+          '',
         // Bible MCP
         BIBLE_MCP_MODE: this.node.tryGetContext('BIBLE_MCP_MODE') ?? process.env.BIBLE_MCP_MODE ?? 'lambda',
         BIBLE_MCP_URL: this.node.tryGetContext('BIBLE_MCP_URL') ?? process.env.BIBLE_MCP_URL ?? '',
@@ -144,12 +141,16 @@ export class InfrastructureStack extends cdk.Stack {
       });
     };
 
-    const canvasCallbackFn = createHandler(
-      'CanvasCallbackFunction',
-      'canvas-callback.ts',
+    const calendarLinkFn = createHandler(
+      'CalendarLinkFunction',
+      'calendar-link.ts',
       {
         timeout: Duration.seconds(30),
       },
+    );
+    const calendarAgendaFn = createHandler(
+      'CalendarAgendaFunction',
+      'calendar-agenda.ts',
     );
     const scanUserFn = createHandler('ScanUserFunction', 'scan-user.ts', {
       timeout: Duration.seconds(60),
@@ -171,17 +172,14 @@ export class InfrastructureStack extends cdk.Stack {
       timeout: Duration.seconds(60),
     });
 
-    table.grantReadWriteData(canvasCallbackFn);
+    table.grantReadWriteData(calendarLinkFn);
+    table.grantReadData(calendarAgendaFn);
     table.grantReadWriteData(scanUserFn);
     table.grantReadWriteData(notifyUserFn);
     table.grantReadWriteData(registerDeviceFn);
     table.grantReadWriteData(userProfileFn);
     table.grantReadWriteData(encouragementNextFn);
     table.grantReadWriteData(weekdayScanFn);
-
-    canvasSecret.grantRead(canvasCallbackFn);
-    canvasSecret.grantRead(scanUserFn);
-    canvasSecret.grantRead(weekdayScanFn);
 
     // Allow scanUser to read OpenAI API key from Secrets Manager
     openAiSecret.grantRead(scanUserFn);
@@ -194,26 +192,6 @@ export class InfrastructureStack extends cdk.Stack {
     // Example: const openAiSecret = secretsmanager.Secret.fromSecretNameV2(this, 'OpenAIKey', 'walkworthy/openai/api-key');
     // openAiSecret.grantRead(scanUserFn);
 
-    const canvasTokensStatement = new iam.PolicyStatement({
-      sid: 'CanvasTokenManagement',
-      effect: iam.Effect.ALLOW,
-      actions: [
-        'secretsmanager:CreateSecret',
-        'secretsmanager:DescribeSecret',
-        'secretsmanager:PutSecretValue',
-        'secretsmanager:UpdateSecret',
-        'secretsmanager:GetSecretValue',
-        'secretsmanager:TagResource',
-      ],
-      resources: [
-        `arn:aws:secretsmanager:${this.region}:${this.account}:secret:walkworthy/canvas/*`,
-      ],
-    });
-
-    canvasCallbackFn.addToRolePolicy(canvasTokensStatement);
-    scanUserFn.addToRolePolicy(canvasTokensStatement);
-    weekdayScanFn.addToRolePolicy(canvasTokensStatement);
-
     const httpApi = new apigwv2.HttpApi(this, 'WalkWorthyHttpApi', {
       apiName: 'walkworthy-api',
       corsPreflight: {
@@ -221,17 +199,34 @@ export class InfrastructureStack extends cdk.Stack {
         allowMethods: [
           apigwv2.CorsHttpMethod.GET,
           apigwv2.CorsHttpMethod.POST,
+          apigwv2.CorsHttpMethod.PUT,
+          apigwv2.CorsHttpMethod.DELETE,
         ],
         allowHeaders: ['Authorization', 'Content-Type'],
       },
     });
 
     httpApi.addRoutes({
-      path: '/auth/canvas/callback',
-      methods: [apigwv2.HttpMethod.POST],
+      path: '/user/calendar-link',
+      methods: [
+        apigwv2.HttpMethod.GET,
+        apigwv2.HttpMethod.PUT,
+        apigwv2.HttpMethod.DELETE,
+      ],
+      authorizer: jwtAuthorizer,
       integration: new apigwIntegrations.HttpLambdaIntegration(
-        'CanvasCallbackIntegration',
-        canvasCallbackFn,
+        'CalendarLinkIntegration',
+        calendarLinkFn,
+      ),
+    });
+
+    httpApi.addRoutes({
+      path: '/user/calendar-agenda',
+      methods: [apigwv2.HttpMethod.GET],
+      authorizer: jwtAuthorizer,
+      integration: new apigwIntegrations.HttpLambdaIntegration(
+        'CalendarAgendaIntegration',
+        calendarAgendaFn,
       ),
     });
 
@@ -326,8 +321,5 @@ export class InfrastructureStack extends cdk.Stack {
       value: httpApi.apiEndpoint,
     });
 
-    new cdk.CfnOutput(this, 'CanvasClientSecretArn', {
-      value: canvasSecret.secretArn,
-    });
   }
 }

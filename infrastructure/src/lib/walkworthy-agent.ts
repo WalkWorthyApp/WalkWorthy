@@ -106,6 +106,9 @@ async function ensureConfig() {
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY is not configured');
   }
+  if (!process.env.OPENAI_API_KEY) {
+    process.env.OPENAI_API_KEY = apiKey;
+  }
   setDefaultOpenAIKey(apiKey);
   setOpenAIAPI('responses');
   openAiConfigured = true;

@@ -22,6 +22,9 @@ final class AppState: ObservableObject {
     @Published var useProfilePersonalization: Bool
     @Published var useFakeCanvas: Bool
     @Published var canvasSummary: TodayCanvas?
+    @Published var calendarAgenda: [CalendarAgendaItem]
+    @Published var calendarAgendaFetchedAt: Date?
+    @Published private(set) var calendarLinkStatus: CalendarLinkStatus?
     @Published var isAuthenticated: Bool {
         didSet {
             if !isAuthenticated {
@@ -45,10 +48,6 @@ final class AppState: ObservableObject {
     private let config: Config
     private let authSession: AuthSession?
     private let liveAPIClient: LiveAPIClient?
-    private lazy var canvasLinkCoordinator: CanvasLinkCoordinator? = {
-        guard let authSession, let liveAPIClient else { return nil }
-        return CanvasLinkCoordinator(config: config, authSession: authSession, apiClient: liveAPIClient)
-    }()
     private lazy var signInCoordinator: HostedUISignInCoordinator? = {
         guard let authSession else { return nil }
         return HostedUISignInCoordinator(config: config, authSession: authSession)
@@ -77,14 +76,38 @@ final class AppState: ObservableObject {
             onboardingCompleted = storedOnboardingCompleted
         }
         useProfilePersonalization = defaults.object(forKey: StorageKey.useProfilePersonalization) as? Bool ?? true
-        useFakeCanvas = defaults.object(forKey: StorageKey.useFakeCanvas) as? Bool ?? config.useFakeCanvas
-        isCanvasLinked = defaults.object(forKey: StorageKey.canvasLinked) as? Bool ?? false
+
+        let resolvedUseFakeCanvas = defaults.object(forKey: StorageKey.useFakeCanvas) as? Bool ?? config.useFakeCanvas
+        let storedCalendarStatus = try? defaults.decode(CalendarLinkStatus.self, forKey: StorageKey.calendarLinkStatus)
+        var initialCalendarStatus: CalendarLinkStatus? = nil
+        var initialIsCanvasLinked: Bool
+
+        if resolvedUseFakeCanvas {
+            initialIsCanvasLinked = defaults.object(forKey: StorageKey.canvasLinked) as? Bool ?? false
+            initialCalendarStatus = nil
+        } else if let storedCalendarStatus {
+            initialCalendarStatus = storedCalendarStatus
+            initialIsCanvasLinked = storedCalendarStatus.status == .active
+        } else {
+            initialCalendarStatus = nil
+            initialIsCanvasLinked = defaults.object(forKey: StorageKey.canvasLinked) as? Bool ?? false
+            if defaults.object(forKey: StorageKey.calendarLinkStatus) != nil {
+                defaults.removeObject(forKey: StorageKey.calendarLinkStatus)
+            }
+        }
+
+        useFakeCanvas = resolvedUseFakeCanvas
+        calendarLinkStatus = initialCalendarStatus
+        isCanvasLinked = initialIsCanvasLinked
+
         selectedTranslation = Translation(rawValue: defaults.string(forKey: StorageKey.translation) ?? "") ?? config.defaultTranslation
         showPopups = false
         currentVerseIndex = defaults.integer(forKey: StorageKey.currentVerseIndex)
         verseDeck = MockData.verses
         history = (try? defaults.decode([Verse].self, forKey: StorageKey.history)) ?? []
         canvasSummary = try? defaults.decode(TodayCanvas.self, forKey: StorageKey.canvasSummary)
+        calendarAgenda = []
+        calendarAgendaFetchedAt = nil
         isScanning = false
         latestScanSummary = nil
         latestScanError = nil
@@ -105,6 +128,33 @@ final class AppState: ObservableObject {
 
     var currentVerse: Verse {
         verseDeck[safe: currentVerseIndex] ?? MockData.verses.first ?? Verse.placeholder
+    }
+
+    var weeklyCalendarAgenda: [CalendarAgendaItem] {
+        guard let bounds = currentWeekBounds else { return calendarAgenda }
+        return calendarAgenda
+            .filter { item in
+                guard let date = agendaDate(for: item) else { return false }
+                return date >= bounds.start && date <= bounds.end
+            }
+            .sorted { lhs, rhs in
+                let lhsDate = agendaDate(for: lhs) ?? .distantFuture
+                let rhsDate = agendaDate(for: rhs) ?? .distantFuture
+                if lhsDate == rhsDate {
+                    return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+                }
+                return lhsDate < rhsDate
+            }
+    }
+
+    var currentWeekLabel: String {
+        guard let bounds = currentWeekBounds else { return "This Week" }
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.setLocalizedDateFormatFromTemplate("MMM d")
+        let startText = formatter.string(from: bounds.start)
+        let endText = formatter.string(from: bounds.end)
+        return "\(startText) – \(endText)"
     }
 
     func markOnboardingComplete() {
@@ -144,8 +194,17 @@ final class AppState: ObservableObject {
     func setUseFakeCanvas(_ isOn: Bool) {
         useFakeCanvas = isOn
         defaults.set(isOn, forKey: StorageKey.useFakeCanvas)
-        if !isOn {
-            markCanvasUnlinked()
+        if isOn {
+            calendarLinkStatus = nil
+            calendarAgenda = []
+            calendarAgendaFetchedAt = nil
+            isCanvasLinked = defaults.object(forKey: StorageKey.canvasLinked) as? Bool ?? false
+        } else {
+            defaults.removeObject(forKey: StorageKey.canvasLinked)
+            isCanvasLinked = calendarLinkStatus?.status == .active
+            Task {
+                await self.refreshCalendarLinkStatus(force: true)
+            }
         }
     }
 
@@ -161,27 +220,122 @@ final class AppState: ObservableObject {
         defaults.set(isCanvasLinked, forKey: StorageKey.canvasLinked)
     }
 
-    func startCanvasLink(anchor: ASPresentationAnchor?) async throws {
+    func refreshCalendarLinkStatus(force: Bool = false) async {
+        guard !useFakeCanvas else { return }
+        guard config.apiMode == "live", isAuthenticated else { return }
+
+        print("[AppState] Refreshing calendar link status", force ? "(force)" : "")
+        if !force {
+            if let status = calendarLinkStatus, status.status == .active {
+                print("[AppState] Skipping refresh; status already ACTIVE")
+                return
+            }
+        }
+
+        do {
+            let status = try await apiClient.fetchCalendarLinkStatus()
+            print("[AppState] Calendar link status fetched", status.status.rawValue)
+            updateStoredCalendarStatus(status)
+        } catch {
+            print("[AppState] Failed to refresh calendar link status: \(error)")
+        }
+    }
+
+    @discardableResult
+    func submitCalendarLink(_ urlString: String) async throws -> CalendarLinkStatus {
+        let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw CalendarLinkInputError.empty
+        }
+        guard let candidate = URL(string: trimmed) else {
+            throw CalendarLinkInputError.invalidURL
+        }
+
+        guard let scheme = candidate.scheme?.lowercased(), ["https", "http"].contains(scheme) else {
+            throw CalendarLinkInputError.unsupportedScheme
+        }
+
+        guard let host = candidate.host, !host.isEmpty else {
+            throw CalendarLinkInputError.missingHost
+        }
+
+        guard trimmed.lowercased().contains(".ics") || candidate.path.lowercased().hasSuffix(".ics") else {
+            throw CalendarLinkInputError.notICS
+        }
+
+        if let allowedHost = config.canvasBaseURL?.host?.lowercased() {
+            let hostLower = host.lowercased()
+            let allowed = hostLower == allowedHost || hostLower.hasSuffix(".\(allowedHost)")
+            if !allowed {
+                throw CalendarLinkInputError.disallowedHost(expected: allowedHost)
+            }
+        }
+
+        if useFakeCanvas {
+            isCanvasLinked = true
+            defaults.set(true, forKey: StorageKey.canvasLinked)
+            let status = CalendarLinkStatus(
+                calendarUrl: trimmed,
+                status: .active,
+                lastValidatedAt: Date(),
+                lastError: nil,
+                updatedAt: Date()
+            )
+            calendarLinkStatus = status
+            return status
+        }
+
+        guard config.apiMode == "live" else {
+            let status = CalendarLinkStatus(
+                calendarUrl: trimmed,
+                status: .pending,
+                lastValidatedAt: nil,
+                lastError: nil,
+                updatedAt: Date()
+            )
+            updateStoredCalendarStatus(status)
+            return status
+        }
+
         guard isAuthenticated else {
-            throw CanvasLinkCoordinator.CanvasLinkError.backend("Please sign in before linking Canvas.")
+            throw CalendarLinkInputError.authenticationRequired
         }
-        guard let coordinator = canvasLinkCoordinator else {
-            throw CanvasLinkCoordinator.CanvasLinkError.misconfigured
-        }
-        let linked = try await coordinator.startLink(from: anchor)
-        if linked {
-            markCanvasLinked()
+
+        do {
+            print("[AppState] Submitting calendar link", trimmed)
+            let status = try await apiClient.updateCalendarLink(CalendarLinkUpdateRequest(calendarUrl: trimmed))
+            print("[AppState] Calendar link saved", status.status.rawValue)
+            updateStoredCalendarStatus(status)
+            await fetchCalendarAgenda()
+            return status
+        } catch {
+            print("[AppState] Calendar link save failed: \(error)")
+            throw error
         }
     }
 
-    func markCanvasLinked() {
-        isCanvasLinked = true
-        defaults.set(true, forKey: StorageKey.canvasLinked)
-    }
+    func removeCalendarLink() async {
+        print("[AppState] Removing calendar link")
+        if useFakeCanvas {
+            isCanvasLinked = false
+            defaults.set(false, forKey: StorageKey.canvasLinked)
+            calendarLinkStatus = nil
+            return
+        }
 
-    func markCanvasUnlinked() {
-        isCanvasLinked = false
-        defaults.set(false, forKey: StorageKey.canvasLinked)
+        defaults.removeObject(forKey: StorageKey.canvasLinked)
+
+        if config.apiMode == "live" {
+            do {
+                try await apiClient.deleteCalendarLink()
+            } catch {
+                print("[AppState] Failed to delete calendar link: \(error)")
+            }
+        }
+
+        updateStoredCalendarStatus(nil)
+        calendarAgenda = []
+        calendarAgendaFetchedAt = nil
     }
 
     func goToNextVerse() {
@@ -223,6 +377,7 @@ final class AppState: ObservableObject {
             _ = try await authSession.validBearerToken()
             isAuthenticated = true
             authenticationNotice = nil
+            await refreshCalendarLinkStatus(force: true)
         } catch {
             isAuthenticated = false
             authenticationNotice = "Your session has expired. Please sign in again."
@@ -237,6 +392,7 @@ final class AppState: ObservableObject {
             try await coordinator.startSignIn(from: anchor)
             isAuthenticated = true
             authenticationNotice = nil
+            await refreshCalendarLinkStatus(force: true)
         } catch {
             isAuthenticated = false
             if authenticationNotice == nil {
@@ -306,7 +462,7 @@ final class AppState: ObservableObject {
                             latestScanSummary = metadata
                             encouragementStatusMessage = statusMessage(forMetadata: metadata)
                         } else if response.shouldNotify == false {
-                            encouragementStatusMessage = "No new encouragement yet. We'll try again soon."
+                            encouragementStatusMessage = "Scan for new encouragement."
                         }
                         hasFreshEncouragement = response.shouldNotify
                         latestScanError = nil
@@ -333,6 +489,25 @@ final class AppState: ObservableObject {
             } catch {
                 print("[AppState] Failed to fetch canvas summary: \(error)")
             }
+        }
+    }
+
+    func refreshCalendarAgenda() {
+        guard config.apiMode == "live", isAuthenticated else { return }
+        Task { [weak self] in
+            await self?.fetchCalendarAgenda()
+        }
+    }
+
+    private func fetchCalendarAgenda() async {
+        do {
+            let response = try await apiClient.fetchCalendarAgenda()
+            await MainActor.run { [self] in
+                calendarAgenda = response.items
+                calendarAgendaFetchedAt = response.fetchedAt
+            }
+        } catch {
+            print("[AppState] Failed to fetch calendar agenda: \(error)")
         }
     }
 
@@ -385,6 +560,44 @@ final class AppState: ObservableObject {
     func clearHistory() {
         history.removeAll()
         defaults.removeObject(forKey: StorageKey.history)
+    }
+
+    private func updateStoredCalendarStatus(_ status: CalendarLinkStatus?) {
+        calendarLinkStatus = status
+        guard !useFakeCanvas else { return }
+
+        defaults.removeObject(forKey: StorageKey.canvasLinked)
+
+        if let status {
+            isCanvasLinked = status.status == .active
+            try? defaults.encode(status, forKey: StorageKey.calendarLinkStatus)
+            if status.status == .active {
+                refreshCalendarAgenda()
+            }
+        } else {
+            isCanvasLinked = false
+            defaults.removeObject(forKey: StorageKey.calendarLinkStatus)
+            calendarAgenda = []
+            calendarAgendaFetchedAt = nil
+        }
+    }
+
+    private var currentWeekBounds: (start: Date, end: Date)? {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.firstWeekday = 1 // Sunday
+        let today = Date()
+        guard let interval = calendar.dateInterval(of: .weekOfYear, for: today) else {
+            return nil
+        }
+        let startOfWeek = calendar.startOfDay(for: interval.start)
+        guard let endOfWeek = calendar.date(byAdding: DateComponents(day: 7, second: -1), to: startOfWeek) else {
+            return nil
+        }
+        return (startOfWeek, endOfWeek)
+    }
+
+    private func agendaDate(for item: CalendarAgendaItem) -> Date? {
+        item.dueAt ?? item.startAt ?? item.endAt
     }
 
     private func syncProfile(age: Int?, major: String, gender: Gender, hobbies: Set<String>, optIn: Bool) {
@@ -497,6 +710,7 @@ extension AppState {
         static let useProfilePersonalization = "walkworthy.settings.useProfilePersonalization"
         static let useFakeCanvas = "walkworthy.settings.useFakeCanvas"
         static let canvasLinked = "walkworthy.canvas.linked"
+        static let calendarLinkStatus = "walkworthy.settings.calendarLinkStatus"
         static let translation = "walkworthy.settings.translation"
         static let currentVerseIndex = "walkworthy.home.currentVerseIndex"
         static let history = "walkworthy.history.verses"
@@ -507,11 +721,42 @@ extension AppState {
         static let profileHobbies = "walkworthy.profile.hobbies"
         static let profileOptIn = "walkworthy.profile.optIn"
     }
+
+    enum CalendarLinkInputError: LocalizedError {
+        case empty
+        case invalidURL
+        case unsupportedScheme
+        case missingHost
+        case notICS
+        case disallowedHost(expected: String)
+        case authenticationRequired
+
+        var errorDescription: String? {
+            switch self {
+            case .empty:
+                return "Paste your Canvas calendar link before saving."
+            case .invalidURL:
+                return "That doesn’t look like a valid URL. Please copy the full calendar link from Canvas."
+            case .unsupportedScheme:
+                return "Canvas calendar links must start with https:// for security."
+            case .missingHost:
+                return "The calendar link is missing a Canvas domain."
+            case .notICS:
+                return "Canvas calendar links end in .ics. Double-check you copied the Calendar Feed URL."
+            case .disallowedHost(let expected):
+                return "That link isn’t from your school’s Canvas domain (\(expected))."
+            case .authenticationRequired:
+                return "You’re signed out. Please sign in and try again."
+            }
+        }
+    }
 }
 
 private extension UserDefaults {
     func encode<T: Encodable>(_ value: T, forKey key: String) throws {
-        let data = try JSONEncoder().encode(value)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(value)
         set(data, forKey: key)
     }
 
@@ -519,7 +764,9 @@ private extension UserDefaults {
         guard let data = data(forKey: key) else {
             throw DecodingError.valueNotFound(type, .init(codingPath: [], debugDescription: "No data for key \(key)"))
         }
-        return try JSONDecoder().decode(type, from: data)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(type, from: data)
     }
 }
 

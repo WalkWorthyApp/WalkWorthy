@@ -50,11 +50,24 @@ final class LiveAPIClient: EncouragementAPI {
         try await sendExpectingNoContent(request)
     }
 
-    func completeCanvasLink(code: String, state: String, redirectURI: URL) async throws -> Bool {
-        let payload = CanvasCallbackPayload(code: code, state: state, redirectUri: redirectURI.absoluteString)
-        let request = try await makeRequest(path: "auth/canvas/callback", method: "POST", body: payload)
-        let response = try await send(request, decode: CanvasCallbackResponse.self)
-        return response.linked
+    func fetchCalendarAgenda() async throws -> CalendarAgendaResponse {
+        let request = try await makeRequest(path: "user/calendar-agenda", method: "GET")
+        return try await send(request, decode: CalendarAgendaResponse.self)
+    }
+
+    func fetchCalendarLinkStatus() async throws -> CalendarLinkStatus {
+        let request = try await makeRequest(path: "user/calendar-link", method: "GET")
+        return try await send(request, decode: CalendarLinkStatus.self)
+    }
+
+    func updateCalendarLink(_ payload: CalendarLinkUpdateRequest) async throws -> CalendarLinkStatus {
+        let request = try await makeRequest(path: "user/calendar-link", method: "PUT", body: payload)
+        return try await send(request, decode: CalendarLinkStatus.self)
+    }
+
+    func deleteCalendarLink() async throws {
+        let request = try await makeRequest(path: "user/calendar-link", method: "DELETE")
+        try await sendExpectingNoContent(request)
     }
 
     // MARK: - Internal helpers
@@ -154,14 +167,4 @@ final class LiveAPIClient: EncouragementAPI {
 
 private struct EmptyPayload: Codable {
     init() {}
-}
-
-private struct CanvasCallbackPayload: Encodable {
-    let code: String
-    let state: String
-    let redirectUri: String
-}
-
-private struct CanvasCallbackResponse: Decodable {
-    let linked: Bool
 }
