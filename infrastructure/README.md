@@ -1,35 +1,39 @@
-# Welcome to your CDK TypeScript project
+# WalkWorthy Infrastructure
 
-This is a blank project for CDK development with TypeScript.
+The `infrastructure` package contains the AWS CDK project that deploys the WalkWorthy backend. It brings together the API surface, Lambda compute, data storage, event scheduling, and AgentKit/Bible MCP integration that power the mobile experience.
 
-The `cdk.json` file tells the CDK Toolkit how to execute your app.
+## Stack Snapshot
+- API Gateway HTTP API with optional Cognito JWT authorization that fronts all mobile-facing routes.
+- Node.js 20 Lambda functions (bundled with esbuild) for Canvas link management, user profile storage, scan orchestration, encouragement retrieval, device updates, notifications, and the Bible MCP bridge.
+- Existing DynamoDB table `walkworthy` imported by name, providing single-table storage for user metadata, encouragements, scan history, and agenda snapshots.
+- Secrets Manager integration for the OpenAI API key plus IAM grants that restrict access to the Lambdas that need it.
+- EventBridge Scheduler job that kicks off weekday scans and pushes failures to an SQS dead-letter queue.
 
-## Useful commands
+## Prerequisites
+- Node.js 20+, npm, and an AWS account that has been CDK-bootstrapped.
+- DynamoDB table `walkworthy` (partition key `pk`, sort key `sk`) already provisioned.
+- Secrets Manager secret `walkworthy/openai/api-key` containing the AgentKit API key.
+- IAM permissions capable of deploying CDK stacks (CloudFormation, IAM, Lambda, API Gateway, EventBridge, DynamoDB, Secrets Manager, SQS, Logs, SSM).
 
-* `npm run build`   compile typescript to js
-* `npm run watch`   watch for changes and compile
-* `npm run test`    perform the jest unit tests
-* `npx cdk deploy`  deploy this stack to your default AWS account/region
-* `npx cdk diff`    compare deployed stack with current state
-* `npx cdk synth`   emits the synthesized CloudFormation template
+## Configuration Highlights
+- Runtime behavior can be shaped through CDK context values or environment variables. Typical options include enabling/disabling Cognito auth, configuring allowed Canvas hosts, choosing MCP connection mode (lambda, http, stdio, disabled), overriding the OpenAI model, and fine-tuning verse exclusion lists.
+- Default context (`cdk.json`) enables Cognito auth (`enableJwtAuth=true`). Supply the user pool and client IDs when deploying, or flip the flag to `false` for local testing without authentication.
+- The Bible MCP bridge runs locally inside the stack by default; switch to an external endpoint by adjusting the MCP mode and URL/command settings.
 
-## Project notes
+## Deploying
+1. `cd infrastructure`
+2. `npm install`
+3. Export `CDK_DEFAULT_ACCOUNT` and `CDK_DEFAULT_REGION` (or edit and source `cdk-env.sh`).
+4. `npm run build` (or `npm run watch` while iterating).
+5. `npx cdk synth` to review the CloudFormation template (optional).
+6. `npx cdk deploy` with any required parameters (e.g., Cognito pool/client IDs when JWT auth is enabled).
 
-Before running the commands above, export your deployment scope so the stack synthesizes with the right AWS account and region:
+Use `npx cdk diff` to inspect changes before redeploying.
 
-```bash
-cp cdk-env.example.sh cdk-env.sh
-source cdk-env.sh
-```
+## Development Tips
+- All Lambda handlers share a common environment block (table name, Canvas allow-list, MCP configuration, OpenAI settings, verse exclusions) defined in `InfrastructureStack`.
+- Helper modules under `src/shared`, `src/lib`, and `src/services` encapsulate Dynamo utilities, authentication helpers, calendar ingestion, stress heuristics, and the scan pipeline.
+- Jest scaffolding is available (`npm run test`) for future unit tests, though none ship today.
 
-Update `cdk-env.sh` with your actual account/region; the script is ignored by Git.
-
-The current stack ships a placeholder Systems Manager parameter (`/walkworthy/smoke`). Replace it with the real WalkWorthy resources (DynamoDB table, Secrets Manager references, HTTP API, EventBridge Scheduler, Lambdas) as you iterate.
-
-## CI/CD role requirements
-
-The GitHub Actions deploy role (`AWS_ROLE_ARN`) must include these permissions in addition to CloudFormation/IAM/S3/Lambda/etc.:
-* `ssm:GetParameter` on `arn:aws:ssm:<region>:<account>:parameter/cdk-bootstrap/hnb659fds/version`
-* `cloudformation:DescribeStacks` for the bootstrap stack (so CDK can reuse existing assets)
-
-Without the SSM permission, CDK will fail with `AccessDeniedException` during bootstrap version checks.
+## CI/CD Considerations
+- Automated deployments must read the CDK bootstrap version parameter (`/cdk-bootstrap/hnb659fds/version`) and describe the bootstrap stack. Ensure the GitHub Actions role (or equivalent) carries those permissions alongside standard deployment access.

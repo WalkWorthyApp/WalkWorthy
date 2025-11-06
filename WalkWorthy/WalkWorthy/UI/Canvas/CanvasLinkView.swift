@@ -252,6 +252,10 @@ struct CanvasLinkView: View {
                     isSaving = false
                     saveError = apiError.errorDescription ?? "Unable to save the calendar link."
                 }
+            } catch is CancellationError {
+                await MainActor.run {
+                    isSaving = false
+                }
             } catch {
                 await MainActor.run {
                     isSaving = false
@@ -269,12 +273,14 @@ struct CanvasLinkView: View {
         saveSuccess = nil
 
         Task {
-            await appState.removeCalendarLink()
+            let removed = await appState.removeCalendarLink()
             await MainActor.run {
                 isSaving = false
-                calendarUrl = ""
-                saveSuccess = "Calendar link removed."
-                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                if removed {
+                    calendarUrl = ""
+                    saveSuccess = "Calendar link removed."
+                    UINotificationFeedbackGenerator().notificationOccurred(.success)
+                }
             }
         }
     }

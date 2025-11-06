@@ -1,37 +1,33 @@
 # WalkWorthy
 
-WalkWorthy pairs daily Canvas stressors with timely Scripture encouragements. The repository delivers both the iOS experience and the AWS CDK infrastructure outlined in the project architecture.
+WalkWorthy combines daily Canvas context with Scripture-based encouragement. This repository houses the SwiftUI iOS experience, the supporting AWS infrastructure, and the agent pipeline that produces the final messages.
 
-## Product Pillars
-- End-to-end encouragement flow that blends Canvas task insights with spiritually supportive messaging delivered in-app.
-- Modular mobile and infrastructure layers designed for iterative shipping and easy substitution of external services.
+## What’s Inside
+- A SwiftUI mobile app that guides students through onboarding, sign-in, calendar linking, viewing encouragements, and reviewing agenda/history information.
+- An AWS CDK project that provisions the API layer, Lambda functions, data storage, and scheduled jobs the app depends on.
+- Shared logic for translating Canvas data into stress insights, sourcing verse candidates, and selecting a final encouragement with guardrails.
 
-## Architecture Flow
-- **iOS app** (SwiftUI) gathers profile inputs, authenticates with Amazon Cognito, collects each student’s Canvas calendar iCal feed, and requests encouragements on demand or through background reminders.
-- **API Gateway HTTP API** fronts Lambda handlers that manage read-only calendar links, run daily scans, and surface encouragement content to the app.
-- **Canvas integration** keeps the personal calendar feed in DynamoDB and scans upcoming assignments/events using `scan-user` with the iCal ingestion pipeline.
-- **Bible MCP + AgentKit**: verse candidates flow through a lightweight bridge Lambda (`bible-mcp-bridge`) so `scan-user` and the weekday scheduler can invoke AgentKit models with contextual inputs.
-- **DynamoDB single-table** design tracks user profiles, Canvas linkage, scan history, and pending encouragement payloads that the app fetches via `/encouragement/next`.
-- **EventBridge Scheduler → Lambda** drives the weekday 9am scan (`weekday-scan`) which reuses the same path as on-demand scans, persists new encouragements, and queues notification work.
-- **Notification lane** lets the backend mark encouragements ready and allows the app to POST device tokens so future push or local-notification plumbing can fan out.
+## How It Works
+1. Students connect their Canvas read-only calendar feed and share a few optional profile preferences.
+2. On-demand or scheduled scans pull upcoming items, assess stress signals, gather verse options through the Bible MCP bridge, and task AgentKit with choosing the best fit.
+3. The resulting encouragement is stored for mobile consumption, surfaced in the app, and optionally delivered through background refresh and notifications.
 
-The net effect is a pipeline where data flows from Canvas → DynamoDB → AgentKit → app, with Cognito-protected endpoints enforcing trust boundaries.
+## Key Capabilities
+- Configurable runtime that can run completely offline with mock data or connect to the live stack using environment overrides.
+- Cognito-backed authentication flow with secure token handling and automatic request signing.
+- Background refresh, agenda snapshots, and notification scheduling designed for daily use.
+- Guarded agent execution that enforces strict output schemas, filters sensitive content, and validates chosen verses against the provided candidates.
 
-## Current Implementation Highlights
-- **Mobile app (SwiftUI)**: onboarding, home scan dashboard, history, and settings views styled with the “liquid glass” treatment. Supports Cognito Hosted UI sign-in, Canvas OAuth linking, manual scans, local verse history, and notification reminders. Mock data remains available for design iteration.
-- **Networking layer**: typed async clients hit `/scan/now`, `/encouragement/next`, `/user/profile`, `/user/calendar-link`, `/device/register`, and `/encouragement/notify`, automatically attaching Cognito tokens when available.
-- **Infrastructure (AWS CDK TypeScript)**: deploys the HTTP API, Lambda handlers (`calendar-link`, `scan-user`, `weekday-scan`, `encouragement-next`, `notify-user`, `register-device`, `user-profile`, `bible-mcp-bridge`), DynamoDB table binding, EventBridge Scheduler with DLQ, and IAM policies for AgentKit access.
-- **Data & workflow**: scans compute stress heuristics, fetch verse candidates via the Bible MCP bridge, ask AgentKit to craft the final encouragement, write the result to DynamoDB, and surface it to the client until acknowledged.
+## Getting Started (App)
+1. Open `WalkWorthy/WalkWorthy.xcodeproj` in Xcode.
+2. Run the `WalkWorthy` target on a simulator or device.
+3. Switch between mock and live behavior by adjusting the bundled configuration plist or exporting environment variables (`API_MODE`, `API_BASE_URL`, `DEFAULT_TRANSLATION`, and related keys).
+4. In live mode, sign in through the Hosted UI, paste your Canvas calendar link, and use “Scan Now” to view the full flow.
 
-## Repository Tour
-- `WalkWorthy/`: Xcode project and SwiftUI sources for the iOS client (e.g. `UI/Onboarding/TitleScreenView.swift`, auth/session management, mock payloads).
-- `infrastructure/`: AWS CDK app (`infrastructure-stack.ts`) with Lambda handlers under `src/handlers/`.
+## Deployment Snapshot
+- The CDK stack imports the existing `walkworthy` DynamoDB table and the `walkworthy/openai/api-key` secret, provisions the HTTP API plus Lambda functions, and schedules weekday scans.
+- `enableJwtAuth` is on by default; pass Cognito pool and client IDs at deploy time or disable the flag for unauthenticated development.
+- Additional behavior (allowed Canvas hosts, MCP mode, OpenAI model, excluded verses, etc.) is configurable through CDK context or environment variables.
+- CI/CD automation requires access to the CDK bootstrap resources and typical CloudFormation/IAM/Lambda permissions.
 
-## Working With The App
-- Open `WalkWorthy/WalkWorthy.xcodeproj`, select the `WalkWorthy` target, and run on a simulator or device.
-- Toggle between mock responses and live API usage by swapping the bundled configuration plist; no source changes are required.
-- Sign in through the built-in Cognito Hosted UI, follow the in-app guide to paste your Canvas calendar feed, and use “Scan Now” to exercise the full backend loop.
-
-## Deployment Notes
-- Provision the backend by bootstrapping CDK and deploying the stack in `infrastructure/`.
-- After deployment, plug the resulting API URL, Cognito settings, and Canvas domain into the app’s configuration bundle to run in live mode.
+Explore the `prompts/` directory for deeper architectural context and future roadmap notes.

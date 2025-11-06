@@ -25,6 +25,7 @@ final class AppState: ObservableObject {
     @Published var calendarAgenda: [CalendarAgendaItem]
     @Published var calendarAgendaFetchedAt: Date?
     @Published private(set) var calendarLinkStatus: CalendarLinkStatus?
+    @Published private(set) var authenticatedUserSub: String?
     @Published var isAuthenticated: Bool {
         didSet {
             if !isAuthenticated {
@@ -48,6 +49,21 @@ final class AppState: ObservableObject {
     private let config: Config
     private let authSession: AuthSession?
     private let liveAPIClient: LiveAPIClient?
+    private static let userScopedKeys: Set<String> = [
+        StorageKey.onboardingCompleted,
+        StorageKey.useProfilePersonalization,
+        StorageKey.canvasLinked,
+        StorageKey.calendarLinkStatus,
+        StorageKey.translation,
+        StorageKey.currentVerseIndex,
+        StorageKey.history,
+        StorageKey.canvasSummary,
+        StorageKey.profileAge,
+        StorageKey.profileMajor,
+        StorageKey.profileGender,
+        StorageKey.profileHobbies,
+        StorageKey.profileOptIn,
+    ]
     private lazy var signInCoordinator: HostedUISignInCoordinator? = {
         guard let authSession else { return nil }
         return HostedUISignInCoordinator(config: config, authSession: authSession)
@@ -67,52 +83,27 @@ final class AppState: ObservableObject {
         self.notificationScheduler = notificationScheduler
         self.defaults = defaults
         self.isAuthenticated = config.apiMode != "live"
+        self.useFakeCanvas = defaults.object(forKey: StorageKey.useFakeCanvas) as? Bool ?? config.useFakeCanvas
+        self.verseDeck = MockData.verses
+        self.history = []
+        self.currentVerseIndex = 0
+        self.selectedTranslation = config.defaultTranslation
+        self.showPopups = false
+        self.calendarAgenda = []
+        self.calendarAgendaFetchedAt = nil
+        self.calendarLinkStatus = nil
+        self.authenticatedUserSub = nil
+        self.isCanvasLinked = false
+        self.useProfilePersonalization = true
+        self.onboardingCompleted = false
+        self.canvasSummary = nil
+        self.isScanning = false
+        self.latestScanSummary = nil
+        self.latestScanError = nil
+        self.encouragementStatusMessage = nil
+        self.hasFreshEncouragement = true
 
-        let storedOnboardingCompleted = defaults.bool(forKey: StorageKey.onboardingCompleted)
-        if storedOnboardingCompleted && !Self.hasStoredProfile(in: defaults) {
-            defaults.set(false, forKey: StorageKey.onboardingCompleted)
-            onboardingCompleted = false
-        } else {
-            onboardingCompleted = storedOnboardingCompleted
-        }
-        useProfilePersonalization = defaults.object(forKey: StorageKey.useProfilePersonalization) as? Bool ?? true
-
-        let resolvedUseFakeCanvas = defaults.object(forKey: StorageKey.useFakeCanvas) as? Bool ?? config.useFakeCanvas
-        let storedCalendarStatus = try? defaults.decode(CalendarLinkStatus.self, forKey: StorageKey.calendarLinkStatus)
-        var initialCalendarStatus: CalendarLinkStatus? = nil
-        var initialIsCanvasLinked: Bool
-
-        if resolvedUseFakeCanvas {
-            initialIsCanvasLinked = defaults.object(forKey: StorageKey.canvasLinked) as? Bool ?? false
-            initialCalendarStatus = nil
-        } else if let storedCalendarStatus {
-            initialCalendarStatus = storedCalendarStatus
-            initialIsCanvasLinked = storedCalendarStatus.status == .active
-        } else {
-            initialCalendarStatus = nil
-            initialIsCanvasLinked = defaults.object(forKey: StorageKey.canvasLinked) as? Bool ?? false
-            if defaults.object(forKey: StorageKey.calendarLinkStatus) != nil {
-                defaults.removeObject(forKey: StorageKey.calendarLinkStatus)
-            }
-        }
-
-        useFakeCanvas = resolvedUseFakeCanvas
-        calendarLinkStatus = initialCalendarStatus
-        isCanvasLinked = initialIsCanvasLinked
-
-        selectedTranslation = Translation(rawValue: defaults.string(forKey: StorageKey.translation) ?? "") ?? config.defaultTranslation
-        showPopups = false
-        currentVerseIndex = defaults.integer(forKey: StorageKey.currentVerseIndex)
-        verseDeck = MockData.verses
-        history = (try? defaults.decode([Verse].self, forKey: StorageKey.history)) ?? []
-        canvasSummary = try? defaults.decode(TodayCanvas.self, forKey: StorageKey.canvasSummary)
-        calendarAgenda = []
-        calendarAgendaFetchedAt = nil
-        isScanning = false
-        latestScanSummary = nil
-        latestScanError = nil
-        encouragementStatusMessage = nil
-        hasFreshEncouragement = true
+        reloadUserScopedPreferences()
 
         if config.apiMode == "live" && !onboardingCompleted {
             isAuthenticated = false
@@ -122,8 +113,6 @@ final class AppState: ObservableObject {
                 }
             }
         }
-
-        clampCurrentIndex()
     }
 
     var currentVerse: Verse {
@@ -159,36 +148,40 @@ final class AppState: ObservableObject {
 
     func markOnboardingComplete() {
         onboardingCompleted = true
-        defaults.set(true, forKey: StorageKey.onboardingCompleted)
+        defaults.set(true, forKey: storageKey(StorageKey.onboardingCompleted))
     }
 
     func updateProfile(age: Int?, major: String, gender: Gender, hobbies: Set<String>, optIn: Bool) {
         let trimmedMajor = major.trimmingCharacters(in: .whitespacesAndNewlines)
         if let age {
-            defaults.set(age, forKey: StorageKey.profileAge)
+            defaults.set(age, forKey: storageKey(StorageKey.profileAge))
         } else {
-            defaults.removeObject(forKey: StorageKey.profileAge)
+            defaults.removeObject(forKey: storageKey(StorageKey.profileAge))
         }
-        defaults.set(trimmedMajor, forKey: StorageKey.profileMajor)
-        defaults.set(gender.rawValue, forKey: StorageKey.profileGender)
-        defaults.set(Array(hobbies), forKey: StorageKey.profileHobbies)
-        defaults.set(optIn, forKey: StorageKey.profileOptIn)
+        defaults.set(trimmedMajor, forKey: storageKey(StorageKey.profileMajor))
+        defaults.set(gender.rawValue, forKey: storageKey(StorageKey.profileGender))
+        defaults.set(Array(hobbies), forKey: storageKey(StorageKey.profileHobbies))
+        defaults.set(optIn, forKey: storageKey(StorageKey.profileOptIn))
 
         syncProfile(age: age, major: trimmedMajor, gender: gender, hobbies: hobbies, optIn: optIn)
     }
 
     func loadProfile() -> OnboardingProfile {
-        let age = defaults.value(forKey: StorageKey.profileAge) as? Int
-        let major = defaults.string(forKey: StorageKey.profileMajor) ?? ""
-        let gender = Gender(rawValue: defaults.string(forKey: StorageKey.profileGender) ?? "") ?? .male
-        let hobbies = Set(defaults.stringArray(forKey: StorageKey.profileHobbies) ?? [])
-        let optIn = defaults.object(forKey: StorageKey.profileOptIn) as? Bool ?? true
+        if config.apiMode == "live", authenticatedUserSub == nil {
+            return OnboardingProfile(age: nil, major: "", gender: .male, hobbies: [], optIn: true)
+        }
+
+        let age = defaults.value(forKey: storageKey(StorageKey.profileAge)) as? Int
+        let major = defaults.string(forKey: storageKey(StorageKey.profileMajor)) ?? ""
+        let gender = Gender(rawValue: defaults.string(forKey: storageKey(StorageKey.profileGender)) ?? "") ?? .male
+        let hobbies = Set(defaults.stringArray(forKey: storageKey(StorageKey.profileHobbies)) ?? [])
+        let optIn = defaults.object(forKey: storageKey(StorageKey.profileOptIn)) as? Bool ?? true
         return OnboardingProfile(age: age, major: major, gender: gender, hobbies: hobbies, optIn: optIn)
     }
 
     func setUseProfilePersonalization(_ isOn: Bool) {
         useProfilePersonalization = isOn
-        defaults.set(isOn, forKey: StorageKey.useProfilePersonalization)
+        defaults.set(isOn, forKey: storageKey(StorageKey.useProfilePersonalization))
     }
 
     func setUseFakeCanvas(_ isOn: Bool) {
@@ -198,9 +191,9 @@ final class AppState: ObservableObject {
             calendarLinkStatus = nil
             calendarAgenda = []
             calendarAgendaFetchedAt = nil
-            isCanvasLinked = defaults.object(forKey: StorageKey.canvasLinked) as? Bool ?? false
+            isCanvasLinked = defaults.object(forKey: storageKey(StorageKey.canvasLinked)) as? Bool ?? false
         } else {
-            defaults.removeObject(forKey: StorageKey.canvasLinked)
+            defaults.removeObject(forKey: storageKey(StorageKey.canvasLinked))
             isCanvasLinked = calendarLinkStatus?.status == .active
             Task {
                 await self.refreshCalendarLinkStatus(force: true)
@@ -210,19 +203,20 @@ final class AppState: ObservableObject {
 
     func setTranslation(_ translation: Translation) {
         selectedTranslation = translation
-        defaults.set(translation.rawValue, forKey: StorageKey.translation)
+        defaults.set(translation.rawValue, forKey: storageKey(StorageKey.translation))
         syncStoredProfile()
     }
 
     func toggleCanvasLink() {
         guard useFakeCanvas else { return }
         isCanvasLinked.toggle()
-        defaults.set(isCanvasLinked, forKey: StorageKey.canvasLinked)
+        defaults.set(isCanvasLinked, forKey: storageKey(StorageKey.canvasLinked))
     }
 
     func refreshCalendarLinkStatus(force: Bool = false) async {
         guard !useFakeCanvas else { return }
         guard config.apiMode == "live", isAuthenticated else { return }
+        guard let requestUserSub = authenticatedUserSub else { return }
 
         print("[AppState] Refreshing calendar link status", force ? "(force)" : "")
         if !force {
@@ -234,6 +228,10 @@ final class AppState: ObservableObject {
 
         do {
             let status = try await apiClient.fetchCalendarLinkStatus()
+            guard requestUserSub == authenticatedUserSub else {
+                print("[AppState] Ignoring calendar status response for stale user context")
+                return
+            }
             print("[AppState] Calendar link status fetched", status.status.rawValue)
             updateStoredCalendarStatus(status)
         } catch {
@@ -273,7 +271,7 @@ final class AppState: ObservableObject {
 
         if useFakeCanvas {
             isCanvasLinked = true
-            defaults.set(true, forKey: StorageKey.canvasLinked)
+            defaults.set(true, forKey: storageKey(StorageKey.canvasLinked))
             let status = CalendarLinkStatus(
                 calendarUrl: trimmed,
                 status: .active,
@@ -301,9 +299,17 @@ final class AppState: ObservableObject {
             throw CalendarLinkInputError.authenticationRequired
         }
 
+        guard let requestUserSub = authenticatedUserSub else {
+            throw CalendarLinkInputError.authenticationRequired
+        }
+
         do {
             print("[AppState] Submitting calendar link", trimmed)
             let status = try await apiClient.updateCalendarLink(CalendarLinkUpdateRequest(calendarUrl: trimmed))
+            guard requestUserSub == authenticatedUserSub else {
+                print("[AppState] Ignoring calendar link save for stale user context")
+                throw CancellationError()
+            }
             print("[AppState] Calendar link saved", status.status.rawValue)
             updateStoredCalendarStatus(status)
             await fetchCalendarAgenda()
@@ -314,41 +320,49 @@ final class AppState: ObservableObject {
         }
     }
 
-    func removeCalendarLink() async {
+    @discardableResult
+    func removeCalendarLink() async -> Bool {
         print("[AppState] Removing calendar link")
+        let requestUserSub = authenticatedUserSub
         if useFakeCanvas {
             isCanvasLinked = false
-            defaults.set(false, forKey: StorageKey.canvasLinked)
+            defaults.set(false, forKey: storageKey(StorageKey.canvasLinked))
             calendarLinkStatus = nil
-            return
+            return true
         }
 
-        defaults.removeObject(forKey: StorageKey.canvasLinked)
+        defaults.removeObject(forKey: storageKey(StorageKey.canvasLinked))
 
         if config.apiMode == "live" {
             do {
                 try await apiClient.deleteCalendarLink()
+                guard requestUserSub == authenticatedUserSub else {
+                    print("[AppState] Ignoring calendar link removal for stale user context")
+                    return false
+                }
             } catch {
                 print("[AppState] Failed to delete calendar link: \(error)")
+                return false
             }
         }
 
         updateStoredCalendarStatus(nil)
         calendarAgenda = []
         calendarAgendaFetchedAt = nil
+        return true
     }
 
     func goToNextVerse() {
         guard !verseDeck.isEmpty else { return }
         historyUpsert(currentVerse)
         currentVerseIndex = (currentVerseIndex + 1) % verseDeck.count
-        defaults.set(currentVerseIndex, forKey: StorageKey.currentVerseIndex)
+        defaults.set(currentVerseIndex, forKey: storageKey(StorageKey.currentVerseIndex))
     }
 
     func goToPreviousVerse() {
         guard !verseDeck.isEmpty else { return }
         currentVerseIndex = currentVerseIndex == 0 ? max(verseDeck.count - 1, 0) : currentVerseIndex - 1
-        defaults.set(currentVerseIndex, forKey: StorageKey.currentVerseIndex)
+        defaults.set(currentVerseIndex, forKey: storageKey(StorageKey.currentVerseIndex))
     }
 
     func presentPopups() {
@@ -377,10 +391,12 @@ final class AppState: ObservableObject {
             _ = try await authSession.validBearerToken()
             isAuthenticated = true
             authenticationNotice = nil
+            await refreshAuthenticatedUser()
             await refreshCalendarLinkStatus(force: true)
         } catch {
             isAuthenticated = false
             authenticationNotice = "Your session has expired. Please sign in again."
+            setAuthenticatedUserSub(nil)
         }
     }
 
@@ -392,19 +408,28 @@ final class AppState: ObservableObject {
             try await coordinator.startSignIn(from: anchor)
             isAuthenticated = true
             authenticationNotice = nil
+            await refreshAuthenticatedUser()
             await refreshCalendarLinkStatus(force: true)
         } catch {
             isAuthenticated = false
             if authenticationNotice == nil {
                 authenticationNotice = error.localizedDescription
             }
+            setAuthenticatedUserSub(nil)
             throw error
         }
     }
 
     func signOut() {
+        clearCalendarLinkState()
+
         guard config.apiMode == "live" else {
             isAuthenticated = false
+            authenticationNotice = "You have been signed out. Please sign in again."
+            latestScanSummary = nil
+            encouragementStatusMessage = nil
+            latestScanError = nil
+            setAuthenticatedUserSub(nil)
             return
         }
 
@@ -414,11 +439,13 @@ final class AppState: ObservableObject {
             }
 
             await MainActor.run { [self] in
+                clearCalendarLinkState()
                 isAuthenticated = false
                 authenticationNotice = "You have been signed out. Please sign in again."
                 latestScanSummary = nil
                 encouragementStatusMessage = nil
                 latestScanError = nil
+                setAuthenticatedUserSub(nil)
             }
         }
     }
@@ -484,7 +511,7 @@ final class AppState: ObservableObject {
                 let summary = try await apiClient.fetchTodayCanvas()
                 await MainActor.run {
                     canvasSummary = summary
-                    try? defaults.encode(summary, forKey: StorageKey.canvasSummary)
+                    try? defaults.encode(summary, forKey: storageKey(StorageKey.canvasSummary))
                 }
             } catch {
                 print("[AppState] Failed to fetch canvas summary: \(error)")
@@ -500,8 +527,13 @@ final class AppState: ObservableObject {
     }
 
     private func fetchCalendarAgenda() async {
+        let requestUserSub = authenticatedUserSub
         do {
             let response = try await apiClient.fetchCalendarAgenda()
+            guard requestUserSub == authenticatedUserSub else {
+                print("[AppState] Ignoring calendar agenda response for stale user context")
+                return
+            }
             await MainActor.run { [self] in
                 calendarAgenda = response.items
                 calendarAgendaFetchedAt = response.fetchedAt
@@ -559,27 +591,152 @@ final class AppState: ObservableObject {
 
     func clearHistory() {
         history.removeAll()
-        defaults.removeObject(forKey: StorageKey.history)
+        defaults.removeObject(forKey: storageKey(StorageKey.history))
     }
 
     private func updateStoredCalendarStatus(_ status: CalendarLinkStatus?) {
         calendarLinkStatus = status
         guard !useFakeCanvas else { return }
 
-        defaults.removeObject(forKey: StorageKey.canvasLinked)
+        if config.apiMode == "live", authenticatedUserSub == nil {
+            isCanvasLinked = status?.status == .active
+            if status == nil {
+                calendarAgenda = []
+                calendarAgendaFetchedAt = nil
+            }
+            return
+        }
+
+        defaults.removeObject(forKey: storageKey(StorageKey.canvasLinked))
 
         if let status {
             isCanvasLinked = status.status == .active
-            try? defaults.encode(status, forKey: StorageKey.calendarLinkStatus)
+            try? defaults.encode(status, forKey: storageKey(StorageKey.calendarLinkStatus))
             if status.status == .active {
                 refreshCalendarAgenda()
             }
         } else {
             isCanvasLinked = false
-            defaults.removeObject(forKey: StorageKey.calendarLinkStatus)
+            defaults.removeObject(forKey: storageKey(StorageKey.calendarLinkStatus))
             calendarAgenda = []
             calendarAgendaFetchedAt = nil
         }
+    }
+
+    private func clearCalendarLinkState() {
+        if useFakeCanvas {
+            isCanvasLinked = false
+            defaults.removeObject(forKey: storageKey(StorageKey.canvasLinked))
+            calendarLinkStatus = nil
+            calendarAgenda = []
+            calendarAgendaFetchedAt = nil
+        } else {
+            updateStoredCalendarStatus(nil)
+        }
+    }
+
+    private func setAuthenticatedUserSub(_ sub: String?) {
+        if authenticatedUserSub == sub {
+            return
+        }
+
+        authenticatedUserSub = sub
+
+        if config.apiMode == "live" {
+            if let sub {
+                defaults.set(sub, forKey: StorageKey.lastAuthenticatedUser)
+            } else {
+                defaults.removeObject(forKey: StorageKey.lastAuthenticatedUser)
+            }
+        }
+
+        reloadUserScopedPreferences()
+    }
+
+    func refreshAuthenticatedUser() async {
+        guard config.apiMode == "live" else {
+            return
+        }
+
+        guard let authSession else {
+            setAuthenticatedUserSub(nil)
+            return
+        }
+
+        do {
+            let sub = try await authSession.currentUserSub()
+            setAuthenticatedUserSub(sub)
+        } catch {
+            setAuthenticatedUserSub(nil)
+        }
+    }
+
+    private func storageKey(_ key: String) -> String {
+        guard config.apiMode == "live",
+              let userSub = authenticatedUserSub,
+              Self.userScopedKeys.contains(key) else {
+            return key
+        }
+        return "\(key)::\(userSub)"
+    }
+
+    private func reloadUserScopedPreferences() {
+        if config.apiMode == "live" && authenticatedUserSub == nil {
+            onboardingCompleted = false
+            useProfilePersonalization = true
+            isCanvasLinked = false
+            calendarLinkStatus = nil
+            selectedTranslation = config.defaultTranslation
+            currentVerseIndex = 0
+            history = []
+            canvasSummary = nil
+            clampCurrentIndex()
+            return
+        }
+
+        let onboardingKey = storageKey(StorageKey.onboardingCompleted)
+        var storedOnboardingCompleted = defaults.bool(forKey: onboardingKey)
+        if storedOnboardingCompleted && !hasStoredProfile() {
+            defaults.set(false, forKey: onboardingKey)
+            storedOnboardingCompleted = false
+        }
+        onboardingCompleted = storedOnboardingCompleted
+
+        useProfilePersonalization = defaults.object(forKey: storageKey(StorageKey.useProfilePersonalization)) as? Bool ?? true
+
+        if useFakeCanvas {
+            isCanvasLinked = defaults.object(forKey: storageKey(StorageKey.canvasLinked)) as? Bool ?? false
+            calendarLinkStatus = nil
+        } else if let storedStatus = try? defaults.decode(CalendarLinkStatus.self, forKey: storageKey(StorageKey.calendarLinkStatus)) {
+            calendarLinkStatus = storedStatus
+            isCanvasLinked = storedStatus.status == .active
+        } else {
+            calendarLinkStatus = nil
+            isCanvasLinked = defaults.object(forKey: storageKey(StorageKey.canvasLinked)) as? Bool ?? false
+            if defaults.object(forKey: storageKey(StorageKey.calendarLinkStatus)) != nil {
+                defaults.removeObject(forKey: storageKey(StorageKey.calendarLinkStatus))
+            }
+        }
+
+        selectedTranslation = Translation(rawValue: defaults.string(forKey: storageKey(StorageKey.translation)) ?? "") ?? config.defaultTranslation
+        currentVerseIndex = defaults.integer(forKey: storageKey(StorageKey.currentVerseIndex))
+        history = (try? defaults.decode([Verse].self, forKey: storageKey(StorageKey.history))) ?? []
+        canvasSummary = try? defaults.decode(TodayCanvas.self, forKey: storageKey(StorageKey.canvasSummary))
+
+        clampCurrentIndex()
+    }
+
+    private func hasStoredProfile() -> Bool {
+        if config.apiMode == "live", authenticatedUserSub == nil {
+            return false
+        }
+
+        if defaults.object(forKey: storageKey(StorageKey.profileAge)) != nil { return true }
+        if defaults.object(forKey: storageKey(StorageKey.profileMajor)) != nil { return true }
+        if defaults.object(forKey: storageKey(StorageKey.profileGender)) != nil { return true }
+        if defaults.object(forKey: storageKey(StorageKey.profileHobbies)) != nil { return true }
+        if defaults.object(forKey: storageKey(StorageKey.profileOptIn)) != nil { return true }
+        return false
     }
 
     private var currentWeekBounds: (start: Date, end: Date)? {
@@ -621,7 +778,7 @@ final class AppState: ObservableObject {
             history.remove(at: existingIndex)
         }
         history.insert(verse, at: 0)
-        try? defaults.encode(history, forKey: StorageKey.history)
+        try? defaults.encode(history, forKey: storageKey(StorageKey.history))
     }
 
     private func clampCurrentIndex() {
@@ -692,18 +849,6 @@ final class AppState: ObservableObject {
         }
     }
 }
-
-private extension AppState {
-    static func hasStoredProfile(in defaults: UserDefaults) -> Bool {
-        if defaults.object(forKey: StorageKey.profileAge) != nil { return true }
-        if defaults.object(forKey: StorageKey.profileMajor) != nil { return true }
-        if defaults.object(forKey: StorageKey.profileGender) != nil { return true }
-        if defaults.object(forKey: StorageKey.profileHobbies) != nil { return true }
-        if defaults.object(forKey: StorageKey.profileOptIn) != nil { return true }
-        return false
-    }
-}
-
 extension AppState {
     enum StorageKey {
         static let onboardingCompleted = "walkworthy.onboardingCompleted"
@@ -720,6 +865,7 @@ extension AppState {
         static let profileGender = "walkworthy.profile.gender"
         static let profileHobbies = "walkworthy.profile.hobbies"
         static let profileOptIn = "walkworthy.profile.optIn"
+        static let lastAuthenticatedUser = "walkworthy.auth.lastUser"
     }
 
     enum CalendarLinkInputError: LocalizedError {
