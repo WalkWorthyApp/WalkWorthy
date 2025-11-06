@@ -24,22 +24,20 @@ struct WalkWorthyApp: App {
         print("Cognito client ID:", Config.shared.cognitoClientId as Any)
         print("Cognito redirect URI:", Config.shared.cognitoRedirectURI as Any)
         print("BGTask identifiers:", Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") ?? "missing")
-        print("BGTask identifiers:",Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") ?? "missing")
 
-        let session = AuthSession(config: resolvedConfig)
-        let apiClient: any EncouragementAPI
+        guard let session = AuthSession(config: resolvedConfig) else {
+            fatalError("Cognito configuration is missing")
+        }
 
-        if resolvedConfig.apiMode == "live", let session, let liveClient = LiveAPIClient(config: resolvedConfig, tokenProvider: session) {
-            apiClient = liveClient
-        } else {
-            apiClient = MockAPIClient()
+        guard let liveClient = LiveAPIClient(config: resolvedConfig, tokenProvider: session) else {
+            fatalError("API_BASE_URL is not configured")
         }
 
         self.config = resolvedConfig
         self.authSession = session
-        _appState = StateObject(wrappedValue: AppState(config: resolvedConfig, apiClient: apiClient, authSession: session))
+        _appState = StateObject(wrappedValue: AppState(config: resolvedConfig, apiClient: liveClient, authSession: session))
 
-        BackgroundTasksManager.shared.configure(apiClient: apiClient)
+        BackgroundTasksManager.shared.configure(apiClient: liveClient)
         BackgroundTasksManager.shared.register()
     }
 
@@ -49,17 +47,12 @@ struct WalkWorthyApp: App {
                 .environmentObject(appState)
                 .task {
                     await NotificationScheduler.shared.requestAuthorizationIfNeeded()
-                    if config.apiMode == "live" {
-                        await appState.evaluateAuthentication()
-                        if appState.isAuthenticated {
-                            await appState.refreshCalendarLinkStatus(force: false)
-                            BackgroundTasksManager.shared.scheduleNextRefresh()
-                        }
+                    await appState.evaluateAuthentication()
+                    if appState.isAuthenticated {
+                        await appState.refreshCalendarLinkStatus(force: false)
+                        BackgroundTasksManager.shared.scheduleNextRefresh()
                     }
                     appState.refreshEncouragementDeck()
-                    if appState.isCanvasLinked {
-                        appState.refreshCanvasSummary()
-                    }
                 }
         }
     }

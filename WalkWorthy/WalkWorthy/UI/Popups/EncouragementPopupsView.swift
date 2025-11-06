@@ -9,7 +9,7 @@ import SwiftUI
 import UIKit
 
 struct EncouragementPopupsView: View {
-    let cards: [EncouragementCard]
+    let verses: [Verse]
     var onDismiss: () -> Void
 
     @State private var index: Int = 0
@@ -20,26 +20,35 @@ struct EncouragementPopupsView: View {
         NavigationStack {
             VStack(spacing: 24) {
                 TabView(selection: $index) {
-                    ForEach(Array(cards.enumerated()), id: \.element.id) { idx, card in
+                    ForEach(Array(items.enumerated()), id: \.element.id) { idx, verse in
                         VStack(alignment: .leading, spacing: 16) {
-                            Text(card.tag.uppercased())
+                            Text(verse.reference)
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
                                 .tracking(1.2)
-                            Text(card.title)
-                                .font(.title2.weight(.bold))
-                            Text(card.message)
+                            Text(verse.encouragement)
+                                .font(.title3.weight(.bold))
+                                .fixedSize(horizontal: false, vertical: true)
+                            Text(verse.text)
                                 .font(.body)
                                 .foregroundStyle(.primary)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
-                        .glassCard()
+                        .padding(24)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .fill(Color(.systemBackground).opacity(0.92))
+                                .shadow(color: Color.black.opacity(0.08), radius: 18, x: 0, y: 10)
+                        )
                         .padding(.horizontal, 24)
                         .tag(idx)
                     }
                 }
-                .tabViewStyle(.page(indexDisplayMode: .always))
-                .frame(height: 340)
+                .tabViewStyle(.page)
+                .indexViewStyle(.page(backgroundDisplayMode: .always))
+                .frame(height: 360)
+                .padding(.bottom, 12)
                 .onChange(of: index) { _, _ in
                     impactGenerator.impactOccurred()
                     impactGenerator.prepare()
@@ -67,7 +76,7 @@ struct EncouragementPopupsView: View {
             }
             .padding(.vertical, 40)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .background(Color(.systemBackground).opacity(0.95))
+            .background(Color(.systemBackground))
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: onDismiss) {
@@ -81,5 +90,19 @@ struct EncouragementPopupsView: View {
         .onAppear {
             impactGenerator.prepare()
         }
+    }
+
+    private var items: [Verse] {
+        var seen = Set<Verse>()
+        var ordered: [Verse] = []
+        for verse in verses {
+            if seen.insert(verse).inserted {
+                ordered.append(verse)
+            }
+        }
+        if ordered.isEmpty {
+            ordered = [Verse.placeholder]
+        }
+        return ordered
     }
 }

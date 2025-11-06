@@ -35,11 +35,6 @@ final class LiveAPIClient: EncouragementAPI {
         return try await send(request, decode: NextResponse.self)
     }
 
-    func fetchTodayCanvas() async throws -> TodayCanvas {
-        // Live API surfaces Canvas insights through encouragement metadata; return an empty summary here.
-        TodayCanvas(assignmentsToday: [], examsToday: [])
-    }
-
     func triggerScanNow() async throws -> ScanNowResponse {
         let request = try await makeRequest(path: "scan/now", method: "POST", body: EmptyPayload())
         return try await send(request, decode: ScanNowResponse.self)

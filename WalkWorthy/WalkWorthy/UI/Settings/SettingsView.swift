@@ -28,14 +28,6 @@ struct SettingsView: View {
                         Text("Use onboarding profile")
                     }
 
-                    Toggle(isOn: Binding(
-                        get: { appState.useFakeCanvas },
-                        set: { appState.setUseFakeCanvas($0) }
-                    )) {
-                        Text("Use fake Canvas link")
-                    }
-                    .tint(.accentColor)
-
                     Picker("Default translation", selection: Binding(
                         get: { appState.selectedTranslation },
                         set: { appState.setTranslation($0) }
@@ -59,19 +51,16 @@ struct SettingsView: View {
                     }
                 }
 
-                if appState.isLiveMode {
-                    Section("Account") {
-                        Button(role: .destructive) {
-                            appState.signOut()
-                        } label: {
-                            Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
-                        }
-                        .disabled(!appState.isAuthenticated)
+                Section("Account") {
+                    Button(role: .destructive) {
+                        appState.signOut()
+                    } label: {
+                        Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
                     }
+                    .disabled(!appState.isAuthenticated)
                 }
 
                 Section("About") {
-                    LabeledContent("API mode", value: config.apiMode)
                     LabeledContent("Notifications", value: config.notificationMode)
                     LabeledContent("Build", value: Bundle.main.versionString)
                 }

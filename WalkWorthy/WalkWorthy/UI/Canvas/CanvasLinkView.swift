@@ -23,13 +23,7 @@ struct CanvasLinkView: View {
     private let videoURL = URL(string: "https://embed.app.guidde.com/playbooks/dWssxANX5cthPMjTysXfia")
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if shouldUseLiveFlow {
-                liveContent
-            } else {
-                mockContent
-            }
-        }
+        liveContent
         .glassCard()
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: appState.isCanvasLinked)
         .sheet(isPresented: $showInstructions) {
@@ -40,12 +34,6 @@ struct CanvasLinkView: View {
             syncInputFromStatus()
         }
     }
-
-    private var shouldUseLiveFlow: Bool {
-        config.apiMode == "live" && !appState.useFakeCanvas
-    }
-
-    // MARK: - Live flow
 
     private var liveContent: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -288,7 +276,7 @@ struct CanvasLinkView: View {
     private func syncFromState() {
         syncInputFromStatus()
 
-        guard shouldUseLiveFlow, !hasLoadedStatus else { return }
+        guard !hasLoadedStatus else { return }
         hasLoadedStatus = true
         Task {
             await appState.refreshCalendarLinkStatus(force: false)
@@ -298,80 +286,11 @@ struct CanvasLinkView: View {
     private func syncInputFromStatus() {
         guard !isSaving, !isURLFieldFocused else { return }
         let statusURL = appState.calendarLinkStatus?.calendarUrl ?? ""
-        if calendarUrl.isEmpty || calendarUrl == statusURL {
+        if calendarUrl != statusURL {
             calendarUrl = statusURL
         }
     }
 
-    // MARK: - Mock flow
-
-    private var mockContent: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Image(systemName: appState.isCanvasLinked ? "checkmark.circle.fill" : "link")
-                    .font(.system(size: 32, weight: .semibold))
-                    .foregroundStyle(appState.isCanvasLinked ? Color.green : Color.accentColor)
-                    .accessibilityHidden(true)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(appState.isCanvasLinked ? "Canvas linked (mock)" : "Link Canvas (mock)")
-                        .font(.headline)
-                    Text(appState.isCanvasLinked ? "We’ll surface assignments in encouragements." : "Tap to simulate a Canvas iCal flow. No credentials needed.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-
-            Button(action: toggleMockLink) {
-                Text(appState.isCanvasLinked ? "Unlink Canvas" : "Link Canvas (Mock)")
-                    .font(.headline)
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(
-                        LinearGradient(
-                            colors: [Color.accentColor.opacity(0.85), Color.accentColor],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        in: RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    )
-                    .foregroundStyle(Color.white)
-            }
-            .buttonStyle(.plain)
-
-            Button {
-                showInstructions = true
-            } label: {
-                Label("Preview the student instructions", systemImage: "list.bullet.rectangle")
-                    .font(.footnote.bold())
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            }
-            .buttonStyle(.plain)
-
-            if appState.isCanvasLinked {
-                if let summary = appState.canvasSummary {
-                    CanvasSummaryView(summary: summary)
-                } else {
-                    Text("Linked! Mock assignments will appear in your encouragements.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else {
-                Text("The production app will collect a real Canvas calendar link here. In mock mode, this simply toggles simulated data.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private func toggleMockLink() {
-        appState.toggleCanvasLink()
-        if appState.isCanvasLinked {
-            appState.refreshCanvasSummary()
-        }
-    }
 }
 
 // MARK: - Supporting views
@@ -414,46 +333,6 @@ private struct LiveStatusDetail: View {
                     .foregroundStyle(Color.red)
             }
         }
-    }
-}
-
-private struct CanvasSummaryView: View {
-    let summary: TodayCanvas
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if !summary.assignmentsToday.isEmpty {
-                Text("Assignments today")
-                    .font(.caption.bold())
-                ForEach(summary.assignmentsToday.prefix(3)) { assignment in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(assignment.title)
-                            .font(.footnote.bold())
-                        Text("Due at \(assignment.dueAt)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-
-            if !summary.examsToday.isEmpty {
-                Text("Exams today")
-                    .font(.caption.bold())
-                    .padding(.top, summary.assignmentsToday.isEmpty ? 0 : 8)
-                ForEach(summary.examsToday.prefix(3)) { exam in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(exam.title)
-                            .font(.footnote.bold())
-                        Text(exam.when)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
 

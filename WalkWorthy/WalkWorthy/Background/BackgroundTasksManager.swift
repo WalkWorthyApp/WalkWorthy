@@ -2,7 +2,7 @@
 //  BackgroundTasksManager.swift
 //  WalkWorthy
 //
-//  Registers and schedules BGTask refresh jobs for the mock API.
+//  Registers and schedules BGTask refresh jobs for the live API.
 //
 
 import Foundation
@@ -12,11 +12,9 @@ final class BackgroundTasksManager {
     static let shared = BackgroundTasksManager()
 
     private let identifier = "com.walkworthy.refresh"
-    private var apiClient: any EncouragementAPI
+    private var apiClient: (any EncouragementAPI)?
 
-    private init(apiClient: any EncouragementAPI = MockAPIClient()) {
-        self.apiClient = apiClient
-    }
+    private init() {}
 
     func configure(apiClient: any EncouragementAPI) {
         self.apiClient = apiClient
@@ -46,6 +44,10 @@ final class BackgroundTasksManager {
         scheduleNextRefresh()
 
         let operation = Task {
+            guard let apiClient else {
+                task.setTaskCompleted(success: false)
+                return
+            }
             do {
                 let response = try await apiClient.fetchNext()
                 if response.shouldNotify {

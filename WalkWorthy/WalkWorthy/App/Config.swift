@@ -2,7 +2,7 @@
 //  Config.swift
 //  WalkWorthy
 //
-//  Lightweight feature flag configuration.
+//  Runtime configuration sourced from Info.plist and environment overrides.
 //
 
 import Foundation
@@ -10,8 +10,6 @@ import Foundation
 struct Config {
     static let shared = Config()
 
-    let apiMode: String
-    let useFakeCanvas: Bool
     let notificationMode: String
     let defaultTranslation: Translation
     let apiBaseURL: URL?
@@ -37,7 +35,6 @@ struct Config {
             merged[key] = transformed
         }
 
-        override("API_MODE")
         override("API_BASE_URL")
         override("COGNITO_DOMAIN")
         override("COGNITO_CLIENT_ID")
@@ -47,20 +44,7 @@ struct Config {
         override("CANVAS_REDIRECT_URI")
         override("DEFAULT_TRANSLATION") { $0.uppercased() }
         override("NOTIFICATION_MODE")
-        override("USE_FAKE_CANVAS") { value in
-            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-            switch normalized {
-            case "1", "true", "yes", "y", "on":
-                return NSNumber(value: true)
-            case "0", "false", "no", "n", "off":
-                return NSNumber(value: false)
-            default:
-                return nil
-            }
-        }
 
-        apiMode = (merged["API_MODE"] as? String)?.lowercased() ?? "mock"
-        useFakeCanvas = (merged["USE_FAKE_CANVAS"] as? NSNumber)?.boolValue ?? true
         notificationMode = (merged["NOTIFICATION_MODE"] as? String)?.lowercased() ?? "local"
         let translationKey = (merged["DEFAULT_TRANSLATION"] as? String)?.uppercased() ?? Translation.esv.rawValue
         defaultTranslation = Translation(rawValue: translationKey) ?? .esv

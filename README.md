@@ -13,16 +13,16 @@ WalkWorthy combines daily Canvas context with Scripture-based encouragement. Thi
 3. The resulting encouragement is stored for mobile consumption, surfaced in the app, and optionally delivered through background refresh and notifications.
 
 ## Key Capabilities
-- Configurable runtime that can run completely offline with mock data or connect to the live stack using environment overrides.
+- Live-only runtime wired to the production API stack with environment-driven configuration.
 - Cognito-backed authentication flow with secure token handling and automatic request signing.
 - Background refresh, agenda snapshots, and notification scheduling designed for daily use.
 - Guarded agent execution that enforces strict output schemas, filters sensitive content, and validates chosen verses against the provided candidates.
 
 ## Getting Started (App)
 1. Open `WalkWorthy/WalkWorthy.xcodeproj` in Xcode.
-2. Run the `WalkWorthy` target on a simulator or device.
-3. Switch between mock and live behavior by adjusting the bundled configuration plist or exporting environment variables (`API_MODE`, `API_BASE_URL`, `DEFAULT_TRANSLATION`, and related keys).
-4. In live mode, sign in through the Hosted UI, paste your Canvas calendar link, and use “Scan Now” to view the full flow.
+2. Ensure the required environment overrides (e.g., `API_BASE_URL`, Cognito domain/client IDs, redirect URIs) are set for the live stack.
+3. Run the `WalkWorthy` target on a simulator or device.
+4. Sign in through the Hosted UI, paste your Canvas calendar link, and use “Scan Now” to view the full flow.
 
 ## Deployment Snapshot
 - The CDK stack imports the existing `walkworthy` DynamoDB table and the `walkworthy/openai/api-key` secret, provisions the HTTP API plus Lambda functions, and schedules weekday scans.

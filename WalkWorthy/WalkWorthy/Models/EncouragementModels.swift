@@ -2,15 +2,13 @@
 //  EncouragementModels.swift
 //  WalkWorthy
 //
-//  Shared models and sample data for the UI-only sprint.
+//  Shared models used by the live encouragement and Canvas APIs.
 //
 
 import Foundation
-import SwiftUI
 
 protocol EncouragementAPI {
     func fetchNext() async throws -> NextResponse
-    func fetchTodayCanvas() async throws -> TodayCanvas
     func triggerScanNow() async throws -> ScanNowResponse
     func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws
     func fetchCalendarAgenda() async throws -> CalendarAgendaResponse
@@ -129,75 +127,6 @@ struct RemoteUserProfileRequest: Codable {
     var translationPreference: String?
 }
 
-struct TodayCanvas: Codable, Equatable {
-    let assignmentsToday: [Assignment]
-    let examsToday: [Exam]
-}
-
-struct Assignment: Codable, Equatable, Identifiable {
-    let id: UUID
-    let title: String
-    let dueAt: String
-    let points: Int?
-
-    init(id: UUID = UUID(), title: String, due_at: String, points: Int?) {
-        self.id = id
-        self.title = title
-        self.dueAt = due_at
-        self.points = points
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case title
-        case due_at
-        case points
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let title = try container.decode(String.self, forKey: .title)
-        let dueAt = try container.decode(String.self, forKey: .due_at)
-        let points = try container.decodeIfPresent(Int.self, forKey: .points)
-        self.init(title: title, due_at: dueAt, points: points)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(title, forKey: .title)
-        try container.encode(dueAt, forKey: .due_at)
-        try container.encodeIfPresent(points, forKey: .points)
-    }
-}
-
-struct Exam: Codable, Equatable, Identifiable {
-    let id: UUID
-    let title: String
-    let when: String
-
-    init(id: UUID = UUID(), title: String, when: String) {
-        self.id = id
-        self.title = title
-        self.when = when
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case title
-        case when
-    }
-
-    init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        let title = try container.decode(String.self, forKey: .title)
-        let when = try container.decode(String.self, forKey: .when)
-        self.init(title: title, when: when)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var container = encoder.container(keyedBy: CodingKeys.self)
-        try container.encode(title, forKey: .title)
-        try container.encode(when, forKey: .when)
-    }
-}
 
 struct Verse: Identifiable, Codable, Equatable, Hashable {
     let id: String
@@ -253,13 +182,6 @@ enum Translation: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-struct EncouragementCard: Identifiable, Equatable {
-    let id = UUID()
-    let tag: String
-    let title: String
-    let message: String
-}
-
 enum Gender: String, CaseIterable, Identifiable {
     case female = "Female"
     case male = "Male"
@@ -297,38 +219,4 @@ enum Hobby: String, CaseIterable {
         case .outdoors: return "Outdoors"
         }
     }
-}
-
-enum MockData {
-    static let verses: [Verse] = [
-        Verse(
-            id: "verse-001",
-            reference: "Isaiah 40:31",
-            text: "But they who wait for the Lord shall renew their strength; they shall mount up with wings like eagles; they shall run and not be weary; they shall walk and not faint.",
-            encouragement: "Strength is coming. Breathe, wait, and watch God renew you.",
-            translation: .esv
-        ),
-        Verse(
-            id: "verse-002",
-            reference: "Philippians 4:6-7",
-            text: "Do not be anxious about anything, but in everything by prayer and supplication with thanksgiving let your requests be made known to God.",
-            encouragement: "Trade your worry for worship. God guards hearts that are honest with Him.",
-            translation: .niv
-        ),
-        Verse(
-            id: "verse-003",
-            reference: "Joshua 1:9",
-            text: "Have I not commanded you? Be strong and courageous. Do not be frightened, and do not be dismayed, for the Lord your God is with you wherever you go.",
-            encouragement: "Wherever campus takes you today, you never walk alone.",
-            translation: .kjv
-        )
-    ]
-
-    static let encouragementCards: [EncouragementCard] = [
-        EncouragementCard(tag: "Courage", title: "Step into boldness", message: "You were made for this moment. Take the step with confidence."),
-        EncouragementCard(tag: "Rest", title: "Breathe deeply", message: "Pause and receive God’s rest. You don’t have to carry it alone."),
-        EncouragementCard(tag: "Wisdom", title: "Ask for insight", message: "Invite the Spirit into the decision. Clarity often follows surrender."),
-        EncouragementCard(tag: "Joy", title: "Look for the good", message: "Gratitude is rebellion against hurry. Celebrate a small win today."),
-        EncouragementCard(tag: "Hope", title: "Light is breaking", message: "Even in long nights, God’s promises are still sunrise sure.")
-    ]
 }

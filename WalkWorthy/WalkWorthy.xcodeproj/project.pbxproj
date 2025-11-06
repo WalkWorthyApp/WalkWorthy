@@ -7,12 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		AAE8D0502F9F5DA300AA0020 /* Mock in Resources */ = {isa = PBXBuildFile; fileRef = AAE8D0402F9F5DA300AA0010 /* Mock */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		2F5AB6162E90FD8F00333B8C /* WalkWorthy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WalkWorthy.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		AAE8D0402F9F5DA300AA0010 /* Mock */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Mock; path = WalkWorthy/Mock; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -52,7 +50,6 @@
 			children = (
 				2F5AB6182E90FD8F00333B8C /* WalkWorthy */,
 				2F5AB6172E90FD8F00333B8C /* Products */,
-				2FF89A5A2E9CD9A2004D9CDF /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -64,15 +61,7 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		2FF89A5A2E9CD9A2004D9CDF /* Recovered References */ = {
-			isa = PBXGroup;
-			children = (
-				AAE8D0402F9F5DA300AA0010 /* Mock */,
-			);
-			name = "Recovered References";
-			sourceTree = "<group>";
-		};
-/* End PBXGroup section */
+	/* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
 		2F5AB6152E90FD8F00333B8C /* WalkWorthy */ = {
@@ -136,7 +125,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				AAE8D0502F9F5DA300AA0020 /* Mock in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

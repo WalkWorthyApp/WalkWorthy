@@ -36,7 +36,7 @@ struct HomeView: View {
         .navigationTitle("Today’s Encouragement")
         .toolbarTitleDisplayMode(.inline)
         .sheet(isPresented: $appState.showPopups) {
-            EncouragementPopupsView(cards: MockData.encouragementCards) {
+            EncouragementPopupsView(verses: appState.encouragementCarousel) {
                 appState.dismissPopups()
             }
         }
@@ -107,22 +107,6 @@ struct HomeView: View {
 
     private var controlButtons: some View {
         VStack(spacing: 16) {
-            HStack(spacing: 16) {
-                Button(action: appState.goToPreviousVerse) {
-                    Label("Previous", systemImage: "chevron.left")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(GlassButtonStyle())
-
-                Button(action: appState.goToNextVerse) {
-                    Label("Next", systemImage: "chevron.right")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(GlassButtonStyle())
-            }
-
             Button {
                 appState.triggerScanNow()
             } label: {

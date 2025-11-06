@@ -2,7 +2,7 @@
 //  AppState.swift
 //  WalkWorthy
 //
-//  Created for UI-only sprint.
+//  Central application state for the live WalkWorthy experience.
 //
 
 import Foundation
@@ -20,8 +20,6 @@ final class AppState: ObservableObject {
     @Published var isCanvasLinked: Bool
     @Published var onboardingCompleted: Bool
     @Published var useProfilePersonalization: Bool
-    @Published var useFakeCanvas: Bool
-    @Published var canvasSummary: TodayCanvas?
     @Published var calendarAgenda: [CalendarAgendaItem]
     @Published var calendarAgendaFetchedAt: Date?
     @Published private(set) var calendarLinkStatus: CalendarLinkStatus?
@@ -48,7 +46,6 @@ final class AppState: ObservableObject {
     private let defaults: UserDefaults
     private let config: Config
     private let authSession: AuthSession?
-    private let liveAPIClient: LiveAPIClient?
     private static let userScopedKeys: Set<String> = [
         StorageKey.onboardingCompleted,
         StorageKey.useProfilePersonalization,
@@ -57,7 +54,7 @@ final class AppState: ObservableObject {
         StorageKey.translation,
         StorageKey.currentVerseIndex,
         StorageKey.history,
-        StorageKey.canvasSummary,
+        StorageKey.verseDeck,
         StorageKey.profileAge,
         StorageKey.profileMajor,
         StorageKey.profileGender,
@@ -71,7 +68,7 @@ final class AppState: ObservableObject {
 
     init(
         config: Config = .shared,
-        apiClient: any EncouragementAPI = MockAPIClient(),
+        apiClient: any EncouragementAPI,
         authSession: AuthSession? = nil,
         notificationScheduler: NotificationScheduler = .shared,
         defaults: UserDefaults = .standard
@@ -79,12 +76,10 @@ final class AppState: ObservableObject {
         self.config = config
         self.apiClient = apiClient
         self.authSession = authSession
-        self.liveAPIClient = apiClient as? LiveAPIClient
         self.notificationScheduler = notificationScheduler
         self.defaults = defaults
-        self.isAuthenticated = config.apiMode != "live"
-        self.useFakeCanvas = defaults.object(forKey: StorageKey.useFakeCanvas) as? Bool ?? config.useFakeCanvas
-        self.verseDeck = MockData.verses
+        self.isAuthenticated = false
+        self.verseDeck = []
         self.history = []
         self.currentVerseIndex = 0
         self.selectedTranslation = config.defaultTranslation
@@ -96,7 +91,6 @@ final class AppState: ObservableObject {
         self.isCanvasLinked = false
         self.useProfilePersonalization = true
         self.onboardingCompleted = false
-        self.canvasSummary = nil
         self.isScanning = false
         self.latestScanSummary = nil
         self.latestScanError = nil
@@ -104,8 +98,10 @@ final class AppState: ObservableObject {
         self.hasFreshEncouragement = true
 
         reloadUserScopedPreferences()
+        ensurePlaceholderIfNeeded()
+        persistVerseDeck()
 
-        if config.apiMode == "live" && !onboardingCompleted {
+        if !onboardingCompleted {
             isAuthenticated = false
             Task {
                 if let authSession {
@@ -116,7 +112,7 @@ final class AppState: ObservableObject {
     }
 
     var currentVerse: Verse {
-        verseDeck[safe: currentVerseIndex] ?? MockData.verses.first ?? Verse.placeholder
+        verseDeck[safe: currentVerseIndex] ?? verseDeck.first ?? Verse.placeholder
     }
 
     var weeklyCalendarAgenda: [CalendarAgendaItem] {
@@ -146,6 +142,27 @@ final class AppState: ObservableObject {
         return "\(startText) – \(endText)"
     }
 
+    var encouragementCarousel: [Verse] {
+        var seen = Set<Verse>()
+        var ordered: [Verse] = []
+
+        if let current = verseDeck[safe: currentVerseIndex] {
+            if seen.insert(current).inserted {
+                ordered.append(current)
+            }
+        }
+
+        for verse in history where seen.insert(verse).inserted {
+            ordered.append(verse)
+        }
+
+        for verse in verseDeck where seen.insert(verse).inserted {
+            ordered.append(verse)
+        }
+
+        return ordered.isEmpty ? [Verse.placeholder] : ordered
+    }
+
     func markOnboardingComplete() {
         onboardingCompleted = true
         defaults.set(true, forKey: storageKey(StorageKey.onboardingCompleted))
@@ -167,7 +184,7 @@ final class AppState: ObservableObject {
     }
 
     func loadProfile() -> OnboardingProfile {
-        if config.apiMode == "live", authenticatedUserSub == nil {
+        if authenticatedUserSub == nil {
             return OnboardingProfile(age: nil, major: "", gender: .male, hobbies: [], optIn: true)
         }
 
@@ -184,38 +201,14 @@ final class AppState: ObservableObject {
         defaults.set(isOn, forKey: storageKey(StorageKey.useProfilePersonalization))
     }
 
-    func setUseFakeCanvas(_ isOn: Bool) {
-        useFakeCanvas = isOn
-        defaults.set(isOn, forKey: StorageKey.useFakeCanvas)
-        if isOn {
-            calendarLinkStatus = nil
-            calendarAgenda = []
-            calendarAgendaFetchedAt = nil
-            isCanvasLinked = defaults.object(forKey: storageKey(StorageKey.canvasLinked)) as? Bool ?? false
-        } else {
-            defaults.removeObject(forKey: storageKey(StorageKey.canvasLinked))
-            isCanvasLinked = calendarLinkStatus?.status == .active
-            Task {
-                await self.refreshCalendarLinkStatus(force: true)
-            }
-        }
-    }
-
     func setTranslation(_ translation: Translation) {
         selectedTranslation = translation
         defaults.set(translation.rawValue, forKey: storageKey(StorageKey.translation))
         syncStoredProfile()
     }
 
-    func toggleCanvasLink() {
-        guard useFakeCanvas else { return }
-        isCanvasLinked.toggle()
-        defaults.set(isCanvasLinked, forKey: storageKey(StorageKey.canvasLinked))
-    }
-
     func refreshCalendarLinkStatus(force: Bool = false) async {
-        guard !useFakeCanvas else { return }
-        guard config.apiMode == "live", isAuthenticated else { return }
+        guard isAuthenticated else { return }
         guard let requestUserSub = authenticatedUserSub else { return }
 
         print("[AppState] Refreshing calendar link status", force ? "(force)" : "")
@@ -269,32 +262,6 @@ final class AppState: ObservableObject {
             }
         }
 
-        if useFakeCanvas {
-            isCanvasLinked = true
-            defaults.set(true, forKey: storageKey(StorageKey.canvasLinked))
-            let status = CalendarLinkStatus(
-                calendarUrl: trimmed,
-                status: .active,
-                lastValidatedAt: Date(),
-                lastError: nil,
-                updatedAt: Date()
-            )
-            calendarLinkStatus = status
-            return status
-        }
-
-        guard config.apiMode == "live" else {
-            let status = CalendarLinkStatus(
-                calendarUrl: trimmed,
-                status: .pending,
-                lastValidatedAt: nil,
-                lastError: nil,
-                updatedAt: Date()
-            )
-            updateStoredCalendarStatus(status)
-            return status
-        }
-
         guard isAuthenticated else {
             throw CalendarLinkInputError.authenticationRequired
         }
@@ -324,45 +291,25 @@ final class AppState: ObservableObject {
     func removeCalendarLink() async -> Bool {
         print("[AppState] Removing calendar link")
         let requestUserSub = authenticatedUserSub
-        if useFakeCanvas {
-            isCanvasLinked = false
-            defaults.set(false, forKey: storageKey(StorageKey.canvasLinked))
-            calendarLinkStatus = nil
-            return true
-        }
-
         defaults.removeObject(forKey: storageKey(StorageKey.canvasLinked))
 
-        if config.apiMode == "live" {
-            do {
-                try await apiClient.deleteCalendarLink()
-                guard requestUserSub == authenticatedUserSub else {
-                    print("[AppState] Ignoring calendar link removal for stale user context")
-                    return false
-                }
-            } catch {
-                print("[AppState] Failed to delete calendar link: \(error)")
+        guard isAuthenticated else { return false }
+
+        do {
+            try await apiClient.deleteCalendarLink()
+            guard requestUserSub == authenticatedUserSub else {
+                print("[AppState] Ignoring calendar link removal for stale user context")
                 return false
             }
+        } catch {
+            print("[AppState] Failed to delete calendar link: \(error)")
+            return false
         }
 
         updateStoredCalendarStatus(nil)
         calendarAgenda = []
         calendarAgendaFetchedAt = nil
         return true
-    }
-
-    func goToNextVerse() {
-        guard !verseDeck.isEmpty else { return }
-        historyUpsert(currentVerse)
-        currentVerseIndex = (currentVerseIndex + 1) % verseDeck.count
-        defaults.set(currentVerseIndex, forKey: storageKey(StorageKey.currentVerseIndex))
-    }
-
-    func goToPreviousVerse() {
-        guard !verseDeck.isEmpty else { return }
-        currentVerseIndex = currentVerseIndex == 0 ? max(verseDeck.count - 1, 0) : currentVerseIndex - 1
-        defaults.set(currentVerseIndex, forKey: storageKey(StorageKey.currentVerseIndex))
     }
 
     func presentPopups() {
@@ -378,10 +325,6 @@ final class AppState: ObservableObject {
     }
 
     func evaluateAuthentication() async {
-        guard config.apiMode == "live" else {
-            isAuthenticated = true
-            return
-        }
         guard let authSession else {
             isAuthenticated = false
             return
@@ -423,16 +366,6 @@ final class AppState: ObservableObject {
     func signOut() {
         clearCalendarLinkState()
 
-        guard config.apiMode == "live" else {
-            isAuthenticated = false
-            authenticationNotice = "You have been signed out. Please sign in again."
-            latestScanSummary = nil
-            encouragementStatusMessage = nil
-            latestScanError = nil
-            setAuthenticatedUserSub(nil)
-            return
-        }
-
         Task {
             if let authSession {
                 try? await authSession.signOut()
@@ -450,16 +383,12 @@ final class AppState: ObservableObject {
         }
     }
 
-    var isLiveMode: Bool {
-        config.apiMode == "live"
-    }
-
     var requiresAuthenticationGate: Bool {
-        isLiveMode && !isAuthenticated
+        !isAuthenticated
     }
 
     func refreshEncouragementDeck() {
-        guard config.apiMode != "live" || isAuthenticated else { return }
+        guard isAuthenticated else { return }
         Task {
             do {
                 let response = try await apiClient.fetchNext()
@@ -470,12 +399,7 @@ final class AppState: ObservableObject {
                 if let payload = response.payload {
                     let verse = Verse(payload: payload)
                     await MainActor.run { [self, verse, response] in
-                        if !verseDeck.contains(where: { $0.id == verse.id }) {
-                            verseDeck.insert(verse, at: 0)
-                        } else if let index = verseDeck.firstIndex(where: { $0.id == verse.id }) {
-                            verseDeck[index] = verse
-                        }
-                        clampCurrentIndex()
+                        upsertVerse(verse)
                         hasFreshEncouragement = true
                         encouragementStatusMessage = statusMessage(forMetadata: response.metadata) ?? encouragementStatusMessage
                         if let metadata = response.metadata {
@@ -504,23 +428,8 @@ final class AppState: ObservableObject {
         }
     }
 
-    func refreshCanvasSummary() {
-        guard useFakeCanvas else { return }
-        Task {
-            do {
-                let summary = try await apiClient.fetchTodayCanvas()
-                await MainActor.run {
-                    canvasSummary = summary
-                    try? defaults.encode(summary, forKey: storageKey(StorageKey.canvasSummary))
-                }
-            } catch {
-                print("[AppState] Failed to fetch canvas summary: \(error)")
-            }
-        }
-    }
-
     func refreshCalendarAgenda() {
-        guard config.apiMode == "live", isAuthenticated else { return }
+        guard isAuthenticated else { return }
         Task { [weak self] in
             await self?.fetchCalendarAgenda()
         }
@@ -544,10 +453,6 @@ final class AppState: ObservableObject {
     }
 
     func triggerScanNow() {
-        if config.apiMode != "live" {
-            refreshEncouragementDeck()
-            return
-        }
         guard isAuthenticated else {
             latestScanError = "Please sign in before running a scan."
             return
@@ -592,13 +497,13 @@ final class AppState: ObservableObject {
     func clearHistory() {
         history.removeAll()
         defaults.removeObject(forKey: storageKey(StorageKey.history))
+        persistVerseDeck()
     }
 
     private func updateStoredCalendarStatus(_ status: CalendarLinkStatus?) {
         calendarLinkStatus = status
-        guard !useFakeCanvas else { return }
 
-        if config.apiMode == "live", authenticatedUserSub == nil {
+        if authenticatedUserSub == nil {
             isCanvasLinked = status?.status == .active
             if status == nil {
                 calendarAgenda = []
@@ -624,15 +529,7 @@ final class AppState: ObservableObject {
     }
 
     private func clearCalendarLinkState() {
-        if useFakeCanvas {
-            isCanvasLinked = false
-            defaults.removeObject(forKey: storageKey(StorageKey.canvasLinked))
-            calendarLinkStatus = nil
-            calendarAgenda = []
-            calendarAgendaFetchedAt = nil
-        } else {
-            updateStoredCalendarStatus(nil)
-        }
+        updateStoredCalendarStatus(nil)
     }
 
     private func setAuthenticatedUserSub(_ sub: String?) {
@@ -642,22 +539,16 @@ final class AppState: ObservableObject {
 
         authenticatedUserSub = sub
 
-        if config.apiMode == "live" {
-            if let sub {
-                defaults.set(sub, forKey: StorageKey.lastAuthenticatedUser)
-            } else {
-                defaults.removeObject(forKey: StorageKey.lastAuthenticatedUser)
-            }
+        if let sub {
+            defaults.set(sub, forKey: StorageKey.lastAuthenticatedUser)
+        } else {
+            defaults.removeObject(forKey: StorageKey.lastAuthenticatedUser)
         }
 
         reloadUserScopedPreferences()
     }
 
     func refreshAuthenticatedUser() async {
-        guard config.apiMode == "live" else {
-            return
-        }
-
         guard let authSession else {
             setAuthenticatedUserSub(nil)
             return
@@ -672,8 +563,7 @@ final class AppState: ObservableObject {
     }
 
     private func storageKey(_ key: String) -> String {
-        guard config.apiMode == "live",
-              let userSub = authenticatedUserSub,
+        guard let userSub = authenticatedUserSub,
               Self.userScopedKeys.contains(key) else {
             return key
         }
@@ -681,7 +571,7 @@ final class AppState: ObservableObject {
     }
 
     private func reloadUserScopedPreferences() {
-        if config.apiMode == "live" && authenticatedUserSub == nil {
+        if authenticatedUserSub == nil {
             onboardingCompleted = false
             useProfilePersonalization = true
             isCanvasLinked = false
@@ -689,8 +579,10 @@ final class AppState: ObservableObject {
             selectedTranslation = config.defaultTranslation
             currentVerseIndex = 0
             history = []
-            canvasSummary = nil
-            clampCurrentIndex()
+            verseDeck = [Verse.placeholder]
+            calendarAgenda = []
+            calendarAgendaFetchedAt = nil
+            persistVerseDeck()
             return
         }
 
@@ -704,10 +596,7 @@ final class AppState: ObservableObject {
 
         useProfilePersonalization = defaults.object(forKey: storageKey(StorageKey.useProfilePersonalization)) as? Bool ?? true
 
-        if useFakeCanvas {
-            isCanvasLinked = defaults.object(forKey: storageKey(StorageKey.canvasLinked)) as? Bool ?? false
-            calendarLinkStatus = nil
-        } else if let storedStatus = try? defaults.decode(CalendarLinkStatus.self, forKey: storageKey(StorageKey.calendarLinkStatus)) {
+        if let storedStatus = try? defaults.decode(CalendarLinkStatus.self, forKey: storageKey(StorageKey.calendarLinkStatus)) {
             calendarLinkStatus = storedStatus
             isCanvasLinked = storedStatus.status == .active
         } else {
@@ -721,13 +610,14 @@ final class AppState: ObservableObject {
         selectedTranslation = Translation(rawValue: defaults.string(forKey: storageKey(StorageKey.translation)) ?? "") ?? config.defaultTranslation
         currentVerseIndex = defaults.integer(forKey: storageKey(StorageKey.currentVerseIndex))
         history = (try? defaults.decode([Verse].self, forKey: storageKey(StorageKey.history))) ?? []
-        canvasSummary = try? defaults.decode(TodayCanvas.self, forKey: storageKey(StorageKey.canvasSummary))
-
+        verseDeck = loadStoredVerseDeck()
         clampCurrentIndex()
+        ensurePlaceholderIfNeeded()
+        persistVerseDeck()
     }
 
     private func hasStoredProfile() -> Bool {
-        if config.apiMode == "live", authenticatedUserSub == nil {
+        if authenticatedUserSub == nil {
             return false
         }
 
@@ -758,7 +648,7 @@ final class AppState: ObservableObject {
     }
 
     private func syncProfile(age: Int?, major: String, gender: Gender, hobbies: Set<String>, optIn: Bool) {
-        guard config.apiMode == "live", isAuthenticated else { return }
+        guard isAuthenticated else { return }
         let profile = OnboardingProfile(age: age, major: major, gender: gender, hobbies: hobbies, optIn: optIn)
         Task {
             await sendProfileUpdate(profile)
@@ -766,7 +656,7 @@ final class AppState: ObservableObject {
     }
 
     private func syncStoredProfile() {
-        guard config.apiMode == "live", isAuthenticated else { return }
+        guard isAuthenticated else { return }
         let profile = loadProfile()
         Task {
             await sendProfileUpdate(profile)
@@ -781,6 +671,71 @@ final class AppState: ObservableObject {
         try? defaults.encode(history, forKey: storageKey(StorageKey.history))
     }
 
+    private func sanitizeVerseDeck(_ deck: [Verse]) -> [Verse] {
+        var seen = Set<String>()
+        var ordered: [Verse] = []
+        for verse in deck {
+            if seen.insert(verse.id).inserted {
+                ordered.append(verse)
+            }
+        }
+        if ordered.count > 1 {
+            ordered.removeAll { $0.id == Verse.placeholder.id }
+        }
+        return ordered.isEmpty ? [Verse.placeholder] : ordered
+    }
+
+    private func loadStoredVerseDeck() -> [Verse] {
+        if let stored = try? defaults.decode([Verse].self, forKey: storageKey(StorageKey.verseDeck)), !stored.isEmpty {
+            return sanitizeVerseDeck(stored)
+        }
+        if !history.isEmpty {
+            return sanitizeVerseDeck(history)
+        }
+        return [Verse.placeholder]
+    }
+
+    private func upsertVerse(_ verse: Verse) {
+        if let existing = verseDeck.firstIndex(of: verse) {
+            verseDeck.remove(at: existing)
+        }
+        verseDeck.insert(verse, at: 0)
+        if verseDeck.count > 1 {
+            verseDeck.removeAll { $0.id == Verse.placeholder.id }
+        }
+        currentVerseIndex = 0
+        historyUpsert(verse)
+        persistVerseDeck()
+    }
+
+    private func ensurePlaceholderIfNeeded() {
+        if verseDeck.isEmpty {
+            verseDeck = [Verse.placeholder]
+        }
+        if verseDeck.count > 1 {
+            verseDeck.removeAll { $0.id == Verse.placeholder.id }
+        }
+    }
+
+    private func ensureDeckBackedByHistory() {
+        if verseDeck.count <= 1 && !history.isEmpty {
+            var combined: [Verse] = []
+            if let current = verseDeck[safe: currentVerseIndex] {
+                combined.append(current)
+            }
+            combined.append(contentsOf: history)
+            verseDeck = sanitizeVerseDeck(combined)
+            clampCurrentIndex()
+        }
+    }
+
+    private func persistVerseDeck() {
+        ensurePlaceholderIfNeeded()
+        clampCurrentIndex()
+        defaults.set(currentVerseIndex, forKey: storageKey(StorageKey.currentVerseIndex))
+        try? defaults.encode(verseDeck, forKey: storageKey(StorageKey.verseDeck))
+    }
+
     private func clampCurrentIndex() {
         guard !verseDeck.isEmpty else {
             currentVerseIndex = 0
@@ -790,7 +745,7 @@ final class AppState: ObservableObject {
     }
 
     private func sendProfileUpdate(_ profile: OnboardingProfile) async {
-        guard config.apiMode == "live", isAuthenticated else { return }
+        guard isAuthenticated else { return }
         let trimmedMajor = profile.major.trimmingCharacters(in: .whitespacesAndNewlines)
         let hobbies = profile.hobbies.sorted()
         let payload = RemoteUserProfileRequest(
@@ -853,13 +808,12 @@ extension AppState {
     enum StorageKey {
         static let onboardingCompleted = "walkworthy.onboardingCompleted"
         static let useProfilePersonalization = "walkworthy.settings.useProfilePersonalization"
-        static let useFakeCanvas = "walkworthy.settings.useFakeCanvas"
         static let canvasLinked = "walkworthy.canvas.linked"
         static let calendarLinkStatus = "walkworthy.settings.calendarLinkStatus"
         static let translation = "walkworthy.settings.translation"
         static let currentVerseIndex = "walkworthy.home.currentVerseIndex"
         static let history = "walkworthy.history.verses"
-        static let canvasSummary = "walkworthy.canvas.summary"
+        static let verseDeck = "walkworthy.home.verseDeck"
         static let profileAge = "walkworthy.profile.age"
         static let profileMajor = "walkworthy.profile.major"
         static let profileGender = "walkworthy.profile.gender"
