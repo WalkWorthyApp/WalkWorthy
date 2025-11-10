@@ -77,3 +77,5 @@ struct KeychainStorage {
         ]
     }
 }
+
+extension KeychainStorage: Sendable {}

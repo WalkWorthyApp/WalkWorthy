@@ -67,22 +67,25 @@ final class AppState: ObservableObject {
     }()
 
     init(
-        config: Config = .shared,
+        config: Config? = nil,
         apiClient: any EncouragementAPI,
         authSession: AuthSession? = nil,
-        notificationScheduler: NotificationScheduler = .shared,
+        notificationScheduler: NotificationScheduler? = nil,
         defaults: UserDefaults = .standard
     ) {
-        self.config = config
+        let resolvedConfig = config ?? Config.shared
+        let resolvedScheduler = notificationScheduler ?? NotificationScheduler.shared
+
+        self.config = resolvedConfig
         self.apiClient = apiClient
         self.authSession = authSession
-        self.notificationScheduler = notificationScheduler
+        self.notificationScheduler = resolvedScheduler
         self.defaults = defaults
         self.isAuthenticated = false
         self.verseDeck = []
         self.history = []
         self.currentVerseIndex = 0
-        self.selectedTranslation = config.defaultTranslation
+        self.selectedTranslation = resolvedConfig.defaultTranslation
         self.showPopups = false
         self.calendarAgenda = []
         self.calendarAgendaFetchedAt = nil

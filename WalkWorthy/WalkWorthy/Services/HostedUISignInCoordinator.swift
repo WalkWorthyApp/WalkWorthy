@@ -92,9 +92,18 @@ final class HostedUISignInCoordinator: NSObject, ASWebAuthenticationPresentation
             return fallback
         }
         if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
-            return ASPresentationAnchor(windowScene: scene)
+            let anchor = ASPresentationAnchor(windowScene: scene)
+            self.anchorWindow = anchor
+            return anchor
         }
-        return UIWindow(frame: UIScreen.main.bounds)
+
+        if #available(iOS 26.0, *) {
+            preconditionFailure("No UIWindowScene available to present the Hosted UI session.")
+        } else {
+            let window = UIWindow()
+            self.anchorWindow = window
+            return window
+        }
     }
 
     // MARK: - Helpers
@@ -119,7 +128,7 @@ final class HostedUISignInCoordinator: NSObject, ASWebAuthenticationPresentation
             URLQueryItem(name: "scope", value: scopes),
             URLQueryItem(name: "redirect_uri", value: redirect),
             URLQueryItem(name: "state", value: state),
-            URLQueryItem(name: "lang", value: Locale.current.languageCode ?? "en"),
+            URLQueryItem(name: "lang", value: Locale.current.language.languageCode?.identifier ?? "en"),
         ]
 
         if let url = components?.url {

@@ -30,7 +30,7 @@ struct CanvasLinkView: View {
             CalendarInstructionsSheet(videoURL: videoURL)
         }
         .onAppear(perform: syncFromState)
-        .onChange(of: appState.calendarLinkStatus) { _ in
+        .onChange(of: appState.calendarLinkStatus) {
             syncInputFromStatus()
         }
     }

@@ -8,7 +8,7 @@
 import Foundation
 
 actor AuthSession: BearerTokenProviding {
-    enum AuthSessionError: LocalizedError {
+    enum AuthSessionError: LocalizedError, Sendable {
         case notConfigured
         case notAuthenticated
         case tokenExchangeFailed
@@ -25,7 +25,7 @@ actor AuthSession: BearerTokenProviding {
         }
     }
 
-    struct TokenSet: Codable {
+    struct TokenSet: Codable, Sendable {
         let accessToken: String
         let idToken: String
         let refreshToken: String?
@@ -48,10 +48,12 @@ actor AuthSession: BearerTokenProviding {
 
     init?(
         config: Config,
-        keychain: KeychainStorage = KeychainStorage(),
+        keychain: KeychainStorage? = nil,
         urlSession: URLSession = .shared,
         scopes: [String] = ["openid", "profile", "email", "offline_access"]
     ) {
+        let resolvedKeychain = keychain ?? KeychainStorage()
+
         guard let domain = config.cognitoDomain,
               let clientId = config.cognitoClientId,
               !clientId.isEmpty,
@@ -62,10 +64,10 @@ actor AuthSession: BearerTokenProviding {
         self.clientId = clientId
         self.redirectURI = redirect
         self.scopes = scopes
-        self.keychain = keychain
+        self.keychain = resolvedKeychain
         self.urlSession = urlSession
 
-        if let data = try? keychain.data(forKey: tokensKey) {
+        if let data = try? resolvedKeychain.data(forKey: tokensKey) {
             let decoder = JSONDecoder()
             if let stored = try? decoder.decode(TokenSet.self, from: data) {
                 self.tokens = stored
@@ -91,7 +93,6 @@ actor AuthSession: BearerTokenProviding {
 
         let refreshed = try await refreshTokens(using: refresh)
         tokens = refreshed
-        try persist(refreshed)
         return refreshed.idToken
     }
 
@@ -149,13 +150,17 @@ actor AuthSession: BearerTokenProviding {
         let response = try await sendTokenRequest(body: body)
         let tokenSet = try buildTokenSet(from: response, fallbackRefreshToken: response.refreshToken)
         tokens = tokenSet
-        try persist(tokenSet)
+        try await persist(tokenSet)
         return tokenSet
     }
 
     func signOut() async throws {
         tokens = nil
-        try keychain.remove(forKey: tokensKey)
+        let keychain = self.keychain
+        let key = tokensKey
+        try await MainActor.run {
+            try keychain.remove(forKey: key)
+        }
     }
 
     // MARK: - Internals
@@ -170,7 +175,7 @@ actor AuthSession: BearerTokenProviding {
         let response = try await sendTokenRequest(body: body)
         let tokenSet = try buildTokenSet(from: response, fallbackRefreshToken: refreshToken)
         tokens = tokenSet
-        try persist(tokenSet)
+        try await persist(tokenSet)
         return tokenSet
     }
 
@@ -195,8 +200,7 @@ actor AuthSession: BearerTokenProviding {
             throw AuthSessionError.tokenExchangeFailed
         }
 
-        let decoder = JSONDecoder()
-        return try decoder.decode(CognitoTokenResponse.self, from: data)
+        return try decodeTokenResponse(from: data)
     }
 
     private func buildTokenSet(from response: CognitoTokenResponse, fallbackRefreshToken: String?) throws -> TokenSet {
@@ -223,11 +227,15 @@ actor AuthSession: BearerTokenProviding {
         )
     }
 
-    private func persist(_ tokenSet: TokenSet) throws {
+    private func persist(_ tokenSet: TokenSet) async throws {
         let encoder = JSONEncoder()
         encoder.outputFormatting = .sortedKeys
         let data = try encoder.encode(tokenSet)
-        try keychain.set(data, forKey: tokensKey)
+        let keychain = self.keychain
+        let key = tokensKey
+        try await MainActor.run {
+            try keychain.set(data, forKey: key)
+        }
     }
 
     private func formEncodedBody(_ parameters: [String: String]) -> Data {
@@ -264,22 +272,49 @@ actor AuthSession: BearerTokenProviding {
     private var tokenEndpoint: URL {
         domain.appendingPathComponent("oauth2").appendingPathComponent("token")
     }
+
+    private func decodeTokenResponse(from data: Data) throws -> CognitoTokenResponse {
+        let object = try JSONSerialization.jsonObject(with: data, options: [])
+        guard let dictionary = object as? [String: Any] else {
+            throw AuthSessionError.tokenExchangeFailed
+        }
+
+        func normalizedString(for key: String) -> String? {
+            guard let value = dictionary[key] else { return nil }
+            if let string = value as? String {
+                let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+                return trimmed.isEmpty ? nil : trimmed
+            }
+            if let number = value as? NSNumber {
+                return number.stringValue
+            }
+            return nil
+        }
+
+        func normalizedDouble(for key: String) -> Double? {
+            guard let value = dictionary[key] else { return nil }
+            if let double = value as? Double { return double }
+            if let int = value as? Int { return Double(int) }
+            if let string = value as? String { return Double(string) }
+            return nil
+        }
+
+        return CognitoTokenResponse(
+            accessToken: normalizedString(for: "access_token"),
+            idToken: normalizedString(for: "id_token"),
+            refreshToken: normalizedString(for: "refresh_token"),
+            tokenType: normalizedString(for: "token_type"),
+            expiresIn: normalizedDouble(for: "expires_in"),
+            scope: normalizedString(for: "scope")
+        )
+    }
 }
 
-private struct CognitoTokenResponse: Decodable {
+private struct CognitoTokenResponse: Sendable {
     let accessToken: String?
     let idToken: String?
     let refreshToken: String?
     let tokenType: String?
     let expiresIn: Double?
     let scope: String?
-
-    private enum CodingKeys: String, CodingKey {
-        case accessToken = "access_token"
-        case idToken = "id_token"
-        case refreshToken = "refresh_token"
-        case tokenType = "token_type"
-        case expiresIn = "expires_in"
-        case scope
-    }
 }
