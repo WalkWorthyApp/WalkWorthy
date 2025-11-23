@@ -48,18 +48,8 @@ struct Config {
         notificationMode = (merged["NOTIFICATION_MODE"] as? String)?.lowercased() ?? "local"
         let translationKey = (merged["DEFAULT_TRANSLATION"] as? String)?.uppercased() ?? Translation.esv.rawValue
         defaultTranslation = Translation(rawValue: translationKey) ?? .esv
-        apiBaseURL = (merged["API_BASE_URL"] as? String)
-            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .flatMap(URL.init(string:))
-        cognitoDomain = (merged["COGNITO_DOMAIN"] as? String)
-            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .flatMap { raw -> URL? in
-                if raw.isEmpty { return nil }
-                if raw.hasPrefix("http://") || raw.hasPrefix("https://") {
-                    return URL(string: raw)
-                }
-                return URL(string: "https://\(raw)")
-            }
+        apiBaseURL = Self.secureBaseURL(from: merged["API_BASE_URL"], allowLocalhostHTTP: true)
+        cognitoDomain = Self.secureBaseURL(from: merged["COGNITO_DOMAIN"])
         cognitoClientId = (merged["COGNITO_CLIENT_ID"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         cognitoRedirectURI = (merged["COGNITO_REDIRECT_URI"] as? String)
@@ -68,16 +58,32 @@ struct Config {
         canvasRedirectURI = (merged["CANVAS_REDIRECT_URI"] as? String)
             .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .flatMap(URL.init(string:))
-        canvasBaseURL = (merged["CANVAS_BASE_URL"] as? String)
-            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .flatMap { raw -> URL? in
-                if raw.isEmpty { return nil }
-                if raw.hasPrefix("http://") || raw.hasPrefix("https://") {
-                    return URL(string: raw)
-                }
-                return URL(string: "https://\(raw)")
-            }
+        canvasBaseURL = Self.secureBaseURL(from: merged["CANVAS_BASE_URL"])
         canvasClientId = (merged["CANVAS_CLIENT_ID"] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // Enforces HTTPS for remote endpoints; optionally allows localhost HTTP for development.
+    private static func secureBaseURL(from value: Any?, allowLocalhostHTTP: Bool = false) -> URL? {
+        guard let raw = value as? String else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let normalized = trimmed.contains("://") ? trimmed : "https://\(trimmed)"
+        guard let url = URL(string: normalized) else { return nil }
+        let scheme = url.scheme?.lowercased()
+
+        if scheme == "https" {
+            return url
+        }
+
+        if allowLocalhostHTTP,
+           scheme == "http",
+           let host = url.host?.lowercased(),
+           host == "localhost" || host == "127.0.0.1" {
+            return url
+        }
+
+        return nil
     }
 }

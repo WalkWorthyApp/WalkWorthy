@@ -245,7 +245,7 @@ final class AppState: ObservableObject {
             throw CalendarLinkInputError.invalidURL
         }
 
-        guard let scheme = candidate.scheme?.lowercased(), ["https", "http"].contains(scheme) else {
+        guard let scheme = candidate.scheme?.lowercased(), scheme == "https" else {
             throw CalendarLinkInputError.unsupportedScheme
         }
 
@@ -274,7 +274,8 @@ final class AppState: ObservableObject {
         }
 
         do {
-            print("[AppState] Submitting calendar link", trimmed)
+            let safeHost = candidate.host ?? "unknown-host"
+            print("[AppState] Submitting calendar link for host", safeHost)
             let status = try await apiClient.updateCalendarLink(CalendarLinkUpdateRequest(calendarUrl: trimmed))
             guard requestUserSub == authenticatedUserSub else {
                 print("[AppState] Ignoring calendar link save for stale user context")

@@ -20,10 +20,12 @@ struct WalkWorthyApp: App {
 
     init() {
         let resolvedConfig = Config.shared
+        #if DEBUG
         print("Cognito domain:", Config.shared.cognitoDomain as Any)
         print("Cognito client ID:", Config.shared.cognitoClientId as Any)
         print("Cognito redirect URI:", Config.shared.cognitoRedirectURI as Any)
         print("BGTask identifiers:", Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") ?? "missing")
+        #endif
 
         guard let session = AuthSession(config: resolvedConfig) else {
             fatalError("Cognito configuration is missing")

@@ -132,7 +132,9 @@ final class HostedUISignInCoordinator: NSObject, ASWebAuthenticationPresentation
         ]
 
         if let url = components?.url {
-            print("Opening Hosted UI:", url.absoluteString)
+            #if DEBUG
+            print("Opening Hosted UI:", url.host ?? url.absoluteString)
+            #endif
             return url
         }
 
