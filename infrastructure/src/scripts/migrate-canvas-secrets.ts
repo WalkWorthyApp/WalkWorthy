@@ -122,16 +122,20 @@ async function migrateOne(secretName: string): Promise<void> {
   }
 
   const recoveryDays = Number.parseInt(RECOVERY_DAYS, 10);
+  if (Number.isFinite(recoveryDays) && recoveryDays > 0 && recoveryDays < 7) {
+    throw new Error(
+      `RECOVERY_DAYS must be 0 (force delete) or at least 7. Received ${recoveryDays}, which would not be accepted by Secrets Manager.`,
+    );
+  }
+  const useRecoveryWindow = Number.isFinite(recoveryDays) && recoveryDays >= 7;
   const deleteParams =
-    Number.isFinite(recoveryDays) && recoveryDays >= 7
+    useRecoveryWindow
       ? { SecretId: secretName, RecoveryWindowInDays: recoveryDays }
       : { SecretId: secretName, ForceDeleteWithoutRecovery: true };
 
   console.log(
     `Deleting ${secretName} (${DRY_RUN ? 'dry-run' : 'executing'})` +
-      (Number.isFinite(recoveryDays) && recoveryDays >= 7
-        ? ` with ${recoveryDays} day recovery`
-        : ' with no recovery window'),
+      (useRecoveryWindow ? ` with ${recoveryDays} day recovery` : ' with no recovery window'),
   );
 
   if (!DRY_RUN) {
