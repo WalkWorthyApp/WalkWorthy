@@ -120,7 +120,7 @@ async function migrateOne(secretName: string): Promise<void> {
 
   const recoveryDays = Number.parseInt(RECOVERY_DAYS, 10);
   const deleteParams =
-    Number.isFinite(recoveryDays) && recoveryDays > 0
+    Number.isFinite(recoveryDays) && recoveryDays >= 7
       ? { SecretId: secretName, RecoveryWindowInDays: recoveryDays }
       : { SecretId: secretName, ForceDeleteWithoutRecovery: true };
 
@@ -148,15 +148,24 @@ async function main() {
     return;
   }
 
+  let migratedCount = 0;
+  let failedCount = 0;
+
   for (const name of secretNames) {
     try {
       await migrateOne(name);
+      migratedCount += 1;
     } catch (error) {
       console.error(`Failed to migrate ${name}`, error);
+      failedCount += 1;
     }
   }
 
-  console.log('Migration complete', { migrated: secretNames.length });
+  console.log('Migration complete', {
+    attempted: secretNames.length,
+    migrated: migratedCount,
+    failed: failedCount,
+  });
 }
 
 main().catch((error) => {
