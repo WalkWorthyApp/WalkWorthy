@@ -129,7 +129,7 @@ async function migrateOne(secretName: string): Promise<void> {
 
   console.log(
     `Deleting ${secretName} (${DRY_RUN ? 'dry-run' : 'executing'})` +
-      (Number.isFinite(recoveryDays) && recoveryDays > 0
+      (Number.isFinite(recoveryDays) && recoveryDays >= 7
         ? ` with ${recoveryDays} day recovery`
         : ' with no recovery window'),
   );
