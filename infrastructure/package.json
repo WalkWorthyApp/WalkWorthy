@@ -8,7 +8,8 @@
     "build": "tsc",
     "watch": "tsc -w",
     "test": "jest",
-    "cdk": "cdk"
+    "cdk": "cdk",
+    "migrate:canvas-secrets": "ts-node --esm src/scripts/migrate-canvas-secrets.ts"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
