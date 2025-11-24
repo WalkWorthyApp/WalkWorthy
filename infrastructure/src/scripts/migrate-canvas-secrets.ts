@@ -122,6 +122,11 @@ async function migrateOne(secretName: string): Promise<void> {
   }
 
   const recoveryDays = Number.parseInt(RECOVERY_DAYS, 10);
+  if (Number.isNaN(recoveryDays)) {
+    throw new Error(
+      `RECOVERY_DAYS must be a number (0 for force delete, or >=7 for recovery). Received: ${RECOVERY_DAYS}`,
+    );
+  }
   if (Number.isFinite(recoveryDays) && recoveryDays > 0 && recoveryDays < 7) {
     throw new Error(
       `RECOVERY_DAYS must be 0 (force delete) or at least 7. Received ${recoveryDays}, which would not be accepted by Secrets Manager.`,
