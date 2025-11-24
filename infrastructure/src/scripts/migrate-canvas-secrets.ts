@@ -62,8 +62,11 @@ function toIsoDate(value?: string | number): string | undefined {
     typeof value === 'number'
       ? new Date(value * 1000)
       : new Date(value as string);
-  const iso = date.toISOString();
-  return iso;
+  if (Number.isNaN(date.getTime())) {
+    console.warn('Invalid expires_at value; skipping', { value });
+    return undefined;
+  }
+  return date.toISOString();
 }
 
 async function migrateOne(secretName: string): Promise<void> {
