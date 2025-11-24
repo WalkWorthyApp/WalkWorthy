@@ -127,6 +127,11 @@ async function migrateOne(secretName: string): Promise<void> {
       `RECOVERY_DAYS must be a number (0 for force delete, or >=7 for recovery). Received: ${RECOVERY_DAYS}`,
     );
   }
+  if (recoveryDays < 0) {
+    throw new Error(
+      `RECOVERY_DAYS cannot be negative. Must be 0 (force delete) or >=7 (recovery window). Received: ${recoveryDays}`,
+    );
+  }
   if (Number.isFinite(recoveryDays) && recoveryDays > 0 && recoveryDays < 7) {
     throw new Error(
       `RECOVERY_DAYS must be 0 (force delete) or at least 7. Received ${recoveryDays}, which would not be accepted by Secrets Manager.`,
