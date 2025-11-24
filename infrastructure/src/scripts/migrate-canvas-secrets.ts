@@ -91,6 +91,11 @@ function resolveDeletionConfig(): DeletionConfig {
       `RECOVERY_DAYS must be 0 (force delete) or at least 7. Received ${recoveryDays}, which would not be accepted by Secrets Manager.`,
     );
   }
+  if (recoveryDays > 30) {
+    throw new Error(
+      `RECOVERY_DAYS cannot exceed 30 (Secrets Manager maximum). Received: ${recoveryDays}`,
+    );
+  }
   const useRecoveryWindow = Number.isFinite(recoveryDays) && recoveryDays >= 7;
   return { recoveryDays, useRecoveryWindow };
 }
