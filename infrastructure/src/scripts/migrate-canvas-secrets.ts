@@ -26,6 +26,11 @@ type CanvasSecretPayload = {
   [key: string]: unknown;
 };
 
+type DeletionConfig = {
+  recoveryDays: number;
+  useRecoveryWindow: boolean;
+};
+
 async function listCanvasSecretNames(): Promise<string[]> {
   const names: string[] = [];
   let nextToken: string | undefined;
@@ -69,11 +74,32 @@ function toIsoDate(value?: string | number): string | undefined {
   return date.toISOString();
 }
 
-async function migrateOne(secretName: string): Promise<void> {
+function resolveDeletionConfig(): DeletionConfig {
+  const recoveryDays = Number.parseInt(RECOVERY_DAYS, 10);
+  if (Number.isNaN(recoveryDays)) {
+    throw new Error(
+      `RECOVERY_DAYS must be a number (0 for force delete, or >=7 for recovery). Received: ${RECOVERY_DAYS}`,
+    );
+  }
+  if (recoveryDays < 0) {
+    throw new Error(
+      `RECOVERY_DAYS cannot be negative. Must be 0 (force delete) or >=7 (recovery window). Received: ${recoveryDays}`,
+    );
+  }
+  if (Number.isFinite(recoveryDays) && recoveryDays > 0 && recoveryDays < 7) {
+    throw new Error(
+      `RECOVERY_DAYS must be 0 (force delete) or at least 7. Received ${recoveryDays}, which would not be accepted by Secrets Manager.`,
+    );
+  }
+  const useRecoveryWindow = Number.isFinite(recoveryDays) && recoveryDays >= 7;
+  return { recoveryDays, useRecoveryWindow };
+}
+
+async function migrateOne(secretName: string, deletion: DeletionConfig): Promise<'migrated' | 'skipped'> {
   const userId = toUserId(secretName);
   if (!userId) {
     console.warn(`Skipping secret without expected prefix: ${secretName}`);
-    return;
+    return 'skipped';
   }
 
   const { SecretString } = await secrets.send(
@@ -82,7 +108,7 @@ async function migrateOne(secretName: string): Promise<void> {
 
   if (!SecretString) {
     console.warn(`Secret has no string value, skipping: ${secretName}`);
-    return;
+    return 'skipped';
   }
 
   let payload: CanvasSecretPayload | null = null;
@@ -121,42 +147,36 @@ async function migrateOne(secretName: string): Promise<void> {
     );
   }
 
-  const recoveryDays = Number.parseInt(RECOVERY_DAYS, 10);
-  if (Number.isNaN(recoveryDays)) {
-    throw new Error(
-      `RECOVERY_DAYS must be a number (0 for force delete, or >=7 for recovery). Received: ${RECOVERY_DAYS}`,
-    );
-  }
-  if (recoveryDays < 0) {
-    throw new Error(
-      `RECOVERY_DAYS cannot be negative. Must be 0 (force delete) or >=7 (recovery window). Received: ${recoveryDays}`,
-    );
-  }
-  if (Number.isFinite(recoveryDays) && recoveryDays > 0 && recoveryDays < 7) {
-    throw new Error(
-      `RECOVERY_DAYS must be 0 (force delete) or at least 7. Received ${recoveryDays}, which would not be accepted by Secrets Manager.`,
-    );
-  }
-  const useRecoveryWindow = Number.isFinite(recoveryDays) && recoveryDays >= 7;
   const deleteParams =
-    useRecoveryWindow
-      ? { SecretId: secretName, RecoveryWindowInDays: recoveryDays }
+    deletion.useRecoveryWindow
+      ? { SecretId: secretName, RecoveryWindowInDays: deletion.recoveryDays }
       : { SecretId: secretName, ForceDeleteWithoutRecovery: true };
 
   console.log(
     `Deleting ${secretName} (${DRY_RUN ? 'dry-run' : 'executing'})` +
-      (useRecoveryWindow ? ` with ${recoveryDays} day recovery` : ' with no recovery window'),
+      (deletion.useRecoveryWindow
+        ? ` with ${deletion.recoveryDays} day recovery`
+        : ' with no recovery window'),
   );
 
   if (!DRY_RUN) {
     await secrets.send(new DeleteSecretCommand(deleteParams));
   }
+
+  return 'migrated';
 }
 
 async function main() {
+  const deletionConfig = resolveDeletionConfig();
+
   console.log(
     `Starting migration from Secrets Manager (${SECRET_PREFIX}*) to DynamoDB table ${TABLE_NAME}`,
-    { region: REGION, dryRun: DRY_RUN, recoveryDays: RECOVERY_DAYS },
+    {
+      region: REGION,
+      dryRun: DRY_RUN,
+      recoveryDays: deletionConfig.recoveryDays,
+      useRecoveryWindow: deletionConfig.useRecoveryWindow,
+    },
   );
 
   const secretNames = await listCanvasSecretNames();
@@ -167,11 +187,16 @@ async function main() {
 
   let migratedCount = 0;
   let failedCount = 0;
+  let skippedCount = 0;
 
   for (const name of secretNames) {
     try {
-      await migrateOne(name);
-      migratedCount += 1;
+      const result = await migrateOne(name, deletionConfig);
+      if (result === 'migrated') {
+        migratedCount += 1;
+      } else {
+        skippedCount += 1;
+      }
     } catch (error) {
       console.error(`Failed to migrate ${name}`, error);
       failedCount += 1;
@@ -181,6 +206,7 @@ async function main() {
   console.log('Migration complete', {
     attempted: secretNames.length,
     migrated: migratedCount,
+    skipped: skippedCount,
     failed: failedCount,
   });
 }
