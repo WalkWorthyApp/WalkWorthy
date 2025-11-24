@@ -35,5 +35,10 @@ Use `npx cdk diff` to inspect changes before redeploying.
 - Helper modules under `src/shared`, `src/lib`, and `src/services` encapsulate Dynamo utilities, authentication helpers, calendar ingestion, stress heuristics, and the scan pipeline.
 - Jest scaffolding is available (`npm run test`) for future unit tests, though none ship today.
 
+## Canvas secret cleanup
+- Migrate and delete legacy Secrets Manager entries (`walkworthy/canvas/user/*`) into DynamoDB:  
+  `cd infrastructure && DRY_RUN=true AWS_REGION=<region> TABLE_NAME=walkworthy npm run migrate:canvas-secrets`  
+  Remove `DRY_RUN=true` to execute. `RECOVERY_DAYS` controls delete recovery (set `0` to force delete without recovery); override `SECRET_PREFIX` if the naming convention differs. Requires Node 18+ and `ts-node` (already in dev deps); if your Node warns about the loader, this script runs via `ts-node --esm`.
+
 ## CI/CD Considerations
 - Automated deployments must read the CDK bootstrap version parameter (`/cdk-bootstrap/hnb659fds/version`) and describe the bootstrap stack. Ensure the GitHub Actions role (or equivalent) carries those permissions alongside standard deployment access.
