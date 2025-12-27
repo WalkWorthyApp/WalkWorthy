@@ -24,3 +24,6 @@ DerivedData/
 infrastructure/cdk-env.sh
 
 /prompts/
+
+# Claude
+.claude/*
