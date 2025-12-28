@@ -9,15 +9,22 @@ interface HeuristicOptions {
 
 const DEFAULT_TAGS = ['anxiety', 'stress', 'rest', 'peace'];
 const GROUP_RE = /\bgroup\b/i;
-const STOPWORDS = new Set(['the','and','for','with','your','from','that','this','into','about','over','under','into','onto','exam','assignment','event','today','tonight','meeting','class','work']);
+const STOPWORDS = new Set(['the','and','for','with','your','from','that','this','into','about','over','under','onto','exam','assignment','event','today','tonight','meeting','class','work']);
 const INTERNAL_ONLY_TAGS = new Set(['encouragement', 'calendar', 'event', 'assignment', 'course', 'all-day']);
 
 function extractKeywords(input: string): string[] {
   const words = input.toLowerCase().match(/[a-z0-9']+/g) ?? [];
-  const filtered = words
-    .filter((word) => word.length > 3 && !STOPWORDS.has(word))
-    .slice(0, 5);
-  return Array.from(new Set(filtered));
+  const filtered = words.filter((word) => word.length > 3 && !STOPWORDS.has(word));
+
+  // Deduplicate while preserving order of first occurrence
+  const seen = new Set<string>();
+  const deduped = filtered.filter((word) => {
+    if (seen.has(word)) return false;
+    seen.add(word);
+    return true;
+  });
+
+  return deduped.slice(0, 5);
 }
 
 export function mapCalendarEventsToStressfulItems(
@@ -78,12 +85,7 @@ function calendarEventToStressfulItem(
   tags.add(item.kind);
 
   if (item.kind === 'exam') {
-    tags.add('exam');
     tags.add('courage');
-  }
-
-  if (item.kind === 'assignment') {
-    tags.add('assignment');
   }
 
   if (item.course) {

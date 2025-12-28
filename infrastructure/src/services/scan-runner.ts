@@ -12,14 +12,12 @@ import { TABLE_NAME } from '../shared/env';
 import { dynamo } from '../shared/dynamo';
 import { nowIso, futureEpochSeconds } from '../shared/time';
 import { getUserProfileOnce } from '../shared/profile';
-import { bibleMcpFromEnv } from '../lib/bibleMcp';
 import { runVerseSelectionAgent } from '../lib/walkworthy-agent';
 import { fetchCalendarEvents } from '../lib/calendar-ical';
 import type { CalendarEventItem } from '../lib/calendar-ical';
-import { mapCalendarEventsToStressfulItems, buildVerseCandidates } from '../lib/stress-heuristics';
+import { mapCalendarEventsToStressfulItems, extractStressTags } from '../lib/stress-heuristics';
 import type {
   StressfulItem,
-  VerseCandidate,
   Translation,
   UserProfilePayload,
 } from '../lib/walkworthy-agent';
@@ -488,10 +486,9 @@ async function executeScanPipeline(
   params: ScanPipelineParams,
 ): Promise<{ encouragement: ReturnType<typeof finalizeEncouragement>; log: ScanLog }> {
   const { sub, calendarLink, profile, translation } = params;
-  const mcp = bibleMcpFromEnv();
   let calendarEvents: CalendarEventItem[] = [];
   let stressfulItems: StressfulItem[] = [];
-  let verseCandidates: VerseCandidate[] = [];
+  let stressTags: string[] = [];
 
   try {
     calendarEvents = await fetchCalendarEvents({
@@ -512,11 +509,11 @@ async function executeScanPipeline(
       stressfulCount: stressfulItems.length,
     });
 
-    verseCandidates = await buildVerseCandidates(mcp, stressfulItems, translation);
-    verseCandidates = excludeVerses(verseCandidates, EXCLUDED_REFS);
-    console.log('scan-runner: built verse candidates', {
+    stressTags = extractStressTags(stressfulItems);
+    console.log('scan-runner: extracted stress tags', {
       sub,
-      candidateCount: verseCandidates.length,
+      tagCount: stressTags.length,
+      tags: stressTags,
     });
 
     const uniqueTags = Array.from(
@@ -530,25 +527,10 @@ async function executeScanPipeline(
     await recordCalendarSyncStatus(sub, 'SUCCESS');
     await persistCalendarSnapshot(sub, calendarEvents);
 
-    if (verseCandidates.length === 0) {
-      console.warn('scan-runner: no verse candidates, using fallback', {
-        sub,
-        stressfulCount: stressfulItems.length,
-      });
-      return buildFallbackResult({
-        translation,
-        plannerCount: calendarEvents.length,
-        stressfulCount: stressfulItems.length,
-        candidateCount: 0,
-        tags: uniqueTags,
-        reason: 'No verse candidates from MCP',
-      });
-    }
-
     const agentResult = await runVerseSelectionAgent({
       profile,
       stressfulItems,
-      verseCandidates,
+      stressTags,
       translationPreference: translation,
     });
 
@@ -566,7 +548,7 @@ async function executeScanPipeline(
         status: 'SUCCESS',
         plannerCount: calendarEvents.length,
         stressfulCount: stressfulItems.length,
-        candidateCount: verseCandidates.length,
+        candidateCount: stressTags.length,
         translation,
         tags: uniqueTags,
       },
@@ -598,14 +580,14 @@ async function executeScanPipeline(
       sub,
       error: error instanceof Error ? error.message : String(error),
       stressfulCount: stressfulItems.length,
-      candidateCount: verseCandidates.length,
+      tagCount: stressTags.length,
     });
 
     return buildFallbackResult({
       translation,
       plannerCount: calendarEvents.length,
       stressfulCount: stressfulItems.length,
-      candidateCount: verseCandidates.length,
+      candidateCount: stressTags.length,
       tags: uniqueTags,
       reason: error instanceof Error ? error.message : 'Unknown error',
     });

@@ -1,0 +1,163 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // IMPORTANT: Admin SDK Bypass
+    // Cloud Functions use the Admin SDK which BYPASSES these Firestore rules.
+    // Rules only protect client-side reads/writes via SDKs (web, mobile, REST).
+    // Therefore, this ruleset supplements (not replaces) application-level validation:
+    // - Application code MUST hash tokens before storage (see shared/crypto.ts)
+    // - Application code MUST validate token format (see shared/crypto.ts)
+    // - Application code MUST implement TTL/rotation (90-day policy)
+    // - Application code MUST redact tokens from logs (see shared/crypto.ts)
+
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if user owns the resource
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Helper function to block sensitive fields
+    // MUST stay synchronized with redactSensitiveFields() in shared/crypto.ts
+    // to ensure consistent security boundaries across client rules and server logging
+    function containsSensitiveFields(data) {
+      return data.keys().hasAny([
+        // Notification tokens - all variants (NEVER allowed in plain form)
+        'notificationToken',
+        'notificationTokenRaw',
+        'notification_token',
+        'pushToken',
+        'push_token',
+        'deviceToken',
+        'device_token',
+        'fcmToken',
+        'apnsToken',
+        'plainToken',
+        // API credentials and secrets (NEVER allowed)
+        'apiKey',
+        'api_key',
+        'secret',
+        'password',
+        // OAuth/Auth tokens (NEVER allowed)
+        'accessToken',
+        'access_token',
+        'refreshToken',
+        'refresh_token'
+      ]);
+    }
+
+    // User profiles - users can read/write their own profile
+    // SECURITY: Block sensitive fields (tokens, secrets) to prevent bypassing device security
+    match /users/{userId}/profile/{document=**} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && !containsSensitiveFields(request.resource.data);
+    }
+
+    // Device registrations - users can manage their own devices
+    // SECURITY DESIGN:
+    // - Clients can ONLY create/update with hashed tokens in notificationTokenHash field
+    // - Clients MUST NOT send plain notificationToken field (validated here)
+    // - Tokens are hashed using hashNotificationToken() in shared/crypto.ts
+    // - Device validation uses isValidNotificationToken() in shared/crypto.ts
+    // - Cloud Functions (Admin SDK) perform final validation and persistence
+    // - TTL/rotation enforced: max 90-day token retention (90 days from registeredAt)
+    // - Deleted on: app uninstall or user opt-out (handled by Cloud Functions)
+    match /users/{userId}/devices/{deviceId} {
+      // READ: Only owner can read device records (includes hash, metadata, no plain tokens)
+      allow read: if isOwner(userId);
+
+      // CREATE: Owner can create new device record with required fields
+      // - Blocks all plain token fields
+      // - Requires standard device metadata including activity tracking fields
+      // - notificationTokenHash must be SHA-256 (64 hex chars, verified by app before send)
+      allow create: if isOwner(userId)
+        && !containsSensitiveFields(request.resource.data)
+        && request.resource.data.keys().hasAll([
+            'deviceId',
+            'platform',
+            'registeredAt',
+            'lastActiveAt',
+            'notificationsEnabled',
+            'notificationTokenHash'
+        ])
+        && request.resource.data.deviceId is string
+        && request.resource.data.platform in ['ios', 'android']
+        && request.resource.data.notificationTokenHash is string
+        && request.resource.data.registeredAt is timestamp
+        && request.resource.data.lastActiveAt is timestamp
+        && request.resource.data.notificationsEnabled is bool
+        && request.resource.data.notificationTokenHash.matches('^[a-f0-9]{64}$');
+
+      // UPDATE: Owner can update device metadata and hash, but NOT plain tokens
+      // REQUIRED FIELDS (cannot be deleted): deviceId, platform, registeredAt, lastActiveAt, notificationsEnabled, notificationTokenHash
+      // OPTIONAL FIELDS (can be added/removed): appVersion, tokenUpdatedAt
+      // IMMUTABLE FIELDS: deviceId, platform, registeredAt (must remain unchanged)
+      allow update: if isOwner(userId)
+        // Block sensitive plain token fields
+        && !containsSensitiveFields(request.resource.data)
+
+        // REQUIRED FIELDS: Must exist after update (prevents FieldValue.delete())
+        && request.resource.data.keys().hasAll([
+            'deviceId',
+            'platform',
+            'registeredAt',
+            'lastActiveAt',
+            'notificationsEnabled',
+            'notificationTokenHash'
+        ])
+
+        // IMMUTABLE FIELD VALIDATION: These fields must not change
+        && request.resource.data.deviceId == resource.data.deviceId
+        && request.resource.data.platform == resource.data.platform
+        && request.resource.data.registeredAt == resource.data.registeredAt
+
+        // TYPE VALIDATION for required fields (must be present AND correct type)
+        && request.resource.data.lastActiveAt is timestamp
+        && request.resource.data.notificationsEnabled is bool
+        && request.resource.data.notificationTokenHash is string
+
+        // TYPE VALIDATION for optional fields (if present, must be correct type)
+        && (!(request.resource.data.keys().hasAny(['appVersion']))
+            || request.resource.data.appVersion is string)
+        && (!(request.resource.data.keys().hasAny(['tokenUpdatedAt']))
+            || request.resource.data.tokenUpdatedAt is timestamp)
+
+        // FORMAT VALIDATION: notificationTokenHash must be 64 hex chars
+        && request.resource.data.notificationTokenHash.matches('^[a-f0-9]{64}$')
+
+        // ENUM VALIDATION: platform must remain valid
+        && request.resource.data.platform in ['ios', 'android'];
+
+      // DELETE: Owner can delete devices (e.g., on opt-out, uninstall)
+      allow delete: if isOwner(userId);
+    }
+
+    // Encouragements - read-only for authenticated users
+    // Cloud Functions create/update these via Admin SDK
+    match /encouragements/{encouragementId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // User-specific encouragements (if stored per user)
+    match /users/{userId}/encouragements/{encouragementId} {
+      allow read: if isOwner(userId);
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // Calendar data - users can read their own calendar data
+    match /users/{userId}/calendar/{document=**} {
+      allow read: if isOwner(userId);
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // Block everything else
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

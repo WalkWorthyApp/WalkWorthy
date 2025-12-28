@@ -1,8 +1,9 @@
 import { Agent, run } from '@openai/agents';
 import { setDefaultOpenAIKey, setOpenAIAPI } from '@openai/agents-openai';
-import { z } from '@openai/zod';
+import { z } from 'zod';
 import Ajv from 'ajv';
 import { getSecretString } from '../shared/secrets';
+import type { AgeRange, Gender } from '../shared/types';
 
 export type Translation = 'ESV' | 'KJV' | 'NIV' | 'NKJV' | 'NASB' | 'CSB' | 'NLT';
 
@@ -17,8 +18,10 @@ export interface StressfulItem {
 
 export interface UserProfilePayload {
   major?: string;
-  gender?: string;
-  ageRange?: string;
+  /** SENSITIVE: Gender is PII; must be one of the predefined gender options */
+  gender?: Gender;
+  /** SENSITIVE: Age range is PII; must be one of the predefined ranges */
+  ageRange?: AgeRange;
   hobbies?: string[];
   optInTailored?: boolean;
 }
@@ -33,7 +36,7 @@ export interface VerseSelectionResult {
 const verseOutputSchema = z.object({
   ref: z
     .string()
-    .regex(/^[1-3]?\s?[A-Za-z]+\s\d+:\d+(-\d+)?$/),
+    .regex(/^[1-3]?\s?[A-Za-z]+(?:\s+[A-Za-z]+)*\s\d+:\d+(-\d+)?$/),
   text: z.string().max(1200),
   encouragement: z.string().max(280),
   translation: z.enum(['ESV', 'KJV', 'NIV', 'NKJV', 'NASB', 'CSB', 'NLT']),
@@ -44,7 +47,7 @@ const verseJsonSchema = {
   additionalProperties: false,
   required: ['ref', 'text', 'encouragement', 'translation'],
   properties: {
-    ref: { type: 'string', pattern: '^[1-3]?\\s?[A-Za-z]+\\s\\d+:\\d+(-\\d+)?$' },
+    ref: { type: 'string', pattern: '^[1-3]?\\s?[A-Za-z]+(?:\\s+[A-Za-z]+)*\\s\\d+:\\d+(-\\d+)?$' },
     text: { type: 'string', maxLength: 1200 },
     encouragement: { type: 'string', maxLength: 280 },
     translation: {
@@ -88,9 +91,24 @@ const SYSTEM_PROMPT = [
 let cachedAgent: Agent<object, typeof verseOutputSchema> | undefined;
 let cachedModel: string | undefined;
 let openAiConfigured = false;
+let lastFetchedAt: number = 0;
+
+const DEFAULT_OPENAI_API_KEY_TTL_MS = 300_000; // 5 minutes
+
+function getOpenAiKeyTtlMs(): number {
+  const ttlEnv = process.env.OPENAI_API_KEY_TTL_MS;
+  if (!ttlEnv) return DEFAULT_OPENAI_API_KEY_TTL_MS;
+  const ttl = parseInt(ttlEnv, 10);
+  return isNaN(ttl) || ttl <= 0 ? DEFAULT_OPENAI_API_KEY_TTL_MS : ttl;
+}
 
 async function ensureConfig() {
-  if (openAiConfigured) return;
+  const ttlMs = getOpenAiKeyTtlMs();
+  const now = Date.now();
+  const needsRefresh = !openAiConfigured || (now - lastFetchedAt > ttlMs);
+
+  if (!needsRefresh) return;
+
   const secretName = process.env.OPENAI_API_KEY_SECRET_NAME;
   const apiKey = secretName
     ? await getSecretString(secretName)
@@ -98,11 +116,11 @@ async function ensureConfig() {
   if (!apiKey) {
     throw new Error('OPENAI_API_KEY is not configured');
   }
-  if (!process.env.OPENAI_API_KEY) {
-    process.env.OPENAI_API_KEY = apiKey;
-  }
+  // Always update process.env with the fetched key so other modules see the refreshed secret
+  process.env.OPENAI_API_KEY = apiKey;
   setDefaultOpenAIKey(apiKey);
   setOpenAIAPI('responses');
+  lastFetchedAt = now;
   openAiConfigured = true;
 }
 
@@ -123,9 +141,10 @@ function sanitizeItem(item: StressfulItem): StressfulItem {
 function sanitizeProfile(profile: UserProfilePayload | null | undefined): UserProfilePayload | null {
   if (!profile) return null;
   return {
+    // SENSITIVE: gender and ageRange are enum types; pass through as-is (already validated)
     major: profile.major ? sanitize(profile.major, 120) : undefined,
-    gender: profile.gender ? sanitize(profile.gender, 20) : undefined,
-    ageRange: profile.ageRange ? sanitize(profile.ageRange, 20) : undefined,
+    gender: profile.gender,
+    ageRange: profile.ageRange,
     hobbies: profile.hobbies?.slice(0, 6).map((h) => sanitize(h, 40)),
     optInTailored: Boolean(profile.optInTailored),
   };

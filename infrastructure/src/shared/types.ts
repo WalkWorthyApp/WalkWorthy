@@ -8,7 +8,7 @@ export interface UserProfileInput {
 
 export interface DeviceRegistrationInput {
   deviceId: string;
-  platform: 'ios';
+  platform: 'ios' | 'android';
   appVersion?: string;
   notificationToken?: string;
 }
