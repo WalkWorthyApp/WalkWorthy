@@ -51,9 +51,10 @@ service cloud.firestore {
     }
 
     // User profiles - users can read/write their own profile
+    // SECURITY: Block sensitive fields (tokens, secrets) to prevent bypassing device security
     match /users/{userId}/profile/{document=**} {
       allow read: if isOwner(userId);
-      allow write: if isOwner(userId);
+      allow write: if isOwner(userId) && !containsSensitiveFields(request.resource.data);
     }
 
     // Device registrations - users can manage their own devices
