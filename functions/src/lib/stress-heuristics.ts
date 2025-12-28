@@ -1,6 +1,5 @@
-import { Translation, StressfulItem, VerseCandidate } from './walkworthy-agent';
+import { Translation, StressfulItem } from './walkworthy-agent';
 import type { CalendarEventItem } from './calendar-ical';
-import { BibleMcpProvider } from './bibleMcp';
 
 interface HeuristicOptions {
   translation: Translation;
@@ -10,15 +9,22 @@ interface HeuristicOptions {
 
 const DEFAULT_TAGS = ['anxiety', 'stress', 'rest', 'peace'];
 const GROUP_RE = /\bgroup\b/i;
-const STOPWORDS = new Set(['the','and','for','with','your','from','that','this','into','about','over','under','into','onto','exam','assignment','event','today','tonight','meeting','class','work']);
+const STOPWORDS = new Set(['the','and','for','with','your','from','that','this','into','about','over','under','onto','exam','assignment','event','today','tonight','meeting','class','work']);
 const INTERNAL_ONLY_TAGS = new Set(['encouragement', 'calendar', 'event', 'assignment', 'course', 'all-day']);
 
 function extractKeywords(input: string): string[] {
   const words = input.toLowerCase().match(/[a-z0-9']+/g) ?? [];
-  const filtered = words
-    .filter((word) => word.length > 3 && !STOPWORDS.has(word))
-    .slice(0, 5);
-  return Array.from(new Set(filtered));
+  const filtered = words.filter((word) => word.length > 3 && !STOPWORDS.has(word));
+
+  // Deduplicate while preserving order of first occurrence
+  const seen = new Set<string>();
+  const deduped = filtered.filter((word) => {
+    if (seen.has(word)) return false;
+    seen.add(word);
+    return true;
+  });
+
+  return deduped.slice(0, 5);
 }
 
 export function mapCalendarEventsToStressfulItems(
@@ -31,12 +37,11 @@ export function mapCalendarEventsToStressfulItems(
   return mapped.slice(0, options.maxItems ?? 20);
 }
 
-export async function buildVerseCandidates(
-  mcp: BibleMcpProvider,
-  stressfulItems: StressfulItem[],
-  translation: Translation,
-): Promise<VerseCandidate[]> {
-
+/**
+ * Extracts the top stress-related tags from stressful items.
+ * Used by the AI agent to select appropriate Bible verses.
+ */
+export function extractStressTags(stressfulItems: StressfulItem[]): string[] {
   const tagCounts = new Map<string, number>();
   for (const item of stressfulItems) {
     for (const tag of item.stressTags ?? []) {
@@ -54,35 +59,10 @@ export async function buildVerseCandidates(
   const rankedTags = Array.from(tagCounts.entries())
     .filter(([tag]) => !INTERNAL_ONLY_TAGS.has(tag))
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
+    .slice(0, 6)
     .map(([tag]) => tag);
 
-  const fallbackTags = DEFAULT_TAGS.filter((tag) => !rankedTags.includes(tag));
-  const searchTags = [...rankedTags, ...fallbackTags];
-
-  const verses: VerseCandidate[] = [];
-  const seen = new Set<string>();
-
-  for (const tag of searchTags) {
-    try {
-      const found = await mcp.searchByKeywords([tag], translation, 5);
-      for (const candidate of found) {
-        const key = candidate.ref.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        verses.push({
-          ref: candidate.ref,
-          text: candidate.text,
-          translation: candidate.translation,
-        });
-      }
-    } catch (error) {
-      console.warn('MCP search failed for tag', tag, error);
-    }
-    if (verses.length >= 8) break;
-  }
-
-  return verses.slice(0, 8);
+  return rankedTags;
 }
 
 function calendarEventToStressfulItem(
@@ -105,12 +85,7 @@ function calendarEventToStressfulItem(
   tags.add(item.kind);
 
   if (item.kind === 'exam') {
-    tags.add('exam');
     tags.add('courage');
-  }
-
-  if (item.kind === 'assignment') {
-    tags.add('assignment');
   }
 
   if (item.course) {

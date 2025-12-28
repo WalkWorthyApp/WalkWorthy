@@ -11,9 +11,19 @@ const client = new SecretManagerServiceClient();
  */
 export async function getSecretString(secretId: string): Promise<string> {
   // Construct the secret path if not already provided
-  const name = secretId.startsWith('projects/')
-    ? secretId
-    : `projects/${process.env.GCP_PROJECT || process.env.GCLOUD_PROJECT}/secrets/${secretId}/versions/latest`;
+  let name: string;
+  if (secretId.startsWith('projects/')) {
+    name = secretId;
+  } else {
+    // Validate that a project ID is available
+    const projectId = process.env.GCP_PROJECT || process.env.GCLOUD_PROJECT;
+    if (!projectId) {
+      throw new Error(
+        'Missing GCP project ID: set GCP_PROJECT or GCLOUD_PROJECT environment variable'
+      );
+    }
+    name = `projects/${projectId}/secrets/${secretId}/versions/latest`;
+  }
 
   const [version] = await client.accessSecretVersion({ name });
   const payload = version.payload?.data;

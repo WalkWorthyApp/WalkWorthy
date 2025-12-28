@@ -1,6 +1,5 @@
-import { Translation, StressfulItem, VerseCandidate } from './walkworthy-agent';
+import { Translation, StressfulItem } from './walkworthy-agent';
 import type { CalendarEventItem } from './calendar-ical';
-import { BibleMcpProvider } from './bibleMcp';
 
 interface HeuristicOptions {
   translation: Translation;
@@ -31,12 +30,11 @@ export function mapCalendarEventsToStressfulItems(
   return mapped.slice(0, options.maxItems ?? 20);
 }
 
-export async function buildVerseCandidates(
-  mcp: BibleMcpProvider,
-  stressfulItems: StressfulItem[],
-  translation: Translation,
-): Promise<VerseCandidate[]> {
-
+/**
+ * Extracts the top stress-related tags from stressful items.
+ * Used by the AI agent to select appropriate Bible verses.
+ */
+export function extractStressTags(stressfulItems: StressfulItem[]): string[] {
   const tagCounts = new Map<string, number>();
   for (const item of stressfulItems) {
     for (const tag of item.stressTags ?? []) {
@@ -52,37 +50,12 @@ export async function buildVerseCandidates(
   }
 
   const rankedTags = Array.from(tagCounts.entries())
+    .filter(([tag]) => !INTERNAL_ONLY_TAGS.has(tag))
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
-    .map(([tag]) => tag)
-    .filter((tag) => !INTERNAL_ONLY_TAGS.has(tag));
+    .slice(0, 6)
+    .map(([tag]) => tag);
 
-  const fallbackTags = DEFAULT_TAGS.filter((tag) => !rankedTags.includes(tag));
-  const searchTags = [...rankedTags, ...fallbackTags];
-
-  const verses: VerseCandidate[] = [];
-  const seen = new Set<string>();
-
-  for (const tag of searchTags) {
-    try {
-      const found = await mcp.searchByKeywords([tag], translation, 5);
-      for (const candidate of found) {
-        const key = candidate.ref.toLowerCase();
-        if (seen.has(key)) continue;
-        seen.add(key);
-        verses.push({
-          ref: candidate.ref,
-          text: candidate.text,
-          translation: candidate.translation,
-        });
-      }
-    } catch (error) {
-      console.warn('MCP search failed for tag', tag, error);
-    }
-    if (verses.length >= 8) break;
-  }
-
-  return verses.slice(0, 8);
+  return rankedTags;
 }
 
 function calendarEventToStressfulItem(

@@ -27,8 +27,56 @@ const DEFAULT_WINDOW_DAYS = 14;
 const EXAM_RE = /\b(exam|midterm|final|quiz|test)\b/i;
 const ASSIGNMENT_RE = /\b(assign|homework|paper|project|essay|lab|due)\b/i;
 
+/**
+ * Validate calendar URL to prevent SSRF attacks.
+ * Only allows HTTPS URLs that don't point to internal/private IP ranges.
+ *
+ * @param url - The calendar URL to validate
+ * @returns True if URL is safe to fetch
+ */
+function isValidCalendarUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+
+    // Normalize hostname for consistent checking
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Only allow HTTPS (or HTTP for localhost during development)
+    if (parsed.protocol !== 'https:' &&
+        !(parsed.protocol === 'http:' && (hostname === 'localhost' || hostname === '127.0.0.1'))) {
+      return false;
+    }
+
+    // Block internal/private IP ranges to prevent SSRF
+    // Note: localhost and 127.0.0.1 are allowed for development (gated by protocol check above)
+    if (hostname === '0.0.0.0' ||
+        hostname.startsWith('169.254.') || // Link-local
+        hostname.startsWith('10.') ||      // Private class A
+        hostname.startsWith('172.16.') ||  // Private class B (172.16.0.0 - 172.31.255.255)
+        hostname.startsWith('172.17.') ||
+        hostname.startsWith('172.18.') ||
+        hostname.startsWith('172.19.') ||
+        hostname.startsWith('172.2') ||
+        hostname.startsWith('172.30.') ||
+        hostname.startsWith('172.31.') ||
+        hostname.startsWith('192.168.'))   // Private class C
+    {
+      return false;
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchCalendarEvents(options: FetchOptions): Promise<CalendarEventItem[]> {
   const { calendarUrl } = options;
+
+  if (!isValidCalendarUrl(calendarUrl)) {
+    throw new Error('Invalid calendar URL: must be HTTPS and not point to internal resources');
+  }
+
   const windowDays = options.windowDays ?? DEFAULT_WINDOW_DAYS;
   const now = options.now ?? new Date();
   const rangeEnd = new Date(now.getTime() + windowDays * 24 * 60 * 60 * 1000);
@@ -111,6 +159,14 @@ export async function fetchCalendarEvents(options: FetchOptions): Promise<Calend
       if (Number.isNaN(bTime)) return -1;
       return aTime - bTime;
     });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      throw new Error(`Calendar fetch timed out after 12 seconds for URL: ${calendarUrl}`);
+    }
+    if (error instanceof TypeError) {
+      throw new Error(`Network error fetching calendar: ${error.message}`);
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
   }
@@ -293,12 +349,39 @@ function parseProperty(line: string): { name: string; value: string; params: Rec
 }
 
 function unescapeICSValue(value: string): string {
+  // Use a unique placeholder to preserve literal backslashes during escape processing.
+  // Process escaped backslashes first to prevent sequences like "\\n" (literal backslash + n)
+  // from being misinterpreted as escaped newline "\n".
+  const BACKSLASH_PLACEHOLDER = '\u0000__BS__\u0000';
   return value
-    .replace(/\\n/gi, '\n')
-    .replace(/\\t/gi, '\t')
-    .replace(/\\\\/g, '\\')
-    .replace(/\\,/g, ',')
-    .replace(/\\;/g, ';');
+    .replace(/\\\\/g, BACKSLASH_PLACEHOLDER)  // Escaped backslash -> placeholder
+    .replace(/\\n/gi, '\n')                    // Escaped newline
+    .replace(/\\t/gi, '\t')                    // Escaped tab
+    .replace(/\\,/g, ',')                      // Escaped comma
+    .replace(/\\;/g, ';')                      // Escaped semicolon
+    .replace(new RegExp(BACKSLASH_PLACEHOLDER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '\\'); // Placeholder -> single backslash
+}
+
+/**
+ * Formats date/time components as a naive (timezone-agnostic) ISO string.
+ * Floating times are stored as-is without UTC conversion or Z suffix.
+ * Consumers must interpret these values as local/naive and apply timezone context as needed.
+ */
+function formatFloatingDateTime(
+  year: number,
+  month: number,
+  day: number,
+  hour?: number,
+  minute?: number,
+  second?: number,
+): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const datePart = `${year}-${pad(month)}-${pad(day)}`;
+  if (hour === undefined) {
+    return datePart; // Date-only: YYYY-MM-DD
+  }
+  // Date-time: YYYY-MM-DDTHH:MM:SS (no Z suffix)
+  return `${datePart}T${pad(hour)}:${pad(minute!)}:${pad(second!)}`;
 }
 
 function parseDateTime(
@@ -314,10 +397,11 @@ function parseDateTime(
     const match = upper.match(/^(\d{4})(\d{2})(\d{2})$/);
     if (!match) return undefined;
     const year = Number(match[1]);
-    const month = Number(match[2]) - 1;
+    const month = Number(match[2]);
     const day = Number(match[3]);
-    const date = new Date(Date.UTC(year, month, day));
-    return { iso: date.toISOString(), isDateOnly: true, timeZoneId: timeZone ?? 'floating' };
+    // Floating date-only values are stored as naive YYYY-MM-DD without Z
+    const iso = formatFloatingDateTime(year, month, day);
+    return { iso, isDateOnly: true, timeZoneId: timeZone ?? 'floating' };
   }
 
   const zuluMatch = upper.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);
@@ -332,22 +416,23 @@ function parseDateTime(
   const localMatch = upper.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/);
   if (localMatch) {
     const year = Number(localMatch[1]);
-    const month = Number(localMatch[2]) - 1;
+    const month = Number(localMatch[2]);
     const day = Number(localMatch[3]);
     const hour = Number(localMatch[4]);
     const minute = Number(localMatch[5]);
     const second = Number(localMatch[6]);
     if (timeZone) {
       const utcDate = convertToUTCFromTimeZone(
-        { year, month, day, hour, minute, second },
+        { year, month: month - 1, day, hour, minute, second },
         timeZone,
       );
       if (utcDate) {
         return { iso: utcDate.toISOString(), isDateOnly: false, timeZoneId: timeZone };
       }
     }
-    const date = new Date(Date.UTC(year, month, day, hour, minute, second));
-    return { iso: date.toISOString(), isDateOnly: false, timeZoneId: timeZone ?? 'floating' };
+    // Floating times (no TZID, no Z) are stored as naive YYYY-MM-DDTHH:MM:SS without Z suffix
+    const iso = formatFloatingDateTime(year, month, day, hour, minute, second);
+    return { iso, isDateOnly: false, timeZoneId: 'floating' };
   }
 
   const parsed = new Date(trimmed);

@@ -1,9 +1,16 @@
 import { getFirestore } from 'firebase-admin/firestore';
+import type { AgeRange, Gender } from './types';
 
 export interface UserProfile {
-  ageRange?: string;
+  /** SENSITIVE: Stored PII - use redactSensitiveFields() when logging */
+  ageRange?: AgeRange;
+
+  /** Optional major/field of study */
   major?: string;
-  gender?: string;
+
+  /** SENSITIVE: Stored PII - use redactSensitiveFields() when logging */
+  gender?: Gender;
+
   hobbies?: string[];
   optInTailored?: boolean;
   translationPreference?: 'ESV' | 'KJV' | 'NIV' | 'NKJV' | 'NASB' | 'CSB' | 'NLT';
