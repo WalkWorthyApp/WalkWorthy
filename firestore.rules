@@ -22,12 +22,31 @@ service cloud.firestore {
     }
 
     // Helper function to block sensitive fields
+    // MUST stay synchronized with redactSensitiveFields() in shared/crypto.ts
+    // to ensure consistent security boundaries across client rules and server logging
     function containsSensitiveFields(data) {
       return data.keys().hasAny([
-        'notificationToken',      // Plain push notification token - NEVER allowed
-        'notificationTokenRaw',    // Any raw/unprocessed token
+        // Notification tokens - all variants (NEVER allowed in plain form)
+        'notificationToken',
+        'notificationTokenRaw',
+        'notification_token',
+        'pushToken',
+        'push_token',
+        'deviceToken',
+        'device_token',
+        'fcmToken',
+        'apnsToken',
         'plainToken',
-        'apiKey'                   // API credentials - NEVER allowed
+        // API credentials and secrets (NEVER allowed)
+        'apiKey',
+        'api_key',
+        'secret',
+        'password',
+        // OAuth/Auth tokens (NEVER allowed)
+        'accessToken',
+        'access_token',
+        'refreshToken',
+        'refresh_token'
       ]);
     }
 
