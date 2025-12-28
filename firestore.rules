@@ -2,6 +2,48 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Helper function to check if user is authenticated
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Helper function to check if user owns the resource
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // User profiles - users can read/write their own profile
+    match /users/{userId}/profile/{document=**} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+
+    // Device registrations - users can manage their own devices
+    match /users/{userId}/devices/{deviceId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+
+    // Encouragements - read-only for authenticated users
+    // Cloud Functions create/update these via Admin SDK
+    match /encouragements/{encouragementId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // User-specific encouragements (if stored per user)
+    match /users/{userId}/encouragements/{encouragementId} {
+      allow read: if isOwner(userId);
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // Calendar data - users can read their own calendar data
+    match /users/{userId}/calendar/{document=**} {
+      allow read: if isOwner(userId);
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // Block everything else
     match /{document=**} {
       allow read, write: if false;
     }
