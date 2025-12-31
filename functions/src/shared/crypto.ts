@@ -1,4 +1,5 @@
 import * as crypto from 'crypto';
+import { getSecretString } from './secrets';
 
 /**
  * NOTIFICATION TOKEN SECURITY ARCHITECTURE
@@ -8,9 +9,10 @@ import * as crypto from 'crypto';
  *
  * 1. HASHING (this file)
  *    - Tokens are hashed with SHA-256 + pepper before any storage/transmission
+ *    - initializePepper(): Must be called at startup to fetch pepper from Secret Manager
  *    - hashNotificationToken(): Convert plain token → SHA-256 hash
  *    - verifyNotificationToken(): Constant-time comparison for verification
- *    - Pepper stored in env var (must be rotated in production)
+ *    - Pepper stored in Google Cloud Secret Manager (never in env vars in production)
  *
  * 2. FIRESTORE RULES (../../firestore.rules)
  *    - Blocks plain 'notificationToken' field in all client writes (create/update)
@@ -35,25 +37,94 @@ import * as crypto from 'crypto';
  * - PCI-DSS: If payment is involved, token storage must be PCI compliant
  */
 
+// SECURITY: Pepper is cached in memory after fetch from Secret Manager
+// Never stored in process.env or logged
+let cachedPepper: string | null = null;
+let pepperInitialized = false;
+let initializingPepperPromise: Promise<void> | null = null;
+
+/**
+ * Initialize the notification token pepper from Google Cloud Secret Manager.
+ * MUST be called before hashNotificationToken() or verifyNotificationToken().
+ *
+ * Uses a promise guard to prevent multiple concurrent Secret Manager fetches.
+ * Only the first caller fetches the secret; concurrent callers await the same promise.
+ *
+ * @throws Error if secret name is not configured or secret cannot be retrieved
+ */
+async function initializePepper(): Promise<void> {
+  // Fast path: Already initialized
+  if (pepperInitialized && cachedPepper) {
+    return;
+  }
+
+  // If initialization is already in progress, await it
+  if (initializingPepperPromise) {
+    return initializingPepperPromise;
+  }
+
+  // Start initialization - set promise before async operations
+  initializingPepperPromise = (async () => {
+    try {
+      // SECURITY: Always fetch pepper from Secret Manager
+      // Default secret name matches what's created in GCP Secret Manager
+      const secretName = process.env.NOTIFICATION_TOKEN_PEPPER_SECRET_NAME || 'notification-token-pepper';
+
+      const pepper = await getSecretString(secretName);
+      if (!pepper) {
+        throw new Error(`Failed to retrieve notification token pepper from secret: ${secretName}`);
+      }
+
+      // SECURITY: Store pepper only in module-scoped variable, never in process.env
+      cachedPepper = pepper;
+      pepperInitialized = true;
+    } finally {
+      // Clear promise after completion (success or failure)
+      initializingPepperPromise = null;
+    }
+  })();
+
+  return initializingPepperPromise;
+}
+
+/**
+ * Ensure the notification token pepper is initialized and ready.
+ *
+ * This function deterministically guarantees pepper initialization before operations.
+ * It should be called at the start of any request handler that needs token hashing.
+ *
+ * Usage:
+ *   export const myHandler = onRequest(async (req, res) => {
+ *     await ensurePepperInitialized();  // Guarantee pepper is ready
+ *     // Now safe to call hashNotificationToken()
+ *   });
+ *
+ * @throws Error if pepper initialization fails
+ */
+export async function ensurePepperInitialized(): Promise<void> {
+  return initializePepper();
+}
+
 /**
  * Hash a notification token for secure storage.
- * Uses SHA-256 with a pepper from environment to prevent rainbow table attacks.
+ * Uses SHA-256 with a pepper from Secret Manager to prevent rainbow table attacks.
+ *
+ * IMPORTANT: initializePepper() must be called before using this function.
  *
  * @param token - The plain notification token (APNs/FCM)
  * @returns Hashed token as hex string (64 hex characters)
- * @throws Error if NOTIFICATION_TOKEN_PEPPER environment variable is not set
+ * @throws Error if pepper has not been initialized
  */
 export function hashNotificationToken(token: string): string {
-  const pepper = process.env.NOTIFICATION_TOKEN_PEPPER;
-  if (!pepper) {
+  if (!cachedPepper) {
     throw new Error(
-      'NOTIFICATION_TOKEN_PEPPER environment variable must be set. ' +
-      'This is required for secure token hashing in production.'
+      'Notification token pepper not initialized. ' +
+      'Call initializePepper() before hashing tokens.'
     );
   }
 
   const hash = crypto.createHash('sha256');
-  hash.update(token + pepper);
+  hash.update(token + cachedPepper);
   return hash.digest('hex');
 }
 
@@ -90,7 +161,7 @@ export function verifyNotificationToken(token: string, storedHash: string): bool
  * @param obj - Object containing potentially sensitive data
  * @returns Sanitized copy of the object safe for logging
  */
-export function redactSensitiveFields<T extends Record<string, any>>(obj: T): T {
+export function redactSensitiveFields<T extends Record<string, unknown>>(obj: T): T {
   const sensitiveFields = [
     'notificationToken',
     'notification_token',
@@ -110,13 +181,13 @@ export function redactSensitiveFields<T extends Record<string, any>>(obj: T): T 
     'refresh_token',
   ];
 
-  const redacted = { ...obj } as any;
+  const redacted: Record<string, unknown> = { ...obj };
 
   for (const key of Object.keys(redacted)) {
     if (sensitiveFields.some(field => key.toLowerCase().includes(field.toLowerCase()))) {
       redacted[key] = '[REDACTED]';
     } else if (typeof redacted[key] === 'object' && redacted[key] !== null) {
-      redacted[key] = redactSensitiveFields(redacted[key]);
+      redacted[key] = redactSensitiveFields(redacted[key] as Record<string, unknown>);
     }
   }
 

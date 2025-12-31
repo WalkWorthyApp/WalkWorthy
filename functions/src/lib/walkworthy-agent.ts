@@ -1,8 +1,6 @@
 import { Agent, run } from '@openai/agents';
-import { setDefaultOpenAIKey, setOpenAIAPI } from '@openai/agents-openai';
 import { z } from 'zod';
 import Ajv from 'ajv';
-import { getSecretString } from '../shared/secrets';
 import type { AgeRange, Gender } from '../shared/types';
 
 export type Translation = 'ESV' | 'KJV' | 'NIV' | 'NKJV' | 'NASB' | 'CSB' | 'NLT';
@@ -90,38 +88,19 @@ const SYSTEM_PROMPT = [
 
 let cachedAgent: Agent<object, typeof verseOutputSchema> | undefined;
 let cachedModel: string | undefined;
-let openAiConfigured = false;
-let lastFetchedAt: number = 0;
 
-const DEFAULT_OPENAI_API_KEY_TTL_MS = 300_000; // 5 minutes
-
-function getOpenAiKeyTtlMs(): number {
-  const ttlEnv = process.env.OPENAI_API_KEY_TTL_MS;
-  if (!ttlEnv) return DEFAULT_OPENAI_API_KEY_TTL_MS;
-  const ttl = parseInt(ttlEnv, 10);
-  return isNaN(ttl) || ttl <= 0 ? DEFAULT_OPENAI_API_KEY_TTL_MS : ttl;
-}
-
-async function ensureConfig() {
-  const ttlMs = getOpenAiKeyTtlMs();
-  const now = Date.now();
-  const needsRefresh = !openAiConfigured || (now - lastFetchedAt > ttlMs);
-
-  if (!needsRefresh) return;
-
-  const secretName = process.env.OPENAI_API_KEY_SECRET_NAME;
-  const apiKey = secretName
-    ? await getSecretString(secretName)
-    : process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error('OPENAI_API_KEY is not configured');
+/**
+ * Validate and return the OpenAI API key for request-scoped use.
+ * Does not mutate global state to avoid race conditions with concurrent requests.
+ *
+ * @param apiKey - The OpenAI API key (from Firebase secret or env var)
+ * @throws Error if apiKey is missing or empty
+ */
+function validateApiKey(apiKey: string): string {
+  if (!apiKey || typeof apiKey !== 'string' || apiKey.trim().length === 0) {
+    throw new Error('OpenAI API key is missing or empty. Cannot proceed with verse selection.');
   }
-  // Always update process.env with the fetched key so other modules see the refreshed secret
-  process.env.OPENAI_API_KEY = apiKey;
-  setDefaultOpenAIKey(apiKey);
-  setOpenAIAPI('responses');
-  lastFetchedAt = now;
-  openAiConfigured = true;
+  return apiKey.trim();
 }
 
 function sanitize(text: string, max = 400): string {
@@ -186,14 +165,16 @@ const MAX_RETRIES = 2;
 
 export async function runVerseSelectionAgent(
   input: AgentRunInput,
-  model = process.env.OPENAI_MODEL || 'gpt-4.1',
+  apiKey: string,
+  model = process.env.OPENAI_MODEL || 'gpt-4o-mini',
 ): Promise<VerseSelectionResult> {
+  // Validate API key upfront; fail fast if missing
+  const validatedApiKey = validateApiKey(apiKey);
+
   if (!input.stressTags || input.stressTags.length === 0) {
     // Provide default tags if none are extracted
     input.stressTags = ['encouragement', 'peace', 'strength'];
   }
-
-  await ensureConfig();
 
   const agent = ensureAgent(model);
 
@@ -211,7 +192,9 @@ export async function runVerseSelectionAgent(
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
     try {
       const result = await run(agent, serializedInput, {
-        context: {},
+        context: {
+          apiKey: validatedApiKey,
+        },
         maxTurns: 6,
       });
 
@@ -233,13 +216,17 @@ export async function runVerseSelectionAgent(
 }
 
 function parseVerse(candidate: unknown, fallbackTranslation: Translation): VerseSelectionResult {
-  let data: any = candidate;
+  let data: Record<string, unknown>;
   if (typeof candidate === 'string') {
     try {
-      data = JSON.parse(candidate);
+      data = JSON.parse(candidate) as Record<string, unknown>;
     } catch {
       throw new Error('Agent returned unparseable string output');
     }
+  } else if (typeof candidate === 'object' && candidate !== null) {
+    data = candidate as Record<string, unknown>;
+  } else {
+    throw new Error('Agent returned invalid output type');
   }
 
   if (!validateVerse(data)) {
@@ -247,9 +234,9 @@ function parseVerse(candidate: unknown, fallbackTranslation: Translation): Verse
   }
 
   return {
-    ref: data.ref,
-    text: data.text,
-    encouragement: data.encouragement,
-    translation: normalizeTranslation(data.translation || fallbackTranslation),
+    ref: data.ref as string,
+    text: data.text as string,
+    encouragement: data.encouragement as string,
+    translation: normalizeTranslation(data.translation as string || fallbackTranslation),
   };
 }

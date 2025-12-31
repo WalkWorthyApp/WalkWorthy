@@ -11,19 +11,21 @@ struct OnboardingForm: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var ageText: String = ""
+    @State private var occupation: String = ""
     @State private var major: String = ""
     @State private var gender: Gender = .male
     @State private var selectedHobbies: Set<String> = []
     @State private var customHobby: String = ""
     @State private var optIn: Bool = true
     @State private var ageError: String?
-    @State private var majorError: String?
+    @State private var contextError: String?
     @State private var hobbiesError: String?
     @State private var isEditingExistingProfile = false
     @FocusState private var focusedField: Field?
 
     enum Field {
         case age
+        case occupation
         case major
     }
 
@@ -44,7 +46,7 @@ struct OnboardingForm: View {
             VStack(alignment: .leading, spacing: 24) {
                 header
                 ageSection
-                majorSection
+                contextSection
                 genderSection
                 hobbiesSection
                 optInSection
@@ -59,8 +61,11 @@ struct OnboardingForm: View {
         .onChange(of: ageText) {
             if ageError != nil { ageError = nil }
         }
+        .onChange(of: occupation) {
+            if contextError != nil { contextError = nil }
+        }
         .onChange(of: major) {
-            if majorError != nil { majorError = nil }
+            if contextError != nil { contextError = nil }
         }
         .onChange(of: selectedHobbies) {
             if hobbiesError != nil { hobbiesError = nil }
@@ -73,7 +78,7 @@ struct OnboardingForm: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Welcome to WalkWorthy")
                 .font(.largeTitle.bold())
-            Text("Help us tailor encouragements to your rhythms. Nothing here leaves your device yet.")
+            Text("Help us tailor encouragements to your rhythms. Your information stays private and secure.")
                 .font(.body)
                 .foregroundStyle(.secondary)
         }
@@ -98,18 +103,44 @@ struct OnboardingForm: View {
         }
     }
 
-    private var majorSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Major")
-                .font(.headline)
-            TextField("Biblical Studies", text: $major)
-                .textContentType(.jobTitle)
-                .padding()
-                .glassCard()
-                .focused($focusedField, equals: .major)
-                .accessibilityLabel("Major")
-            if let majorError {
-                Text(majorError)
+    private var contextSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("What do you do?")
+                    .font(.headline)
+                Text("Fill in whichever applies to you, or both.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+
+            // Occupation field
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Occupation", systemImage: "briefcase")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                TextField("Software Engineer, Teacher, etc.", text: $occupation)
+                    .textContentType(.jobTitle)
+                    .padding()
+                    .glassCard()
+                    .focused($focusedField, equals: .occupation)
+                    .accessibilityLabel("Occupation")
+            }
+
+            // Major field
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Major / Field of Study", systemImage: "graduationcap")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                TextField("Computer Science, Nursing, etc.", text: $major)
+                    .textContentType(.jobTitle)
+                    .padding()
+                    .glassCard()
+                    .focused($focusedField, equals: .major)
+                    .accessibilityLabel("Major")
+            }
+
+            if let contextError {
+                Text(contextError)
                     .font(.footnote)
                     .foregroundStyle(.red)
             }
@@ -150,7 +181,7 @@ struct OnboardingForm: View {
                 }
             }
             VStack(alignment: .leading, spacing: 8) {
-                Text("Don’t see yours? Add it below.")
+                Text("Don't see yours? Add it below.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                 HStack(spacing: 12) {
@@ -178,7 +209,7 @@ struct OnboardingForm: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Receive encouragement nudges")
                     .font(.headline)
-                Text("We’ll keep them gentle and focused on Scripture.")
+                Text("We'll keep them gentle and focused on Scripture.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -188,7 +219,7 @@ struct OnboardingForm: View {
     }
 
     private var privacyCopy: some View {
-        Text("Your responses are stored securely on this device only during the UI sprint. We’ll prompt before syncing to the cloud later.")
+        Text("Your data is encrypted and never shared. We use it only to personalize your encouragement experience.")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .padding(.top, 8)
@@ -230,6 +261,7 @@ struct OnboardingForm: View {
         } else {
             ageText = ""
         }
+        occupation = profile.occupation
         major = profile.major
         gender = profile.gender
         selectedHobbies = profile.hobbies
@@ -240,8 +272,9 @@ struct OnboardingForm: View {
             DispatchQueue.main.async {
                 if profile.age == nil {
                     focusedField = .age
-                } else if profile.major.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    focusedField = .major
+                } else if profile.occupation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                          profile.major.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    focusedField = .occupation
                 }
             }
         }
@@ -283,11 +316,12 @@ struct OnboardingForm: View {
 
         focusedField = nil
         let age = Int(ageText)
+        let trimmedOccupation = occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = major.trimmingCharacters(in: .whitespacesAndNewlines)
+        occupation = trimmedOccupation
         major = trimmedMajor
-        appState.updateProfile(age: age, major: trimmedMajor, gender: gender, hobbies: selectedHobbies, optIn: optIn)
+        appState.updateProfile(age: age, occupation: trimmedOccupation, major: trimmedMajor, gender: gender, hobbies: selectedHobbies, optIn: optIn)
         appState.markOnboardingComplete()
-        appState.refreshEncouragementDeck()
 
         if isEditingExistingProfile {
             dismiss()
@@ -303,10 +337,12 @@ struct OnboardingForm: View {
             return false
         }
 
+        // Require at least one of occupation or major
+        let trimmedOccupation = occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = major.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedMajor.isEmpty else {
-            majorError = "Please share your major."
-            focusedField = .major
+        guard !trimmedOccupation.isEmpty || !trimmedMajor.isEmpty else {
+            contextError = "Please share your occupation or field of study."
+            focusedField = .occupation
             return false
         }
 
@@ -320,7 +356,7 @@ struct OnboardingForm: View {
 
     private func resetValidationMessages() {
         ageError = nil
-        majorError = nil
+        contextError = nil
         hobbiesError = nil
     }
 
@@ -330,8 +366,9 @@ struct OnboardingForm: View {
 
     private var formIsComplete: Bool {
         guard let age = Int(ageText), age > 0 else { return false }
+        let trimmedOccupation = occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = major.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedMajor.isEmpty else { return false }
+        guard !trimmedOccupation.isEmpty || !trimmedMajor.isEmpty else { return false }
         return !selectedHobbies.isEmpty
     }
 }

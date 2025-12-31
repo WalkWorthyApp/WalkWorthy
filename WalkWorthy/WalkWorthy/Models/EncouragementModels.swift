@@ -2,19 +2,20 @@
 //  EncouragementModels.swift
 //  WalkWorthy
 //
-//  Shared models used by the live encouragement and Canvas APIs.
+//  Shared models used by the live encouragement API.
 //
 
 import Foundation
 
 protocol EncouragementAPI {
+    // Encouragement methods
     func fetchNext() async throws -> NextResponse
-    func triggerScanNow() async throws -> ScanNowResponse
     func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws
-    func fetchCalendarAgenda() async throws -> CalendarAgendaResponse
-    func fetchCalendarLinkStatus() async throws -> CalendarLinkStatus
-    func updateCalendarLink(_ payload: CalendarLinkUpdateRequest) async throws -> CalendarLinkStatus
-    func deleteCalendarLink() async throws
+
+    // Mood tracking methods
+    func submitMoodCheckIn(_ request: MoodCheckInRequest) async throws -> MoodCheckInResponse
+    func fetchMoodStatus() async throws -> MoodStatusResponse
+    func fetchMoodHistory(days: Int) async throws -> MoodHistoryResponse
 }
 
 struct NextResponse: Codable {
@@ -47,84 +48,16 @@ enum ScanStatus: String, Codable {
     case fallback = "FALLBACK"
 }
 
-struct ScanNowResponse: Codable {
-    let message: String
-    let encouragementId: String?
-    let status: ScanStatus
-    let log: ScanLogSummary?
-}
-
-struct CalendarAgendaResponse: Codable {
-    let fetchedAt: Date?
-    let items: [CalendarAgendaItem]
-}
-
-struct CalendarAgendaItem: Codable, Identifiable {
-    let id: String
-    let title: String
-    let kind: CalendarAgendaKind
-    let startAt: Date?
-    let endAt: Date?
-    let dueAt: Date?
-    let course: String?
-    let location: String?
-    let url: URL?
-    let timeZoneId: String?
-}
-
-enum CalendarAgendaKind: String, Codable, CaseIterable, Identifiable {
-    case assignment
-    case exam
-    case event
-
-    var id: String { rawValue }
-
-    var iconName: String {
-        switch self {
-        case .assignment: return "doc.text"
-        case .exam: return "checkmark.seal"
-        case .event: return "calendar"
-        }
-    }
-
-    var displayName: String {
-        switch self {
-        case .assignment: return "Assignment"
-        case .exam: return "Exam"
-        case .event: return "Event"
-        }
-    }
-}
-
-struct CalendarLinkStatus: Codable, Equatable {
-    enum LinkState: String, Codable {
-        case pending = "PENDING"
-        case active = "ACTIVE"
-        case error = "ERROR"
-        case migrationRequired = "MIGRATION_REQUIRED"
-    }
-
-    var calendarUrl: String?
-    var status: LinkState
-    var lastValidatedAt: Date?
-    var lastError: String?
-    var updatedAt: Date?
-    var lastSyncedAt: Date?
-    var lastSyncStatus: String?
-    var lastSyncError: String?
-}
-
-struct CalendarLinkUpdateRequest: Codable {
-    var calendarUrl: String
-}
-
 struct RemoteUserProfileRequest: Codable {
     var ageRange: String?
+    var occupation: String?
     var major: String?
     var gender: String?
     var hobbies: [String]?
     var optInTailored: Bool?
     var translationPreference: String?
+    var checkInTimes: CheckInTimes?
+    var timezone: String?
 }
 
 
@@ -191,7 +124,8 @@ enum Gender: String, CaseIterable, Identifiable {
 
 struct OnboardingProfile {
     var age: Int?
-    var major: String
+    var occupation: String  // For professionals
+    var major: String       // For students
     var gender: Gender
     var hobbies: Set<String>
     var optIn: Bool

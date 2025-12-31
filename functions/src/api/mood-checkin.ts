@@ -1,0 +1,524 @@
+/**
+ * Mood Check-in API
+ *
+ * Handles mood check-in submissions and retrieval:
+ * - POST /moodCheckIn - Submit a mood check-in and get AI encouragement
+ * - GET /moodCheckIn - Get the latest check-in or pending check-in info
+ * - GET /moodCheckIn/history - Get mood history for past days
+ */
+
+import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
+import { defineSecret } from 'firebase-functions/params';
+import { logger } from 'firebase-functions/v2';
+import type { Request, Response } from 'express';
+import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
+import { requireAuth, errorResponse, successResponse } from '../shared/auth';
+import { getUserProfileOnce } from '../shared/profile';
+import { runMoodAgent, UserProfilePayload } from '../lib/mood-agent';
+import {
+  validateMoodCheckInInput,
+  MoodCheckIn,
+  MoodCheckInResponse,
+  DailyMoodSummary,
+  CheckInSummary,
+  CheckInType,
+  Translation,
+  PendingCheckIn,
+} from '../shared/types';
+import { randomUUID } from 'crypto';
+
+// Initialize Firebase on module load
+initializeFirebase();
+
+// Define the OpenAI API key secret - Firebase will inject this at runtime
+const openaiApiKey = defineSecret('openai-api-key');
+
+const httpsOptions: HttpsOptions = {
+  cors: true,
+  maxInstances: 10,
+  timeoutSeconds: 60, // AI calls may take time
+  invoker: 'public',
+  secrets: [openaiApiKey], // Bind OpenAI API key secret
+};
+
+const VALID_TRANSLATIONS: Translation[] = ['ESV', 'KJV', 'NIV', 'NKJV', 'NASB', 'CSB', 'NLT'];
+
+function normalizeTranslation(value?: string): Translation {
+  if (!value) return 'ESV';
+  const upper = value.toUpperCase() as Translation;
+  return VALID_TRANSLATIONS.includes(upper) ? upper : 'ESV';
+}
+
+/**
+ * Get today's date string in YYYY-MM-DD format
+ */
+function getTodayDateString(timezone?: string): string {
+  const now = new Date();
+  if (timezone) {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      return formatter.format(now);
+    } catch {
+      // Fall back to UTC if timezone is invalid
+    }
+  }
+  return now.toISOString().split('T')[0];
+}
+
+/**
+ * Format a given date as YYYY-MM-DD in the specified timezone
+ */
+function getDateStringInTimezone(date: Date, timezone?: string): string {
+  if (timezone) {
+    try {
+      const formatter = new Intl.DateTimeFormat('en-CA', {
+        timeZone: timezone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+      });
+      return formatter.format(date);
+    } catch {
+      // Fall back to UTC if timezone is invalid
+    }
+  }
+  return date.toISOString().split('T')[0];
+}
+
+/**
+ * Determine the current pending check-in type based on time
+ */
+function getCurrentCheckInType(
+  timezone: string = 'America/New_York',
+  checkInTimes?: { morning: string; midday: string; evening: string },
+): CheckInType {
+  const now = new Date();
+  let hour: number;
+
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: timezone,
+      hour: 'numeric',
+      hour12: false,
+    });
+    hour = parseInt(formatter.format(now), 10);
+  } catch {
+    hour = now.getUTCHours();
+  }
+
+  // Default time windows if no custom times
+  const morningEnd = checkInTimes ? parseInt(checkInTimes.midday.split(':')[0], 10) : 11;
+  const middayEnd = checkInTimes ? parseInt(checkInTimes.evening.split(':')[0], 10) : 17;
+
+  if (hour < morningEnd) {
+    return 'morning';
+  } else if (hour < middayEnd) {
+    return 'midday';
+  } else {
+    return 'evening';
+  }
+}
+
+/**
+ * Calculate overall sentiment from day's moods
+ */
+function calculateOverallSentiment(
+  morning?: CheckInSummary | null,
+  midday?: CheckInSummary | null,
+  evening?: CheckInSummary | null,
+): 'positive' | 'neutral' | 'challenging' | null {
+  const positiveMoods = ['hopeful', 'confident', 'better than expected', 'great day', 'good day', 'ready'];
+  const challengingMoods = ['anxious', 'tired', 'nervous', 'stressful', 'harder than expected', 'challenging day', 'difficult day'];
+
+  const moods = [morning?.primaryMood, midday?.primaryMood, evening?.primaryMood].filter(Boolean) as string[];
+
+  if (moods.length === 0) return null;
+
+  let positiveCount = 0;
+  let challengingCount = 0;
+
+  for (const mood of moods) {
+    if (positiveMoods.includes(mood)) positiveCount++;
+    if (challengingMoods.includes(mood)) challengingCount++;
+  }
+
+  if (positiveCount > challengingCount) return 'positive';
+  if (challengingCount > positiveCount) return 'challenging';
+  return 'neutral';
+}
+
+/**
+ * Mood Check-in API Handler
+ */
+export const moodCheckIn = onRequest(httpsOptions, async (req, res) => {
+  logger.info('moodCheckIn function invoked', {
+    method: req.method,
+    path: req.path,
+    hasAuthHeader: !!req.headers.authorization,
+  });
+
+  // Route based on method
+  switch (req.method) {
+    case 'POST':
+      return handlePostCheckIn(req, res);
+    case 'GET':
+      return handleGetCheckIn(req, res);
+    default:
+      res.setHeader('Allow', 'GET, POST');
+      return errorResponse(res, 405, `Method ${req.method} not allowed`);
+  }
+});
+
+/**
+ * POST /moodCheckIn - Submit a mood check-in
+ */
+async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
+  const authReq = await requireAuth(req, res);
+  if (!authReq) return;
+
+  const { userId } = authReq;
+  const db = getDb();
+
+  try {
+    // Validate input
+    const input = validateMoodCheckInInput(req.body);
+    if (!input) {
+      return errorResponse(res, 400, 'Invalid check-in data. Please provide checkInType, primaryMood, and followUpResponse.');
+    }
+
+    // Get user profile
+    const profile = await getUserProfileOnce(userId);
+    const translation = normalizeTranslation(profile?.translationPreference);
+    const timezone = profile?.timezone || 'America/New_York';
+    const todayDate = getTodayDateString(timezone);
+
+    logger.info('Processing mood check-in', {
+      userId,
+      checkInType: input.checkInType,
+      primaryMood: input.primaryMood,
+      translation,
+    });
+
+    // Use deterministic docID to prevent duplicate documents from concurrent requests
+    // Format: ${todayDate}_${checkInType} ensures same document is targeted
+    const checkInDocId = `${todayDate}_${input.checkInType}`;
+    const checkInRef = db
+      .collection(COLLECTIONS.users)
+      .doc(userId)
+      .collection('moodCheckIns')
+      .doc(checkInDocId);
+
+    const summaryRef = db
+      .collection(COLLECTIONS.users)
+      .doc(userId)
+      .collection('moodSummaries')
+      .doc(todayDate);
+
+    // Step 1: Check for existing check-in inside transaction to avoid redundant AI calls under concurrency
+    // Returns either: { type: 'existing', data } | { type: 'update', data } | { type: 'create' }
+    const transactionResult = await db.runTransaction(async (transaction) => {
+      const existingDoc = await transaction.get(checkInRef);
+      if (existingDoc.exists) {
+        const existingData = existingDoc.data() as MoodCheckIn;
+        // If same mood, return existing response (avoid redundant AI call)
+        if (existingData.responses.primaryMood === input.primaryMood &&
+            existingData.responses.followUpResponse === input.followUpResponse) {
+          logger.info('Returning existing check-in (same mood)', {
+            userId,
+            checkInId: existingData.id,
+            mood: input.primaryMood,
+          });
+          return { type: 'existing' as const, data: existingData };
+        }
+        // Different mood - will update after transaction
+        return { type: 'update' as const, data: existingData };
+      }
+      // No existing - will create after transaction
+      return { type: 'create' as const };
+    });
+
+    // Fast-path: Return existing response if same mood
+    if (transactionResult.type === 'existing') {
+      return successResponse(res, {
+        checkInId: transactionResult.data.id,
+        aiResponse: transactionResult.data.aiResponse,
+        createdAt: transactionResult.data.createdAt,
+        expiresAt: transactionResult.data.expiresAt,
+        isExisting: true,
+      });
+    }
+
+    // Step 2: Generate AI response (outside transaction - may take time)
+    const agentInput = {
+      profile: profile as UserProfilePayload | null,
+      checkInType: input.checkInType,
+      primaryMood: input.primaryMood,
+      followUpResponse: input.followUpResponse,
+      translationPreference: translation,
+    };
+
+    const aiResponse = await runMoodAgent(agentInput, openaiApiKey.value());
+    logger.info('AI response generated', { userId, verseRef: aiResponse.verseRef });
+
+    // Step 3: Atomically write check-in and summary in final transaction
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    // Use existing check-in ID if updating, otherwise generate new one
+    const checkInId = transactionResult.type === 'update' ? transactionResult.data.id : randomUUID();
+
+    const checkInData: MoodCheckIn = {
+      id: checkInId,
+      checkInType: input.checkInType,
+      timestamp: now.toISOString(),
+      date: todayDate,
+      responses: {
+        primaryMood: input.primaryMood,
+        followUpResponse: input.followUpResponse,
+      },
+      aiResponse,
+      createdAt: transactionResult.type === 'update' ? transactionResult.data.createdAt : now.toISOString(),
+      expiresAt: expiresAt.toISOString(),
+    };
+
+    let finalCheckInData = checkInData;
+    let concurrentDuplicate = false;
+
+    try {
+      await db.runTransaction(async (transaction) => {
+        // Optimistic concurrency check: if a concurrent request already wrote this check-in
+        // with the same mood, return that instead to avoid duplicate responses
+        const existingCheckInDoc = await transaction.get(checkInRef);
+        if (existingCheckInDoc.exists) {
+          const existingCheckInData = existingCheckInDoc.data() as MoodCheckIn;
+          if (existingCheckInData.responses.primaryMood === input.primaryMood &&
+              existingCheckInData.responses.followUpResponse === input.followUpResponse) {
+            logger.info('Concurrent request already created identical check-in, skipping write', {
+              userId,
+              checkInId: existingCheckInData.id,
+              checkInType: input.checkInType,
+            });
+            finalCheckInData = existingCheckInData;
+            concurrentDuplicate = true;
+            // Abort transaction gracefully - we'll use the existing check-in
+            throw new Error('CONCURRENT_IDENTICAL_CHECKIN');
+          }
+        }
+
+        // Get existing summary within transaction
+        const summaryDoc = await transaction.get(summaryRef);
+        const existingSummary = summaryDoc.exists ? (summaryDoc.data() as DailyMoodSummary) : undefined;
+
+        const checkInSummary: CheckInSummary = {
+          checkInId,
+          primaryMood: input.primaryMood,
+          respondedAt: now.toISOString(),
+        };
+
+        // Use null instead of undefined for Firestore compatibility
+        const updatedSummary: DailyMoodSummary = {
+          date: todayDate,
+          morning: input.checkInType === 'morning' ? checkInSummary : (existingSummary?.morning ?? null),
+          midday: input.checkInType === 'midday' ? checkInSummary : (existingSummary?.midday ?? null),
+          evening: input.checkInType === 'evening' ? checkInSummary : (existingSummary?.evening ?? null),
+          updatedAt: now.toISOString(),
+        };
+
+        // Calculate overall sentiment from updated check-ins
+        updatedSummary.overallSentiment = calculateOverallSentiment(
+          updatedSummary.morning,
+          updatedSummary.midday,
+          updatedSummary.evening,
+        );
+
+        // Set check-in (creates or updates - deterministic docID ensures no duplicates)
+        transaction.set(checkInRef, checkInData);
+        // Set summary atomically with merge to preserve any other fields
+        transaction.set(summaryRef, updatedSummary, { merge: true });
+      });
+    } catch (txnError) {
+      // If concurrent duplicate detected, use the existing check-in instead
+      if (txnError instanceof Error && txnError.message === 'CONCURRENT_IDENTICAL_CHECKIN') {
+        // Continue - we already set finalCheckInData to the existing check-in above
+      } else {
+        // Re-throw any other transaction errors
+        throw txnError;
+      }
+    }
+
+    logger.info('Mood check-in complete', {
+      userId,
+      checkInId: finalCheckInData.id,
+      checkInType: input.checkInType,
+      isUpdate: transactionResult.type === 'update',
+      wasConcurrentDuplicate: concurrentDuplicate,
+    });
+
+    const response: MoodCheckInResponse = {
+      checkInId: finalCheckInData.id,
+      aiResponse: finalCheckInData.aiResponse,
+      createdAt: finalCheckInData.createdAt,
+      expiresAt: finalCheckInData.expiresAt,
+    };
+
+    return successResponse(res, response, 201);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    const errorName = error instanceof Error ? error.name : 'Unknown';
+
+    logger.error('Mood check-in failed', {
+      userId,
+      errorName,
+      errorMessage,
+      errorStack,
+      fullError: JSON.stringify(error, Object.getOwnPropertyNames(error)),
+    });
+
+    // Return detailed error in development
+    return errorResponse(res, 500, `Failed to process check-in: ${errorMessage}`);
+  }
+}
+
+/**
+ * GET /moodCheckIn - Get latest check-in or pending info
+ * GET /moodCheckIn?history=7 - Get mood history for past N days
+ */
+async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
+  const authReq = await requireAuth(req, res);
+  if (!authReq) return;
+
+  const { userId } = authReq;
+  const db = getDb();
+
+  try {
+    // Get user profile for timezone (needed for both history and current check-in)
+    const profile = await getUserProfileOnce(userId);
+    const timezone = profile?.timezone || 'America/New_York';
+
+    // Check for history query
+    const historyDays = req.query.history ? parseInt(req.query.history as string, 10) : undefined;
+
+    if (historyDays && historyDays > 0) {
+      return handleGetHistory(userId, Math.min(historyDays, 30), db, timezone, res);
+    }
+    const todayDate = getTodayDateString(timezone);
+
+    // Get today's summary to see what check-ins are done
+    const summaryRef = db
+      .collection(COLLECTIONS.users)
+      .doc(userId)
+      .collection('moodSummaries')
+      .doc(todayDate);
+
+    const summaryDoc = await summaryRef.get();
+    const summary = summaryDoc.exists ? (summaryDoc.data() as DailyMoodSummary) : undefined;
+
+    // Determine current expected check-in type
+    const currentCheckInType = getCurrentCheckInType(timezone, profile?.checkInTimes);
+
+    // Check if current check-in is done
+    const isCurrentDone =
+      (currentCheckInType === 'morning' && summary?.morning) ||
+      (currentCheckInType === 'midday' && summary?.midday) ||
+      (currentCheckInType === 'evening' && summary?.evening);
+
+    if (isCurrentDone) {
+      // Return the latest check-in using deterministic document ID format
+      const checkInDocId = `${todayDate}_${currentCheckInType}`;
+      const checkInDoc = await db
+        .collection(COLLECTIONS.users)
+        .doc(userId)
+        .collection('moodCheckIns')
+        .doc(checkInDocId)
+        .get();
+
+      if (checkInDoc.exists) {
+        return successResponse(res, {
+          status: 'completed',
+          checkIn: checkInDoc.data() as MoodCheckIn,
+          summary,
+        });
+      } else {
+        // Summary indicates completion but document not found - log inconsistency
+        logger.warn('Summary indicates completed check-in but document not found', {
+          userId,
+          todayDate,
+          checkInType: currentCheckInType,
+        });
+        // Fall through to return pending status
+      }
+    }
+
+    // Return pending check-in info
+    const now = new Date();
+    const pendingCheckIn: PendingCheckIn = {
+      checkInType: currentCheckInType,
+      dueAt: now.toISOString(), // Could be more precise based on checkInTimes
+      isOverdue: false, // Could calculate based on window
+    };
+
+    return successResponse(res, {
+      status: 'pending',
+      pendingCheckIn,
+      summary,
+    });
+  } catch (error) {
+    logger.error('Get check-in failed', {
+      userId,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+
+    return errorResponse(res, 500, 'Failed to retrieve check-in data.');
+  }
+}
+
+/**
+ * Get mood history for past N days
+ */
+async function handleGetHistory(userId: string, days: number, db: FirebaseFirestore.Firestore, timezone: string, res: Response): Promise<void> {
+  try {
+    // Compute date range in user's timezone to match stored summary keys
+    const now = new Date();
+    const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    const startDateString = getDateStringInTimezone(startDate, timezone);
+
+    const summariesQuery = await db
+      .collection(COLLECTIONS.users)
+      .doc(userId)
+      .collection('moodSummaries')
+      .where('date', '>=', startDateString)
+      .orderBy('date', 'desc')
+      .limit(days)
+      .get();
+
+    const summaries: DailyMoodSummary[] = summariesQuery.docs.map(
+      (doc) => doc.data() as DailyMoodSummary,
+    );
+
+    logger.info('Mood history retrieved', {
+      userId,
+      days,
+      timezone,
+      startDateString,
+      count: summaries.length,
+    });
+
+    return successResponse(res, {
+      summaries,
+      daysRequested: days,
+    });
+  } catch (error) {
+    logger.error('Get history failed', {
+      userId,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+
+    return errorResponse(res, 500, 'Failed to retrieve mood history.');
+  }
+}

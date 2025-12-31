@@ -2,135 +2,301 @@
 //  HomeView.swift
 //  WalkWorthy
 //
-//  Primary verse feed with navigation controls.
+//  Primary mood check-in and encouragement feed.
 //
 
 import SwiftUI
 
+// Wrapper to make MoodCheckInResponse identifiable for sheet(item:)
+private struct ResponseWrapper: Identifiable {
+    let id: String
+    let response: MoodCheckInResponse
+    let selectedMood: MoodOption?
+
+    init(response: MoodCheckInResponse, selectedMood: MoodOption?) {
+        self.id = response.checkInId
+        self.response = response
+        self.selectedMood = selectedMood
+    }
+}
+
 struct HomeView: View {
     @EnvironmentObject private var appState: AppState
+    @State private var activeCheckInType: CheckInType?
+    @State private var completedResponse: ResponseWrapper?
+    @State private var selectedMoodForCheckIn: MoodOption?
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 28) {
-                translationMenu
+            VStack(spacing: 24) {
+                // Greeting header
+                greetingHeader
 
-                VerseCard(verse: appState.currentVerse, selectedTranslation: appState.selectedTranslation)
-                    .overlay(alignment: .bottomLeading) {
-                        if !appState.hasFreshEncouragement {
-                            encouragementOverlay
-                        }
-                    }
+                // Mood check-in card (if available)
+                if let checkInType = appState.currentCheckInType {
+                    checkInCard(for: checkInType)
+                        .transition(.asymmetric(
+                            insertion: .scale(scale: 0.95).combined(with: .opacity),
+                            removal: .opacity
+                        ))
+                }
 
-                controlButtons
+                // Today's progress
+                todayProgressCard
 
-                statusCard
+                // Latest encouragement
+                if let response = appState.latestMoodResponse {
+                    latestEncouragementCard(response)
+                }
 
-                CanvasLinkView()
+                // Quick actions
+                quickActions
             }
             .padding(.horizontal, 24)
             .padding(.top, 24)
             .padding(.bottom, 120)
         }
         .background(backgroundGradient)
-        .navigationTitle("Today’s Encouragement")
+        .navigationTitle("WalkWorthy")
         .toolbarTitleDisplayMode(.inline)
-        .sheet(isPresented: $appState.showPopups) {
-            EncouragementPopupsView(verses: appState.encouragementCarousel) {
-                appState.dismissPopups()
+        .onAppear {
+            Task {
+                await appState.loadMoodStatus()
             }
+        }
+        .sheet(item: $activeCheckInType) { type in
+            NavigationStack {
+                MoodCheckInView(checkInType: type) { response, mood in
+                    // Dismiss check-in sheet first, then show response
+                    activeCheckInType = nil
+                    // Small delay to let the first sheet fully dismiss
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        completedResponse = ResponseWrapper(response: response, selectedMood: mood)
+                    }
+                }
+                .navigationTitle(type.displayName)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            activeCheckInType = nil
+                        }
+                    }
+                }
+            }
+            .presentationDetents([.large])
+        }
+        .sheet(item: $completedResponse) { wrapper in
+            NavigationStack {
+                MoodResponseView(
+                    response: wrapper.response,
+                    mood: wrapper.selectedMood,
+                    onDismiss: {
+                        appState.latestMoodResponse = wrapper.response
+                        completedResponse = nil
+                        // Refresh mood status after completing check-in
+                        Task {
+                            await appState.loadMoodStatus()
+                        }
+                    }
+                )
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") {
+                            appState.latestMoodResponse = wrapper.response
+                            completedResponse = nil
+                            Task {
+                                await appState.loadMoodStatus()
+                            }
+                        }
+                    }
+                }
+            }
+            .presentationDetents([.large])
         }
     }
 
-    private var encouragementOverlay: some View {
-        let message = appState.encouragementStatusMessage?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "You’re all caught up for now."
-        return HStack {
-            Spacer(minLength: 0)
-            Text(message)
-                .font(.footnote)
+    private var greetingHeader: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(timeBasedGreeting)
+                .font(.largeTitle.bold())
+                .foregroundStyle(.primary)
+
+            Text(motivationalSubtitle)
+                .font(.body)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
-                .multilineTextAlignment(.center)
-            Spacer(minLength: 0)
         }
-        .padding(12)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .padding()
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 12)
     }
 
-    private var translationMenu: some View {
-        HStack {
-            Menu {
-                ForEach(Translation.allCases) { translation in
-                    Button {
-                        appState.setTranslation(translation)
-                    } label: {
-                        if translation == appState.selectedTranslation {
-                            Label(translation.displayName, systemImage: "checkmark")
-                        } else {
-                            Text(translation.displayName)
-                        }
-                    }
-                }
-            } label: {
-                HStack(spacing: 8) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Translation")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .textCase(.uppercase)
+    private var timeBasedGreeting: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12:
+            return "Good morning"
+        case 12..<17:
+            return "Good afternoon"
+        case 17..<22:
+            return "Good evening"
+        default:
+            return "Hello"
+        }
+    }
 
-                        Text(appState.selectedTranslation.displayName)
-                            .font(.headline)
-                            .foregroundStyle(.primary)
-                    }
+    private var motivationalSubtitle: String {
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch hour {
+        case 5..<12:
+            return "Let's start the day with intention."
+        case 12..<17:
+            return "Pause and check in with yourself."
+        case 17..<22:
+            return "Reflect on how today went."
+        default:
+            return "Take a moment for yourself."
+        }
+    }
 
-                    Image(systemName: "chevron.down")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.secondary)
+    private func checkInCard(for type: CheckInType) -> some View {
+        Button {
+            activeCheckInType = type
+        } label: {
+            HStack(spacing: 16) {
+                // Icon
+                ZStack {
+                    Circle()
+                        .fill(type.color.opacity(0.2))
+                        .frame(width: 56, height: 56)
+
+                    Image(systemName: type.iconName)
+                        .font(.system(size: 24))
+                        .foregroundColor(type.color)
                 }
-                .padding(.vertical, 10)
-                .padding(.horizontal, 16)
-                .background(
-                    .ultraThinMaterial,
-                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                )
+
+                // Text
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(type.displayName + " Check-in")
+                        .font(.headline)
+                        .foregroundColor(.primary)
+
+                    Text("How are you feeling?")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .foregroundColor(.secondary)
             }
-
-            Spacer()
+            .padding(20)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color(.systemBackground))
+                    .shadow(color: type.color.opacity(0.15), radius: 10, y: 5)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(type.color.opacity(0.3), lineWidth: 1)
+            )
         }
+        .buttonStyle(.plain)
     }
 
-    private var controlButtons: some View {
-        VStack(spacing: 16) {
-            Button {
-                appState.triggerScanNow()
-            } label: {
-                Group {
-                    if appState.isScanning {
-                        HStack(spacing: 8) {
-                            ProgressView()
-                                .progressViewStyle(.circular)
-                            Text("Scanning…")
-                        }
-                    } else {
-                        Label("Scan Now", systemImage: "arrow.clockwise.circle")
-                    }
-                }
+    private var todayProgressCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Today's Check-ins")
                 .font(.headline)
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(GlassAccentButtonStyle())
-            .disabled(appState.isScanning)
 
-            Button {
-                appState.presentPopups()
+            HStack(spacing: 16) {
+                checkInStatusPill(type: .morning, completed: appState.currentMoodStatus?.summary?.morning != nil)
+                checkInStatusPill(type: .midday, completed: appState.currentMoodStatus?.summary?.midday != nil)
+                checkInStatusPill(type: .evening, completed: appState.currentMoodStatus?.summary?.evening != nil)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+    }
+
+    private func checkInStatusPill(type: CheckInType, completed: Bool) -> some View {
+        VStack(spacing: 8) {
+            ZStack {
+                Circle()
+                    .fill(completed ? type.color : Color(.systemGray5))
+                    .frame(width: 44, height: 44)
+
+                if completed {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundColor(.white)
+                } else {
+                    Image(systemName: type.iconName)
+                        .font(.system(size: 16))
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            Text(type.displayName)
+                .font(.caption)
+                .foregroundColor(completed ? .primary : .secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // Allow updating mood even after completion
+            activeCheckInType = type
+        }
+        .opacity(completed ? 0.7 : 1.0)
+    }
+
+    private func latestEncouragementCard(_ response: MoodCheckInResponse) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Latest Encouragement")
+                    .font(.headline)
+
+                Spacer()
+
+                Text(response.aiResponse.verseRef)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.accentColor)
+            }
+
+            Text(response.aiResponse.message)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .lineLimit(3)
+
+            Divider()
+
+            Text(response.aiResponse.verseText)
+                .font(.subheadline)
+                .italic()
+                .foregroundColor(.primary)
+                .lineLimit(4)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.05), radius: 10, y: 5)
+        )
+    }
+
+    private var quickActions: some View {
+        VStack(spacing: 12) {
+            NavigationLink {
+                MoodHistoryView()
             } label: {
-                Label("Show Pop-ups", systemImage: "sparkles")
+                Label("View History", systemImage: "calendar")
                     .font(.headline)
                     .frame(maxWidth: .infinity)
             }
@@ -138,91 +304,9 @@ struct HomeView: View {
         }
     }
 
-    private var statusCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let error = appState.latestScanError {
-                Label(error, systemImage: "exclamationmark.triangle.fill")
-                    .font(.footnote)
-                    .foregroundStyle(Color.red)
-            } else {
-                if let summary = appState.latestScanSummary {
-                    Label(summary.status == .success ? "Fresh encouragement" : "Fallback encouragement", systemImage: summary.status == .success ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(summary.status == .success ? Color.green : Color.orange)
-
-                    HStack(spacing: 12) {
-                        metricView(title: "Planner", value: summary.plannerCount)
-                        metricView(title: "Stressful", value: summary.stressfulCount)
-                        metricView(title: "Candidates", value: summary.candidateCount)
-                    }
-
-                    if let tags = summary.tags, !tags.isEmpty {
-                        Text("Tags: \(tags.joined(separator: ", "))")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-
-                if let message = appState.encouragementStatusMessage {
-                    statusMessageLabel(for: message)
-                } else if appState.latestScanSummary == nil {
-                    Text("Tap Scan Now to refresh today’s encouragement.")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(1)
-                }
-            }
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            .ultraThinMaterial,
-            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-        )
-    }
-
-    private func metricView(title: String, value: Int?) -> some View {
-        VStack(spacing: 4) {
-            Text("\(value ?? 0)")
-                .font(.headline)
-            Text(title.uppercased())
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-    }
-
-    private func statusMessageLabel(for message: String) -> some View {
-        let normalized = message.trimmingCharacters(in: .whitespacesAndNewlines)
-        if normalized == "Scan for new encouragement." {
-            return AnyView(
-                HStack {
-                    Spacer(minLength: 0)
-                    Text(normalized)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .multilineTextAlignment(.center)
-                    Spacer(minLength: 0)
-                }
-            )
-        } else {
-            return AnyView(
-                Text(message)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-                    .lineLimit(1)
-            )
-        }
-    }
-
     private var backgroundGradient: some View {
         LinearGradient(
-            colors: [Color(.systemBackground), Color(.systemBlue).opacity(0.1), Color(.systemBackground)],
+            colors: [Color(.systemBackground), Color(.systemIndigo).opacity(0.08), Color(.systemBackground)],
             startPoint: .top,
             endPoint: .bottom
         )
@@ -241,18 +325,6 @@ private struct GlassButtonStyle: ButtonStyle {
             )
             .foregroundStyle(.primary)
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: configuration.isPressed)
-    }
-}
-
-private struct GlassAccentButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .padding()
-            .background(LinearGradient(colors: [Color.accentColor.opacity(0.85), Color.accentColor], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .foregroundStyle(Color.white)
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .shadow(color: Color.accentColor.opacity(0.35), radius: 14, x: 0, y: 10)
             .animation(.spring(response: 0.25, dampingFraction: 0.8), value: configuration.isPressed)
     }
 }

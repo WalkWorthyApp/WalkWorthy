@@ -1,0 +1,159 @@
+import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
+import { logger } from 'firebase-functions/v2';
+import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
+import { requireAuth, errorResponse, successResponse } from '../shared/auth';
+import { validateUserProfileInput, validateAgeRange, validateGender } from '../shared/types';
+import type { UserProfile } from '../shared/profile';
+import { clearUserProfileCache } from '../shared/profile';
+
+// Initialize Firebase on module load
+initializeFirebase();
+
+const httpsOptions: HttpsOptions = {
+  cors: true,
+  maxInstances: 10,
+  invoker: 'public', // Allow unauthenticated HTTP access (auth handled in code)
+};
+
+/**
+ * User Profile API
+ *
+ * GET /user-profile - Get current user's profile
+ * PUT /user-profile - Create or update user's profile
+ * PATCH /user-profile - Partially update user's profile
+ * DELETE /user-profile - Delete user's profile
+ */
+export const userProfile = onRequest(httpsOptions, async (req, res) => {
+  // Authenticate request
+  const authReq = await requireAuth(req, res);
+  if (!authReq) return;
+
+  const { userId } = authReq;
+  const db = getDb();
+  const profileRef = db.collection(COLLECTIONS.users).doc(userId).collection('profile').doc('data');
+
+  try {
+    switch (req.method) {
+      case 'GET': {
+        const doc = await profileRef.get();
+
+        if (!doc.exists) {
+          return successResponse(res, { profile: null });
+        }
+
+        const profile = doc.data() as UserProfile;
+        logger.info('Profile retrieved', { userId });
+        return successResponse(res, { profile });
+      }
+
+      case 'PUT': {
+        // Full replace
+        const validated = validateUserProfileInput(req.body);
+        if (!validated) {
+          return errorResponse(res, 400, 'Invalid profile data');
+        }
+
+        const profileData: UserProfile = {
+          ageRange: validated.ageRange,
+          gender: validated.gender,
+          major: validated.major,
+          hobbies: validated.hobbies,
+          optInTailored: validated.optInTailored,
+          translationPreference: validated.translationPreference,
+          updatedAt: new Date().toISOString(),
+        };
+
+        await profileRef.set(profileData);
+        clearUserProfileCache(userId);
+
+        logger.info('Profile created/replaced', { userId });
+        return successResponse(res, { profile: profileData }, 200);
+      }
+
+      case 'PATCH': {
+        // Partial update
+        const updates: Partial<UserProfile> = {};
+
+        if (req.body.ageRange !== undefined) {
+          const validAge = validateAgeRange(req.body.ageRange);
+          if (req.body.ageRange !== null && !validAge) {
+            return errorResponse(res, 400, 'Invalid ageRange value');
+          }
+          updates.ageRange = validAge;
+        }
+
+        if (req.body.gender !== undefined) {
+          const validGender = validateGender(req.body.gender);
+          if (req.body.gender !== null && !validGender) {
+            return errorResponse(res, 400, 'Invalid gender value');
+          }
+          updates.gender = validGender;
+        }
+
+        if (req.body.major !== undefined) {
+          updates.major = typeof req.body.major === 'string' ? req.body.major : undefined;
+        }
+
+        if (req.body.hobbies !== undefined) {
+          if (Array.isArray(req.body.hobbies)) {
+            updates.hobbies = req.body.hobbies
+              .filter((h: unknown) => typeof h === 'string')
+              .slice(0, 10);
+          } else {
+            updates.hobbies = undefined;
+          }
+        }
+
+        if (req.body.optInTailored !== undefined) {
+          updates.optInTailored = Boolean(req.body.optInTailored);
+        }
+
+        if (req.body.translationPreference !== undefined) {
+          const validTranslations = ['ESV', 'KJV', 'NIV', 'NKJV', 'NASB', 'CSB', 'NLT'];
+          const pref = String(req.body.translationPreference).toUpperCase();
+          if (!validTranslations.includes(pref)) {
+            return errorResponse(res, 400, 'Invalid translationPreference value');
+          }
+          updates.translationPreference = pref as UserProfile['translationPreference'];
+        }
+
+        if (Object.keys(updates).length === 0) {
+          return errorResponse(res, 400, 'No valid fields to update');
+        }
+
+        updates.updatedAt = new Date().toISOString();
+
+        // Atomically create or update the document using merge
+        // This avoids race conditions between checking existence and updating
+        await profileRef.set(updates, { merge: true });
+
+        clearUserProfileCache(userId);
+
+        logger.info('Profile updated', { userId, fields: Object.keys(updates) });
+
+        // Return updated profile
+        const updatedDoc = await profileRef.get();
+        return successResponse(res, { profile: updatedDoc.data() });
+      }
+
+      case 'DELETE': {
+        await profileRef.delete();
+        clearUserProfileCache(userId);
+
+        logger.info('Profile deleted', { userId });
+        return successResponse(res, { deleted: true });
+      }
+
+      default:
+        res.setHeader('Allow', 'GET, PUT, PATCH, DELETE');
+        return errorResponse(res, 405, `Method ${req.method} not allowed`);
+    }
+  } catch (error) {
+    logger.error('Profile operation failed', {
+      userId,
+      method: req.method,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+    return errorResponse(res, 500, 'Internal server error');
+  }
+});

@@ -14,7 +14,6 @@
   },
   "main": "lib/index.js",
   "dependencies": {
-    "@aws-sdk/client-lambda": "^3.0.0",
     "@google-cloud/secret-manager": "^6.1.1",
     "@openai/agents": "^0.3.7",
     "@openai/agents-openai": "^0.3.7",
