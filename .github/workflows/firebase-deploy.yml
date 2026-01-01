@@ -46,12 +46,6 @@ jobs:
           gcloud auth activate-service-account --key-file="$GOOGLE_APPLICATION_CREDENTIALS"
           gcloud config set project walkworthy-app
 
-      - name: Verify Authentication
-        run: |
-          echo "GOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS"
-          gcloud auth list
-          gcloud config list project
-
       - name: Deploy to Firebase
         run: |
           npm install -g firebase-tools
