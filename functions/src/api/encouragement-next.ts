@@ -7,7 +7,7 @@ import { requireAuth, errorResponse, successResponse } from '../shared/auth';
 initializeFirebase();
 
 const httpsOptions: HttpsOptions = {
-  cors: true,
+  // CORS removed - not needed for mobile-only API (mobile apps don't enforce CORS)
   maxInstances: 10,
   invoker: 'public', // Allow unauthenticated HTTP access (auth handled in code)
 };

@@ -20,11 +20,10 @@ struct MoodHistoryView: View {
     @State private var expandedDate: String?
     @State private var errorMessage: String?
 
-    // Calculate total days in current month
-    private var daysInCurrentMonth: Int {
+    // Calculate total days in current month for the given date
+    private func daysInCurrentMonth(for date: Date) -> Int {
         let calendar = Calendar.current
-        let today = Date()
-        return calendar.range(of: .day, in: .month, for: today)?.count ?? 30
+        return calendar.range(of: .day, in: .month, for: date)?.count ?? 30
     }
 
     var body: some View {
@@ -230,7 +229,7 @@ struct MoodHistoryView: View {
             let today = Date()
             let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: today))!
 
-            return (0..<daysInCurrentMonth).compactMap { dayOffset in
+            return (0..<daysInCurrentMonth(for: today)).compactMap { dayOffset in
                 guard let date = calendar.date(byAdding: .day, value: dayOffset, to: startOfMonth) else {
                     return nil
                 }
@@ -449,7 +448,7 @@ struct MoodHistoryView: View {
             case .days(let count):
                 daysToFetch = count
             case .thisMonth:
-                daysToFetch = daysInCurrentMonth
+                daysToFetch = daysInCurrentMonth(for: Date())
             }
 
             let response = try await appState.apiClient.fetchMoodHistory(days: daysToFetch)

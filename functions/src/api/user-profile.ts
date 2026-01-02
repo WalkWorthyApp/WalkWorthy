@@ -2,7 +2,7 @@ import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
 import { requireAuth, errorResponse, successResponse } from '../shared/auth';
-import { validateUserProfileInput, validateAgeRange, validateGender } from '../shared/types';
+import { validateUserProfileInput, validateAgeRange, validateGender, validateCheckInTimes } from '../shared/types';
 import type { UserProfile } from '../shared/profile';
 import { clearUserProfileCache } from '../shared/profile';
 
@@ -10,7 +10,7 @@ import { clearUserProfileCache } from '../shared/profile';
 initializeFirebase();
 
 const httpsOptions: HttpsOptions = {
-  cors: true,
+  // CORS removed - not needed for mobile-only API (mobile apps don't enforce CORS)
   maxInstances: 10,
   invoker: 'public', // Allow unauthenticated HTTP access (auth handled in code)
 };
@@ -57,9 +57,12 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
           ageRange: validated.ageRange,
           gender: validated.gender,
           major: validated.major,
+          occupation: validated.occupation,
           hobbies: validated.hobbies,
           optInTailored: validated.optInTailored,
           translationPreference: validated.translationPreference,
+          timezone: validated.timezone,
+          checkInTimes: validated.checkInTimes,
           updatedAt: new Date().toISOString(),
         };
 
@@ -91,7 +94,23 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
         }
 
         if (req.body.major !== undefined) {
-          updates.major = typeof req.body.major === 'string' ? req.body.major : undefined;
+          if (req.body.major === null) {
+            updates.major = undefined;
+          } else if (typeof req.body.major === 'string' && req.body.major.length > 0 && req.body.major.length <= 120) {
+            updates.major = req.body.major;
+          } else {
+            return errorResponse(res, 400, 'Invalid major value');
+          }
+        }
+
+        if (req.body.occupation !== undefined) {
+          if (req.body.occupation === null) {
+            updates.occupation = undefined;
+          } else if (typeof req.body.occupation === 'string' && req.body.occupation.length > 0 && req.body.occupation.length <= 120) {
+            updates.occupation = req.body.occupation;
+          } else {
+            return errorResponse(res, 400, 'Invalid occupation value');
+          }
         }
 
         if (req.body.hobbies !== undefined) {
@@ -115,6 +134,22 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
             return errorResponse(res, 400, 'Invalid translationPreference value');
           }
           updates.translationPreference = pref as UserProfile['translationPreference'];
+        }
+
+        if (req.body.timezone !== undefined) {
+          if (typeof req.body.timezone === 'string' && req.body.timezone.length > 0 && req.body.timezone.length <= 50) {
+            updates.timezone = req.body.timezone;
+          } else {
+            return errorResponse(res, 400, 'Invalid timezone value');
+          }
+        }
+
+        if (req.body.checkInTimes !== undefined) {
+          const validCheckInTimes = validateCheckInTimes(req.body.checkInTimes);
+          if (req.body.checkInTimes !== null && !validCheckInTimes) {
+            return errorResponse(res, 400, 'Invalid checkInTimes value');
+          }
+          updates.checkInTimes = validCheckInTimes;
         }
 
         if (Object.keys(updates).length === 0) {

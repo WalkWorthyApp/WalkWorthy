@@ -92,23 +92,19 @@ struct HomeView: View {
                     response: wrapper.response,
                     mood: wrapper.selectedMood,
                     onDismiss: {
+                        completedResponse = nil
+                    }
+                )
+                .navigationBarTitleDisplayMode(.inline)
+                .onDisappear {
+                    // This handles both button dismissal and swipe-to-dismiss gestures
+                    // Only save if we still have a valid wrapper (hasn't been cleared yet)
+                    if completedResponse != nil {
                         appState.latestMoodResponse = wrapper.response
                         completedResponse = nil
                         // Refresh mood status after completing check-in
                         Task {
                             await appState.loadMoodStatus()
-                        }
-                    }
-                )
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Done") {
-                            appState.latestMoodResponse = wrapper.response
-                            completedResponse = nil
-                            Task {
-                                await appState.loadMoodStatus()
-                            }
                         }
                     }
                 }

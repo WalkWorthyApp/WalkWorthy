@@ -136,6 +136,12 @@ final class AppState: ObservableObject {
         defaults.set(true, forKey: storageKey(StorageKey.onboardingCompleted))
     }
 
+    /// Updates user profile data in both local storage and Firebase backend.
+    ///
+    /// Security Note: Profile data (age, occupation, major, gender, hobbies) is stored in UserDefaults
+    /// as a local cache. This data is protected by iOS Data Protection, which encrypts UserDefaults
+    /// when the device is locked. The authoritative copy is synced to Firebase with proper security rules.
+    /// Authentication tokens use Keychain storage with kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly.
     func updateProfile(age: Int?, occupation: String, major: String, gender: Gender, hobbies: Set<String>, optIn: Bool) {
         let trimmedOccupation = occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = major.trimmingCharacters(in: .whitespacesAndNewlines)

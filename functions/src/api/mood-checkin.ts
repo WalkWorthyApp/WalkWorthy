@@ -34,7 +34,7 @@ initializeFirebase();
 const openaiApiKey = defineSecret('openai-api-key');
 
 const httpsOptions: HttpsOptions = {
-  cors: true,
+  // CORS removed - not needed for mobile-only API (mobile apps don't enforce CORS)
   maxInstances: 10,
   timeoutSeconds: 60, // AI calls may take time
   invoker: 'public',
@@ -380,8 +380,11 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       fullError: JSON.stringify(error, Object.getOwnPropertyNames(error)),
     });
 
-    // Return detailed error in development
-    return errorResponse(res, 500, `Failed to process check-in: ${errorMessage}`);
+    // Only include detailed error message in non-production environments
+    const message = process.env.NODE_ENV !== 'production'
+      ? `Failed to process check-in: ${errorMessage}`
+      : 'Failed to process check-in';
+    return errorResponse(res, 500, message);
   }
 }
 
