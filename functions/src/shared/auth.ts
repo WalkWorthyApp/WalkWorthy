@@ -91,7 +91,7 @@ export function errorResponse(
     message,
   };
 
-  if (details && process.env.NODE_ENV !== "production") {
+  if (details && process.env.NODE_ENV === "development") {
     response.details = details;
   }
 

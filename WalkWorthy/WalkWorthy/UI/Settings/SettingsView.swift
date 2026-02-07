@@ -59,12 +59,6 @@ struct SettingsView: View {
                     } label: {
                         Label("Mood history", systemImage: "chart.line.uptrend.xyaxis")
                     }
-
-                    Button(role: .destructive) {
-                        appState.clearHistory()
-                    } label: {
-                        Label("Clear verse history", systemImage: "trash")
-                    }
                 }
 
                 Section("Account") {
@@ -389,7 +383,9 @@ struct NotificationSettingsView: View {
         do {
             try await center.add(request)
         } catch {
+            #if DEBUG
             print("[NotificationSettingsView] Failed to schedule notification: \(error)")
+            #endif
         }
     }
 

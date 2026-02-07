@@ -8,44 +8,12 @@
 import Foundation
 
 protocol EncouragementAPI {
-    // Encouragement methods
-    func fetchNext() async throws -> NextResponse
     func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws
 
     // Mood tracking methods
     func submitMoodCheckIn(_ request: MoodCheckInRequest) async throws -> MoodCheckInResponse
     func fetchMoodStatus() async throws -> MoodStatusResponse
     func fetchMoodHistory(days: Int) async throws -> MoodHistoryResponse
-}
-
-struct NextResponse: Codable {
-    let shouldNotify: Bool
-    let payload: EncouragementPayload?
-    let metadata: ScanLogSummary?
-}
-
-struct EncouragementPayload: Codable, Hashable {
-    let id: String
-    let ref: String
-    let text: String
-    let encouragement: String
-    let translation: String?
-    let expiresAt: String?
-}
-
-struct ScanLogSummary: Codable, Equatable {
-    let encouragementId: String?
-    let status: ScanStatus
-    let plannerCount: Int?
-    let stressfulCount: Int?
-    let candidateCount: Int?
-    let tags: [String]?
-    let errorMessage: String?
-}
-
-enum ScanStatus: String, Codable {
-    case success = "SUCCESS"
-    case fallback = "FALLBACK"
 }
 
 struct RemoteUserProfileRequest: Codable {
@@ -74,16 +42,6 @@ struct Verse: Identifiable, Codable, Equatable, Hashable {
         self.text = text
         self.encouragement = encouragement
         self.translation = translation
-    }
-
-    init(payload: EncouragementPayload) {
-        self.init(
-            id: payload.id,
-            reference: payload.ref,
-            text: payload.text,
-            encouragement: payload.encouragement,
-            translation: Translation(rawValue: payload.translation ?? "") ?? .esv
-        )
     }
 
     static let placeholder = Verse(

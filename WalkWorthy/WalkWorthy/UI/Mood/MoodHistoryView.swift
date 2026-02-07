@@ -459,7 +459,9 @@ struct MoodHistoryView: View {
             }
         } catch {
             let errorDescription = error.localizedDescription
+            #if DEBUG
             print("[MoodHistoryView] Failed to load mood history: \(errorDescription)")
+            #endif
 
             await MainActor.run {
                 errorMessage = errorDescription

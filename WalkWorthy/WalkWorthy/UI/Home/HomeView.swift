@@ -24,7 +24,6 @@ struct HomeView: View {
     @EnvironmentObject private var appState: AppState
     @State private var activeCheckInType: CheckInType?
     @State private var completedResponse: ResponseWrapper?
-    @State private var selectedMoodForCheckIn: MoodOption?
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {

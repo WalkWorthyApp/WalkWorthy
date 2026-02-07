@@ -7,51 +7,6 @@
 
 import Foundation
 
-// MARK: - Logging Helpers
-
-/**
- Safely log HTTP response body with PII redaction in release builds.
-
- In DEBUG builds: logs full response for debugging.
- In RELEASE builds: redacts sensitive keys and/or truncates for safety.
- */
-private func safeLogResponseBody(_ data: Data) -> String {
-  let bodyString = String(data: data, encoding: .utf8) ?? "(non-UTF8 data)"
-
-  #if DEBUG
-  // Debug builds: log full body for debugging
-  return bodyString
-  #else
-  // Release builds: redact sensitive keys and truncate
-
-  // Try to parse as JSON and redact sensitive fields
-  if let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-    var redacted = jsonObject
-    let sensitiveKeys = ["token", "accessToken", "idToken", "password", "ssn", "creditCard", "apiKey", "secret"]
-
-    for key in sensitiveKeys {
-      if redacted[key] != nil {
-        redacted[key] = "[REDACTED]"
-      }
-    }
-
-    if let redactedData = try? JSONSerialization.data(withJSONObject: redacted),
-       let redactedString = String(data: redactedData, encoding: .utf8) {
-      return redactedString
-    }
-  }
-
-  // If not JSON or redaction fails, truncate for safety
-  let maxLength = 300
-  if bodyString.count > maxLength {
-    let truncated = bodyString.prefix(maxLength)
-    return "\(truncated)... (truncated, \(bodyString.count) bytes total)"
-  }
-
-  return bodyString
-  #endif
-}
-
 final class LiveAPIClient: EncouragementAPI {
     private let baseURL: URL
     private let tokenProvider: BearerTokenProviding
@@ -74,12 +29,6 @@ final class LiveAPIClient: EncouragementAPI {
 
     // MARK: - EncouragementAPI
 
-    func fetchNext() async throws -> NextResponse {
-        var request = try await makeRequest(path: "encouragementNext", method: "GET")
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        return try await send(request, decode: NextResponse.self)
-    }
-
     func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws {
         let request = try await makeRequest(path: "userProfile", method: "PATCH", body: payload)
         try await sendExpectingNoContent(request)
@@ -93,7 +42,9 @@ final class LiveAPIClient: EncouragementAPI {
     /// which may result in a 500 error. This method automatically retries once on
     /// server errors (500) to handle this transient condition.
     func submitMoodCheckIn(_ moodRequest: MoodCheckInRequest) async throws -> MoodCheckInResponse {
+        #if DEBUG
         print("[LiveAPIClient] Submitting mood check-in: \(moodRequest.checkInType), \(moodRequest.primaryMood)")
+        #endif
 
         let maxRetries = 2
         var lastError: Error?
@@ -107,7 +58,9 @@ final class LiveAPIClient: EncouragementAPI {
                 }
                 #endif
                 let response = try await send(request, decode: MoodCheckInResponse.self)
+                #if DEBUG
                 print("[LiveAPIClient] Mood check-in success (attempt \(attempt))")
+                #endif
                 return response
             } catch let error as APIError {
                 lastError = error
@@ -115,18 +68,23 @@ final class LiveAPIClient: EncouragementAPI {
                 // Only retry on server errors (500s) which are likely cold start issues
                 if case .server(let statusCode, _) = error, statusCode >= 500 && statusCode < 600 {
                     if attempt < maxRetries {
+                        #if DEBUG
                         print("[LiveAPIClient] Server error \(statusCode), retrying... (attempt \(attempt)/\(maxRetries))")
+                        #endif
                         // Brief delay before retry to allow function to warm up
                         try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
                         continue
                     }
                 }
-                // Non-retryable error
+                #if DEBUG
                 print("[LiveAPIClient] Mood check-in failed: \(error)")
+                #endif
                 throw error
             } catch {
                 lastError = error
+                #if DEBUG
                 print("[LiveAPIClient] Mood check-in failed: \(error)")
+                #endif
                 throw error
             }
         }
@@ -206,9 +164,7 @@ final class LiveAPIClient: EncouragementAPI {
             let (data, response) = try await urlSession.data(for: request)
             #if DEBUG
             if let httpResponse = response as? HTTPURLResponse {
-                print("[LiveAPIClient] HTTP Status: \(httpResponse.statusCode)")
-                let safeBody = safeLogResponseBody(data)
-                print("[LiveAPIClient] Response body: \(safeBody)")
+                print("[LiveAPIClient] HTTP Status: \(httpResponse.statusCode), body: \(data.count) bytes")
             }
             #endif
             return try handleResponse(data: data, response: response, decode: type)

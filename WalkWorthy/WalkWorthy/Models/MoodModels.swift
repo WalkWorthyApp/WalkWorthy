@@ -321,7 +321,9 @@ struct CheckInTimes: Codable, Equatable {
         let timeString = timeFor(type)
         let components = timeString.split(separator: ":").compactMap { Int($0) }
         guard components.count == 2 else {
+            #if DEBUG
             print("[CheckInTimes] Failed to parse time string: \(timeString) for \(type.displayName)")
+            #endif
             return nil
         }
 
@@ -330,7 +332,9 @@ struct CheckInTimes: Codable, Equatable {
         dateComponents.minute = components[1]
 
         guard let date = Calendar.current.date(from: dateComponents) else {
+            #if DEBUG
             print("[CheckInTimes] Calendar.date failed to create date from components: hour=\(components[0]), minute=\(components[1])")
+            #endif
             return nil
         }
         return date

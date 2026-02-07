@@ -381,7 +381,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     });
 
     // Only include detailed error message in non-production environments
-    const message = process.env.NODE_ENV !== 'production'
+    const message = process.env.NODE_ENV === 'development'
       ? `Failed to process check-in: ${errorMessage}`
       : 'Failed to process check-in';
     return errorResponse(res, 500, message);

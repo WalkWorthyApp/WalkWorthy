@@ -11,30 +11,17 @@ import Combine
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published private(set) var verseDeck: [Verse]
-    @Published private(set) var history: [Verse]
-    @Published private(set) var currentVerseIndex: Int
     @Published var selectedTranslation: Translation
-    @Published var showPopups: Bool
     @Published var onboardingCompleted: Bool
     @Published var useProfilePersonalization: Bool
     @Published private(set) var authenticatedUserSub: String?
     @Published var isAuthenticated: Bool {
         didSet {
             if !isAuthenticated {
-                latestScanSummary = nil
-                encouragementStatusMessage = nil
-                latestScanError = nil
-                hasFreshEncouragement = true
                 clearMoodState()
             }
         }
     }
-    @Published var isScanning: Bool
-    @Published var latestScanSummary: ScanLogSummary?
-    @Published var latestScanError: String?
-    @Published var encouragementStatusMessage: String?
-    @Published var hasFreshEncouragement: Bool
     @Published var authenticationNotice: String?
 
     // MARK: - Mood Tracking State
@@ -53,9 +40,6 @@ final class AppState: ObservableObject {
         StorageKey.onboardingCompleted,
         StorageKey.useProfilePersonalization,
         StorageKey.translation,
-        StorageKey.currentVerseIndex,
-        StorageKey.history,
-        StorageKey.verseDeck,
         StorageKey.profileAge,
         StorageKey.profileMajor,
         StorageKey.profileOccupation,
@@ -80,23 +64,12 @@ final class AppState: ObservableObject {
         self.notificationScheduler = resolvedScheduler
         self.defaults = defaults
         self.isAuthenticated = false
-        self.verseDeck = []
-        self.history = []
-        self.currentVerseIndex = 0
         self.selectedTranslation = resolvedConfig.defaultTranslation
-        self.showPopups = false
         self.authenticatedUserSub = nil
         self.useProfilePersonalization = true
         self.onboardingCompleted = false
-        self.isScanning = false
-        self.latestScanSummary = nil
-        self.latestScanError = nil
-        self.encouragementStatusMessage = nil
-        self.hasFreshEncouragement = true
 
         reloadUserScopedPreferences()
-        ensurePlaceholderIfNeeded()
-        persistVerseDeck()
 
         if !onboardingCompleted {
             isAuthenticated = false
@@ -104,31 +77,6 @@ final class AppState: ObservableObject {
                 try? await authSession.signOut()
             }
         }
-    }
-
-    var currentVerse: Verse {
-        verseDeck[safe: currentVerseIndex] ?? verseDeck.first ?? Verse.placeholder
-    }
-
-    var encouragementCarousel: [Verse] {
-        var seen = Set<Verse>()
-        var ordered: [Verse] = []
-
-        if let current = verseDeck[safe: currentVerseIndex] {
-            if seen.insert(current).inserted {
-                ordered.append(current)
-            }
-        }
-
-        for verse in history where seen.insert(verse).inserted {
-            ordered.append(verse)
-        }
-
-        for verse in verseDeck where seen.insert(verse).inserted {
-            ordered.append(verse)
-        }
-
-        return ordered.isEmpty ? [Verse.placeholder] : ordered
     }
 
     func markOnboardingComplete() {
@@ -182,14 +130,6 @@ final class AppState: ObservableObject {
         selectedTranslation = translation
         defaults.set(translation.rawValue, forKey: storageKey(StorageKey.translation))
         syncStoredProfile()
-    }
-
-    func presentPopups() {
-        showPopups = true
-    }
-
-    func dismissPopups() {
-        showPopups = false
     }
 
     func scheduleTestNotification() {
@@ -246,9 +186,6 @@ final class AppState: ObservableObject {
             await MainActor.run { [self] in
                 isAuthenticated = false
                 authenticationNotice = "You have been signed out. Please sign in again."
-                latestScanSummary = nil
-                encouragementStatusMessage = nil
-                latestScanError = nil
                 setAuthenticatedUserSub(nil)
             }
         }
@@ -256,12 +193,6 @@ final class AppState: ObservableObject {
 
     var requiresAuthenticationGate: Bool {
         !isAuthenticated
-    }
-
-    func clearHistory() {
-        history.removeAll()
-        defaults.removeObject(forKey: storageKey(StorageKey.history))
-        persistVerseDeck()
     }
 
     private func setAuthenticatedUserSub(_ sub: String?) {
@@ -302,10 +233,6 @@ final class AppState: ObservableObject {
             onboardingCompleted = false
             useProfilePersonalization = true
             selectedTranslation = config.defaultTranslation
-            currentVerseIndex = 0
-            history = []
-            verseDeck = [Verse.placeholder]
-            persistVerseDeck()
             return
         }
 
@@ -320,12 +247,6 @@ final class AppState: ObservableObject {
         useProfilePersonalization = defaults.object(forKey: storageKey(StorageKey.useProfilePersonalization)) as? Bool ?? true
 
         selectedTranslation = Translation(rawValue: defaults.string(forKey: storageKey(StorageKey.translation)) ?? "") ?? config.defaultTranslation
-        currentVerseIndex = defaults.integer(forKey: storageKey(StorageKey.currentVerseIndex))
-        history = (try? defaults.decode([Verse].self, forKey: storageKey(StorageKey.history))) ?? []
-        verseDeck = loadStoredVerseDeck()
-        clampCurrentIndex()
-        ensurePlaceholderIfNeeded()
-        persistVerseDeck()
     }
 
     private func hasStoredProfile() -> Bool {
@@ -358,87 +279,6 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func historyUpsert(_ verse: Verse) {
-        if let existingIndex = history.firstIndex(of: verse) {
-            history.remove(at: existingIndex)
-        }
-        history.insert(verse, at: 0)
-        try? defaults.encode(history, forKey: storageKey(StorageKey.history))
-    }
-
-    private func sanitizeVerseDeck(_ deck: [Verse]) -> [Verse] {
-        var seen = Set<String>()
-        var ordered: [Verse] = []
-        for verse in deck {
-            if seen.insert(verse.id).inserted {
-                ordered.append(verse)
-            }
-        }
-        if ordered.count > 1 {
-            ordered.removeAll { $0.id == Verse.placeholder.id }
-        }
-        return ordered.isEmpty ? [Verse.placeholder] : ordered
-    }
-
-    private func loadStoredVerseDeck() -> [Verse] {
-        if let stored = try? defaults.decode([Verse].self, forKey: storageKey(StorageKey.verseDeck)), !stored.isEmpty {
-            return sanitizeVerseDeck(stored)
-        }
-        if !history.isEmpty {
-            return sanitizeVerseDeck(history)
-        }
-        return [Verse.placeholder]
-    }
-
-    private func upsertVerse(_ verse: Verse) {
-        if let existing = verseDeck.firstIndex(of: verse) {
-            verseDeck.remove(at: existing)
-        }
-        verseDeck.insert(verse, at: 0)
-        if verseDeck.count > 1 {
-            verseDeck.removeAll { $0.id == Verse.placeholder.id }
-        }
-        currentVerseIndex = 0
-        historyUpsert(verse)
-        persistVerseDeck()
-    }
-
-    private func ensurePlaceholderIfNeeded() {
-        if verseDeck.isEmpty {
-            verseDeck = [Verse.placeholder]
-        }
-        if verseDeck.count > 1 {
-            verseDeck.removeAll { $0.id == Verse.placeholder.id }
-        }
-    }
-
-    private func ensureDeckBackedByHistory() {
-        if verseDeck.count <= 1 && !history.isEmpty {
-            var combined: [Verse] = []
-            if let current = verseDeck[safe: currentVerseIndex] {
-                combined.append(current)
-            }
-            combined.append(contentsOf: history)
-            verseDeck = sanitizeVerseDeck(combined)
-            clampCurrentIndex()
-        }
-    }
-
-    private func persistVerseDeck() {
-        ensurePlaceholderIfNeeded()
-        clampCurrentIndex()
-        defaults.set(currentVerseIndex, forKey: storageKey(StorageKey.currentVerseIndex))
-        try? defaults.encode(verseDeck, forKey: storageKey(StorageKey.verseDeck))
-    }
-
-    private func clampCurrentIndex() {
-        guard !verseDeck.isEmpty else {
-            currentVerseIndex = 0
-            return
-        }
-        currentVerseIndex = currentVerseIndex.clamped(to: 0..<(verseDeck.count))
-    }
-
     private func sendProfileUpdate(_ profile: OnboardingProfile) async {
         guard isAuthenticated else { return }
         let trimmedOccupation = profile.occupation.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -463,22 +303,9 @@ final class AppState: ObservableObject {
         do {
             try await apiClient.updateUserProfile(payload)
         } catch {
+            #if DEBUG
             print("[AppState] Failed to sync profile: \(error)")
-        }
-    }
-
-    private func statusMessage(forMetadata metadata: ScanLogSummary?) -> String? {
-        guard let metadata else {
-            return "Fresh encouragement delivered."
-        }
-        switch metadata.status {
-        case .success:
-            return "Fresh encouragement delivered from today's scan."
-        case .fallback:
-            if let reason = metadata.errorMessage, !reason.isEmpty {
-                return "Fallback encouragement delivered: \(reason)"
-            }
-            return "Fallback encouragement delivered from your backup verses."
+            #endif
         }
     }
 
@@ -497,24 +324,26 @@ final class AppState: ObservableObject {
     // MARK: - Mood Tracking Methods
 
     var currentCheckInType: CheckInType? {
-        // Determine if there's a pending check-in for this time window
-        if let pending = currentMoodStatus?.pendingCheckIn {
-            let checkInType = CheckInType(rawValue: pending.checkInType) ?? .morning
-            let hour = Calendar.current.component(.hour, from: Date())
+        guard let pending = currentMoodStatus?.pendingCheckIn else { return nil }
+        let checkInType = CheckInType(rawValue: pending.checkInType) ?? .morning
 
-            switch checkInType {
-            case .morning where (5..<12).contains(hour):
-                return .morning
-            case .midday where (12..<17).contains(hour):
-                return .midday
-            case .evening where (17..<22).contains(hour):
-                return .evening
-            default:
-                return nil
-            }
+        // Always show overdue check-ins so users don't lose access
+        if pending.isOverdue {
+            return checkInType
         }
 
-        return nil
+        // Otherwise only show if within the current time window
+        let hour = Calendar.current.component(.hour, from: Date())
+        switch checkInType {
+        case .morning where (5..<12).contains(hour):
+            return .morning
+        case .midday where (12..<17).contains(hour):
+            return .midday
+        case .evening where (17..<22).contains(hour):
+            return .evening
+        default:
+            return nil
+        }
     }
 
     var hasAvailableCheckIn: Bool {
@@ -530,7 +359,9 @@ final class AppState: ObservableObject {
                 currentMoodStatus = status
             }
         } catch {
+            #if DEBUG
             print("[AppState] Failed to load mood status: \(error)")
+            #endif
         }
     }
 
@@ -598,9 +429,6 @@ extension AppState {
         static let onboardingCompleted = "walkworthy.onboardingCompleted"
         static let useProfilePersonalization = "walkworthy.settings.useProfilePersonalization"
         static let translation = "walkworthy.settings.translation"
-        static let currentVerseIndex = "walkworthy.home.currentVerseIndex"
-        static let history = "walkworthy.history.verses"
-        static let verseDeck = "walkworthy.home.verseDeck"
         static let profileAge = "walkworthy.profile.age"
         static let profileMajor = "walkworthy.profile.major"
         static let profileOccupation = "walkworthy.profile.occupation"
@@ -608,39 +436,5 @@ extension AppState {
         static let profileHobbies = "walkworthy.profile.hobbies"
         static let profileOptIn = "walkworthy.profile.optIn"
         static let lastAuthenticatedUser = "walkworthy.auth.lastUser"
-    }
-}
-
-private extension UserDefaults {
-    func encode<T: Encodable>(_ value: T, forKey key: String) throws {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        let data = try encoder.encode(value)
-        set(data, forKey: key)
-    }
-
-    func decode<T: Decodable>(_ type: T.Type = T.self, forKey key: String) throws -> T {
-        guard let data = data(forKey: key) else {
-            throw DecodingError.valueNotFound(type, .init(codingPath: [], debugDescription: "No data for key \(key)"))
-        }
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(type, from: data)
-    }
-}
-
-private extension Int {
-    func clamped(to range: Range<Int>) -> Int {
-        guard !range.isEmpty else { return 0 }
-        if self < range.lowerBound { return range.lowerBound }
-        if self >= range.upperBound { return range.upperBound - 1 }
-        return self
-    }
-}
-
-private extension Array {
-    subscript(safe index: Int) -> Element? {
-        guard indices.contains(index) else { return nil }
-        return self[index]
     }
 }
