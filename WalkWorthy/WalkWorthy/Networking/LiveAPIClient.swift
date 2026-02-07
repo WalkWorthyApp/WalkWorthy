@@ -230,8 +230,8 @@ final class LiveAPIClient: EncouragementAPI {
 
         switch http.statusCode {
         case 200...299:
-            if T.self == EmptyPayload.self {
-                return EmptyPayload() as! T
+            if T.self == EmptyPayload.self, let empty = EmptyPayload() as? T {
+                return empty
             }
             guard !data.isEmpty else {
                 throw APIError.invalidResponse

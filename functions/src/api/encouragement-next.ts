@@ -54,8 +54,7 @@ export const encouragementNext = onRequest(httpsOptions, async (req, res) => {
 
     const querySnapshot = await encouragementsRef
       .where('expiresAt', '>', now)
-      .orderBy('expiresAt', 'asc')  // Order by expiresAt to match the where clause
-      .orderBy('createdAt', 'desc')  // Then by creation time
+      .orderBy('expiresAt', 'asc')
       .limit(1)
       .get();
 

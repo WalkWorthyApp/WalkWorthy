@@ -1,8 +1,8 @@
-import { Request, Response } from 'express';
-import { logger } from 'firebase-functions/v2';
-import http from 'http';
-import { getAuthInstance } from './firebase';
-import { DecodedIdToken } from 'firebase-admin/auth';
+import { Request, Response } from "express";
+import { logger } from "firebase-functions/v2";
+import http from "http";
+import { getAuthInstance } from "./firebase";
+import { DecodedIdToken } from "firebase-admin/auth";
 
 /**
  * Authenticated request with verified user info
@@ -18,18 +18,20 @@ export interface AuthenticatedRequest extends Request {
  * @param req - Express request object
  * @returns Decoded token if valid, null otherwise
  */
-export async function verifyAuthToken(req: Request): Promise<DecodedIdToken | null> {
+export async function verifyAuthToken(
+  req: Request
+): Promise<DecodedIdToken | null> {
   const authHeader = req.headers.authorization;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    logger.warn('Auth header missing or malformed', {
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    logger.warn("Auth header missing or malformed", {
       hasHeader: !!authHeader,
-      startsWithBearer: authHeader?.startsWith('Bearer '),
+      startsWithBearer: authHeader?.startsWith("Bearer "),
     });
     return null;
   }
 
-  const idToken = authHeader.split('Bearer ')[1];
+  const idToken = authHeader.split("Bearer ")[1];
   if (!idToken) {
     return null;
   }
@@ -39,8 +41,8 @@ export async function verifyAuthToken(req: Request): Promise<DecodedIdToken | nu
     const decodedToken = await auth.verifyIdToken(idToken);
     return decodedToken;
   } catch (error) {
-    logger.warn('Auth token verification failed', {
-      error: error instanceof Error ? error.message : 'Unknown error',
+    logger.warn("Auth token verification failed", {
+      error: error instanceof Error ? error.message : "Unknown error",
     });
     return null;
   }
@@ -61,7 +63,7 @@ export async function requireAuth(
   const decodedToken = await verifyAuthToken(req);
 
   if (!decodedToken) {
-    res.status(401).json({ error: 'Unauthorized', message: 'Valid authentication required' });
+    errorResponse(res, 401, "Valid authentication required");
     return null;
   }
 
@@ -76,13 +78,20 @@ export async function requireAuth(
 /**
  * Standard error response format
  */
-export function errorResponse(res: Response, status: number, message: string, details?: unknown) {
+export function errorResponse(
+  res: Response,
+  status: number,
+  message: string,
+  details?: unknown
+) {
   const response: { error: string; message: string; details?: unknown } = {
-    error: http.STATUS_CODES[status] || (status >= 500 ? 'Internal Server Error' : 'Error'),
+    error:
+      http.STATUS_CODES[status] ||
+      (status >= 500 ? "Internal Server Error" : "Error"),
     message,
   };
 
-  if (details && process.env.NODE_ENV !== 'production') {
+  if (details && process.env.NODE_ENV !== "production") {
     response.details = details;
   }
 

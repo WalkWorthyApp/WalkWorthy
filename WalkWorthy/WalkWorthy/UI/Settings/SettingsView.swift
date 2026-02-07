@@ -85,6 +85,12 @@ struct SettingsView: View {
     }
 }
 
+enum ReminderType {
+    case morning
+    case midday
+    case evening
+}
+
 struct NotificationSettingsView: View {
     @State private var morningTime = defaultTime(hour: 7, minute: 0)
     @State private var middayTime = defaultTime(hour: 12, minute: 0)
@@ -93,6 +99,7 @@ struct NotificationSettingsView: View {
     @State private var middayEnabled = true
     @State private var eveningEnabled = true
     @State private var showNotificationDeniedAlert = false
+    @State private var pendingAuthorizationFor: ReminderType?
 
     private let defaults = UserDefaults.standard
 
@@ -171,6 +178,7 @@ struct NotificationSettingsView: View {
             return
         }
         morningEnabled = true
+        pendingAuthorizationFor = .morning
         checkAuthorizationAndSchedule()
     }
 
@@ -181,6 +189,7 @@ struct NotificationSettingsView: View {
             return
         }
         middayEnabled = true
+        pendingAuthorizationFor = .midday
         checkAuthorizationAndSchedule()
     }
 
@@ -191,6 +200,7 @@ struct NotificationSettingsView: View {
             return
         }
         eveningEnabled = true
+        pendingAuthorizationFor = .evening
         checkAuthorizationAndSchedule()
     }
 
@@ -210,7 +220,9 @@ struct NotificationSettingsView: View {
             // If denied, show alert (unless it's notDetermined, in which we'll request)
             if settings.authorizationStatus == .denied {
                 await MainActor.run {
-                    self.disableLastToggle()
+                    if let reminderType = self.pendingAuthorizationFor {
+                        self.disableToggle(for: reminderType)
+                    }
                     self.showNotificationDeniedAlert = true
                 }
                 return
@@ -222,22 +234,27 @@ struct NotificationSettingsView: View {
                 if granted == true {
                     self.saveAndSchedule()
                 } else {
-                    self.disableLastToggle()
+                    if let reminderType = self.pendingAuthorizationFor {
+                        self.disableToggle(for: reminderType)
+                    }
                     self.showNotificationDeniedAlert = true
                 }
             }
         }
     }
 
-    private func disableLastToggle() {
-        // Disable whichever toggle was just enabled
-        if morningEnabled && !defaults.bool(forKey: StorageKeys.morningEnabled) {
+    private func disableToggle(for reminderType: ReminderType) {
+        // Disable the specific toggle that triggered authorization
+        switch reminderType {
+        case .morning:
             morningEnabled = false
-        } else if middayEnabled && !defaults.bool(forKey: StorageKeys.middayEnabled) {
+        case .midday:
             middayEnabled = false
-        } else if eveningEnabled && !defaults.bool(forKey: StorageKeys.eveningEnabled) {
+        case .evening:
             eveningEnabled = false
         }
+        // Clear the pending authorization tracker
+        pendingAuthorizationFor = nil
     }
 
     private func openAppSettings() {

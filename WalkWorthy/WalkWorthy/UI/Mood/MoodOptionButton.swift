@@ -13,7 +13,7 @@ struct MoodOptionButton: View {
     let action: () -> Void
 
     @State private var isPressed = false
-    @State private var impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+    private let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
 
     var body: some View {
         VStack(spacing: 8) {
@@ -56,6 +56,16 @@ struct MoodOptionButton: View {
         .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
             isPressed = pressing
         }, perform: {})
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(mood.displayName) \(mood.emoji)")
+        .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityHint("Double tap to select this mood")
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+        .accessibilityAction {
+            impactFeedback.impactOccurred()
+            action()
+        }
     }
 }
 
@@ -65,7 +75,7 @@ struct FollowUpOptionButton: View {
     let action: () -> Void
 
     @State private var isPressed = false
-    @State private var impactFeedback = UIImpactFeedbackGenerator(style: .light)
+    private let impactFeedback = UIImpactFeedbackGenerator(style: .light)
 
     var body: some View {
         Text(option)
@@ -94,5 +104,15 @@ struct FollowUpOptionButton: View {
             .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
                 isPressed = pressing
             }, perform: {})
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(option)
+            .accessibilityValue(isSelected ? "Selected" : "Not selected")
+            .accessibilityHint("Double tap to select this option")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAddTraits(isSelected ? .isSelected : [])
+            .accessibilityAction {
+                impactFeedback.impactOccurred()
+                action()
+            }
     }
 }

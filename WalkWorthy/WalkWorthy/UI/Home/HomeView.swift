@@ -97,15 +97,12 @@ struct HomeView: View {
                 )
                 .navigationBarTitleDisplayMode(.inline)
                 .onDisappear {
-                    // This handles both button dismissal and swipe-to-dismiss gestures
-                    // Only save if we still have a valid wrapper (hasn't been cleared yet)
-                    if completedResponse != nil {
-                        appState.latestMoodResponse = wrapper.response
-                        completedResponse = nil
-                        // Refresh mood status after completing check-in
-                        Task {
-                            await appState.loadMoodStatus()
-                        }
+                    // Save response on any dismissal (button tap or swipe gesture).
+                    // wrapper is captured at sheet presentation, so it's always valid.
+                    appState.latestMoodResponse = wrapper.response
+                    completedResponse = nil
+                    Task {
+                        await appState.loadMoodStatus()
                     }
                 }
             }

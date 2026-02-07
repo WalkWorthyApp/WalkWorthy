@@ -99,8 +99,10 @@ enum Translation: String, CaseIterable, Identifiable, Codable {
     case esv = "ESV"
     case kjv = "KJV"
     case niv = "NIV"
+    case nkjv = "NKJV"
+    case nasb = "NASB"
     case csb = "CSB"
-    case msg = "MSG"
+    case nlt = "NLT"
 
     var id: String { rawValue }
 
@@ -109,8 +111,10 @@ enum Translation: String, CaseIterable, Identifiable, Codable {
         case .esv: return "English Standard Version"
         case .kjv: return "King James Version"
         case .niv: return "New International Version"
+        case .nkjv: return "New King James Version"
+        case .nasb: return "New American Standard Bible"
         case .csb: return "Christian Standard Bible"
-        case .msg: return "The Message"
+        case .nlt: return "New Living Translation"
         }
     }
 }

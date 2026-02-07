@@ -5,6 +5,7 @@ import { requireAuth, errorResponse, successResponse } from '../shared/auth';
 import { validateUserProfileInput, validateAgeRange, validateGender, validateCheckInTimes } from '../shared/types';
 import type { UserProfile } from '../shared/profile';
 import { clearUserProfileCache } from '../shared/profile';
+import { FieldValue } from 'firebase-admin/firestore';
 
 // Initialize Firebase on module load
 initializeFirebase();
@@ -95,9 +96,14 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
 
         if (req.body.major !== undefined) {
           if (req.body.major === null) {
-            updates.major = undefined;
-          } else if (typeof req.body.major === 'string' && req.body.major.length > 0 && req.body.major.length <= 120) {
-            updates.major = req.body.major;
+            updates.major = FieldValue.delete() as unknown as string | undefined;
+          } else if (typeof req.body.major === 'string') {
+            const trimmed = req.body.major.trim();
+            if (trimmed.length > 0 && trimmed.length <= 120) {
+              updates.major = trimmed;
+            } else {
+              return errorResponse(res, 400, 'Invalid major value');
+            }
           } else {
             return errorResponse(res, 400, 'Invalid major value');
           }
@@ -105,9 +111,14 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
 
         if (req.body.occupation !== undefined) {
           if (req.body.occupation === null) {
-            updates.occupation = undefined;
-          } else if (typeof req.body.occupation === 'string' && req.body.occupation.length > 0 && req.body.occupation.length <= 120) {
-            updates.occupation = req.body.occupation;
+            updates.occupation = FieldValue.delete() as unknown as string | undefined;
+          } else if (typeof req.body.occupation === 'string') {
+            const trimmed = req.body.occupation.trim();
+            if (trimmed.length > 0 && trimmed.length <= 120) {
+              updates.occupation = trimmed;
+            } else {
+              return errorResponse(res, 400, 'Invalid occupation value');
+            }
           } else {
             return errorResponse(res, 400, 'Invalid occupation value');
           }
@@ -115,11 +126,16 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
 
         if (req.body.hobbies !== undefined) {
           if (Array.isArray(req.body.hobbies)) {
-            updates.hobbies = req.body.hobbies
+            const filtered = req.body.hobbies
               .filter((h: unknown) => typeof h === 'string')
+              .map((h: string) => h.trim())
+              .filter((h: string) => h.length > 0 && h.length <= 120)
               .slice(0, 10);
+            updates.hobbies = filtered.length > 0 ? filtered : FieldValue.delete() as unknown as string[] | undefined;
+          } else if (req.body.hobbies === null) {
+            updates.hobbies = FieldValue.delete() as unknown as string[] | undefined;
           } else {
-            updates.hobbies = undefined;
+            return errorResponse(res, 400, 'Invalid hobbies value');
           }
         }
 

@@ -17,6 +17,8 @@ struct MoodCheckInView: View {
     @State private var showFollowUp = false
     @State private var isSubmitting = false
     @State private var errorMessage: String?
+    @State private var submissionTask: Task<Void, Never>?
+    @State private var autoAdvanceWorkItem: DispatchWorkItem?
 
     var body: some View {
         ScrollView {
@@ -42,6 +44,11 @@ struct MoodCheckInView: View {
             .padding()
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showFollowUp)
+        .onDisappear {
+            // Cancel any pending tasks to prevent completion handlers on dismissed view
+            submissionTask?.cancel()
+            autoAdvanceWorkItem?.cancel()
+        }
     }
 
     private var headerSection: some View {
@@ -94,12 +101,17 @@ struct MoodCheckInView: View {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                                 selectedMood = mood
                             }
+                            // Cancel any pending auto-advance
+                            autoAdvanceWorkItem?.cancel()
+
                             // Auto-advance after brief delay
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            let workItem = DispatchWorkItem {
                                 withAnimation {
                                     showFollowUp = true
                                 }
                             }
+                            autoAdvanceWorkItem = workItem
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
                         }
                     )
                 }
@@ -171,7 +183,8 @@ struct MoodCheckInView: View {
         isSubmitting = true
         errorMessage = nil
 
-        Task {
+        // Store the task so we can cancel it if the view disappears
+        submissionTask = Task {
             do {
                 let request = MoodCheckInRequest(
                     checkInType: checkInType.rawValue,
@@ -181,16 +194,26 @@ struct MoodCheckInView: View {
 
                 let response = try await appState.apiClient.submitMoodCheckIn(request)
 
+                // Check if task was cancelled before calling completion
+                try Task.checkCancellation()
+
                 await MainActor.run {
                     isSubmitting = false
                     onComplete(response, selectedMood)
                 }
+            } catch is CancellationError {
+                // Task was cancelled - don't show error
+                await MainActor.run {
+                    isSubmitting = false
+                }
             } catch {
+                #if DEBUG
                 print("[MoodCheckIn] Error: \(error)")
                 print("[MoodCheckIn] Error type: \(type(of: error))")
                 if let apiError = error as? APIError {
                     print("[MoodCheckIn] APIError: \(apiError)")
                 }
+                #endif
                 await MainActor.run {
                     isSubmitting = false
                     #if DEBUG
