@@ -564,17 +564,14 @@ final class AppState: ObservableObject {
         }
     }
 
-    func loadMoodHistory(days: Int = 7) async {
-        guard isAuthenticated else { return }
+    func loadMoodHistory(days: Int = 7) async throws -> MoodHistoryResponse {
+        guard isAuthenticated else { throw MoodError.notAuthenticated }
 
-        do {
-            let response = try await apiClient.fetchMoodHistory(days: days)
-            await MainActor.run {
-                moodHistory = response.summaries
-            }
-        } catch {
-            print("[AppState] Failed to load mood history: \(error)")
+        let response = try await apiClient.fetchMoodHistory(days: days)
+        await MainActor.run {
+            moodHistory = response.summaries
         }
+        return response
     }
 
     func clearMoodState() {

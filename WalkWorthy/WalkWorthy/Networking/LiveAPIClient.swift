@@ -204,17 +204,20 @@ final class LiveAPIClient: EncouragementAPI {
     private func send<T: Decodable>(_ request: URLRequest, decode type: T.Type) async throws -> T {
         do {
             let (data, response) = try await urlSession.data(for: request)
+            #if DEBUG
             if let httpResponse = response as? HTTPURLResponse {
                 print("[LiveAPIClient] HTTP Status: \(httpResponse.statusCode)")
-                // Log response body with PII redaction in release builds
                 let safeBody = safeLogResponseBody(data)
                 print("[LiveAPIClient] Response body: \(safeBody)")
             }
+            #endif
             return try handleResponse(data: data, response: response, decode: type)
         } catch let apiError as APIError {
             throw apiError
         } catch {
+            #if DEBUG
             print("[LiveAPIClient] Network error: \(error)")
+            #endif
             throw APIError.network(error)
         }
     }

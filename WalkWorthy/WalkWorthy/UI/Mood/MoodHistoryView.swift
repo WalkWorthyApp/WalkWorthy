@@ -451,7 +451,7 @@ struct MoodHistoryView: View {
                 daysToFetch = daysInCurrentMonth(for: Date())
             }
 
-            let response = try await appState.apiClient.fetchMoodHistory(days: daysToFetch)
+            let response = try await appState.loadMoodHistory(days: daysToFetch)
             await MainActor.run {
                 summaries = response.summaries
                 errorMessage = nil

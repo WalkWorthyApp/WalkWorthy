@@ -192,7 +192,7 @@ struct MoodCheckInView: View {
                     followUpResponse: followUp.lowercased()
                 )
 
-                let response = try await appState.apiClient.submitMoodCheckIn(request)
+                let response = try await appState.submitMoodCheckIn(request)
 
                 // Check if task was cancelled before calling completion
                 try Task.checkCancellation()

@@ -84,10 +84,10 @@ final class AuthenticationViewModel: ObservableObject {
         }
 
         // Password length validation for account creation
-        if mode == .createAccount && password.count < 8 {
+        if mode == .createAccount && password.count < 6 {
             errorDetails = AuthErrorDetails(
                 title: "Weak Password",
-                message: "Password must be at least 8 characters.",
+                message: "Password must be at least 6 characters.",
                 suggestion: nil
             )
             return false
