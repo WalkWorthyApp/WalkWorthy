@@ -218,18 +218,12 @@ struct MoodCheckIn: Codable, Identifiable, Equatable {
     let createdAt: String
     let expiresAt: String
 
-    private static let iso8601Formatter = ISO8601DateFormatter()
-
     var checkInTypeEnum: CheckInType? {
         CheckInType(rawValue: checkInType)
     }
 
     var moodOption: MoodOption? {
         MoodOption(rawValue: responses.primaryMood)
-    }
-
-    var timestampDate: Date? {
-        Self.iso8601Formatter.date(from: timestamp)
     }
 }
 
@@ -251,13 +245,6 @@ struct DailyMoodSummary: Codable, Identifiable, Equatable {
     let overallSentiment: String?
     let updatedAt: String?
 
-    private static let dateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withFullDate]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        return formatter
-    }()
-
     var id: String { date }
 
     var sentiment: MoodSentiment? {
@@ -267,10 +254,6 @@ struct DailyMoodSummary: Codable, Identifiable, Equatable {
 
     var completedCount: Int {
         [morning, midday, evening].compactMap { $0 }.count
-    }
-
-    var dateObject: Date? {
-        Self.dateFormatter.date(from: date)
     }
 }
 

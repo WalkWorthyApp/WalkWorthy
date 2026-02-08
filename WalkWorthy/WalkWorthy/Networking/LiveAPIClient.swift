@@ -139,7 +139,7 @@ final class LiveAPIClient: EncouragementAPI {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 20
+        request.timeoutInterval = 60
 
         do {
             let token = try await tokenProvider.validBearerToken()

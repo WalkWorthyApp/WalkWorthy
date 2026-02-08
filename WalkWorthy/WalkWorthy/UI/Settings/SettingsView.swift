@@ -146,13 +146,13 @@ struct NotificationSettingsView: View {
         .onAppear {
             loadSavedSettings()
         }
-        .onChange(of: morningTime) { _, newValue in
+        .onChange(of: morningTime) { _, _ in
             saveAndSchedule()
         }
-        .onChange(of: middayTime) { _, newValue in
+        .onChange(of: middayTime) { _, _ in
             saveAndSchedule()
         }
-        .onChange(of: eveningTime) { _, newValue in
+        .onChange(of: eveningTime) { _, _ in
             saveAndSchedule()
         }
         .alert("Notifications Disabled", isPresented: $showNotificationDeniedAlert) {

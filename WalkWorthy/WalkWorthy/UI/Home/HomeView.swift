@@ -241,7 +241,8 @@ struct HomeView: View {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .onTapGesture {
-            // Allow updating mood even after completion
+            guard completed else { return }
+            // Allow updating a previously completed check-in
             activeCheckInType = type
         }
         .opacity(completed ? 0.7 : 1.0)

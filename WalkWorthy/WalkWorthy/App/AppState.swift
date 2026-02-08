@@ -324,29 +324,10 @@ final class AppState: ObservableObject {
 
     var currentCheckInType: CheckInType? {
         guard let pending = currentMoodStatus?.pendingCheckIn else { return nil }
-        let checkInType = CheckInType(rawValue: pending.checkInType) ?? .morning
-
-        // Always show overdue check-ins so users don't lose access
-        if pending.isOverdue {
-            return checkInType
-        }
-
-        // Otherwise only show if within the current time window
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch checkInType {
-        case .morning where (5..<12).contains(hour):
-            return .morning
-        case .midday where (12..<17).contains(hour):
-            return .midday
-        case .evening where (17..<22).contains(hour):
-            return .evening
-        default:
-            return nil
-        }
-    }
-
-    var hasAvailableCheckIn: Bool {
-        currentCheckInType != nil
+        // Trust the backend's check-in type determination. The backend computes
+        // the correct type based on the user's timezone and custom check-in times,
+        // so no client-side time-window filtering is needed.
+        return CheckInType(rawValue: pending.checkInType)
     }
 
     func loadMoodStatus() async {
