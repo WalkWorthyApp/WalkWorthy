@@ -28,31 +28,6 @@ struct RemoteUserProfileRequest: Codable {
     var timezone: String?
 }
 
-
-struct Verse: Identifiable, Codable, Equatable, Hashable {
-    let id: String
-    let reference: String
-    let text: String
-    let encouragement: String
-    let translation: Translation
-
-    init(id: String, reference: String, text: String, encouragement: String, translation: Translation) {
-        self.id = id
-        self.reference = reference
-        self.text = text
-        self.encouragement = encouragement
-        self.translation = translation
-    }
-
-    static let placeholder = Verse(
-        id: "placeholder",
-        reference: "John 16:33",
-        text: "In the world you will have tribulation. But take heart; I have overcome the world.",
-        encouragement: "Keep going — Jesus already won the battle for you.",
-        translation: .esv
-    )
-}
-
 enum Translation: String, CaseIterable, Identifiable, Codable {
     case esv = "ESV"
     case kjv = "KJV"

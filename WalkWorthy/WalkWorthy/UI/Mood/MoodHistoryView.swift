@@ -20,6 +20,30 @@ struct MoodHistoryView: View {
     @State private var expandedDate: String?
     @State private var errorMessage: String?
 
+    private static let isoDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    private static let dayOfWeekFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "E"
+        return f
+    }()
+
+    private static let dayNumberFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "d"
+        return f
+    }()
+
+    private static let monthDayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
+
     // Calculate total days in current month for the given date
     private func daysInCurrentMonth(for date: Date) -> Int {
         let calendar = Calendar.current
@@ -206,26 +230,17 @@ struct MoodHistoryView: View {
         guard let firstDate = daysToDisplay.first,
               let lastDate = daysToDisplay.last else { return "" }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
+        guard let start = Self.isoDateFormatter.date(from: firstDate),
+              let end = Self.isoDateFormatter.date(from: lastDate) else { return "" }
 
-        guard let start = formatter.date(from: firstDate),
-              let end = formatter.date(from: lastDate) else { return "" }
-
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateFormat = "MMM d"
-
-        return "\(displayFormatter.string(from: start)) - \(displayFormatter.string(from: end))"
+        return "\(Self.monthDayFormatter.string(from: start)) - \(Self.monthDayFormatter.string(from: end))"
     }
 
     private var daysToDisplay: [String] {
         let calendar = Calendar.current
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
 
         switch selectedRange {
         case .thisMonth:
-            // Special handling for "This Month" - show full calendar month
             let today = Date()
             let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: today))!
 
@@ -233,42 +248,34 @@ struct MoodHistoryView: View {
                 guard let date = calendar.date(byAdding: .day, value: dayOffset, to: startOfMonth) else {
                     return nil
                 }
-                return formatter.string(from: date)
+                return Self.isoDateFormatter.string(from: date)
             }
 
         case .days(let count):
-            // Default behavior for 7 days, 14 days - go backwards from today
             return (0..<count).reversed().compactMap { daysAgo in
-                // Safely unwrap the computed date; compactMap skips any nil values
                 guard let date = calendar.date(byAdding: .day, value: -daysAgo, to: Date()) else {
                     return nil
                 }
-                return formatter.string(from: date)
+                return Self.isoDateFormatter.string(from: date)
             }
         }
     }
 
     private func dayIndicator(for dateString: String, compact: Bool = false) -> some View {
         let summary = summaries.first { $0.date == dateString }
-        let dayFormatter = DateFormatter()
-        dayFormatter.dateFormat = "yyyy-MM-dd"
-        let date = dayFormatter.date(from: dateString)
+        let date = Self.isoDateFormatter.date(from: dateString)
 
         let dayOfWeek: String = {
             guard let date = date else { return "" }
-            let formatter = DateFormatter()
-            formatter.dateFormat = "E" // Single letter abbreviation
-            return formatter.string(from: date)
+            return Self.dayOfWeekFormatter.string(from: date)
         }()
 
         let dayNumber: String = {
             guard let date = date else { return "" }
-            let formatter = DateFormatter()
-            formatter.dateFormat = "d"
-            return formatter.string(from: date)
+            return Self.dayNumberFormatter.string(from: date)
         }()
 
-        let isToday = dateString == dayFormatter.string(from: Date())
+        let isToday = dateString == Self.isoDateFormatter.string(from: Date())
         let hasMoodData = summary != nil && summary!.completedCount > 0
         let sentimentColor = sentimentColor(for: summary)
 
@@ -476,6 +483,18 @@ struct DailySummaryCard: View {
     let isExpanded: Bool
     let onTap: () -> Void
 
+    private static let isoDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    private static let displayDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEEE, MMM d"
+        return f
+    }()
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Header
@@ -541,15 +560,10 @@ struct DailySummaryCard: View {
     }
 
     private var formattedDate: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        guard let date = formatter.date(from: summary.date) else {
+        guard let date = Self.isoDateFormatter.date(from: summary.date) else {
             return summary.date
         }
-
-        let displayFormatter = DateFormatter()
-        displayFormatter.dateFormat = "EEEE, MMM d"
-        return displayFormatter.string(from: date)
+        return Self.displayDateFormatter.string(from: date)
     }
 
     private func checkInRow(type: CheckInType, summary: CheckInSummary?) -> some View {

@@ -23,6 +23,7 @@ private struct ResponseWrapper: Identifiable {
 struct HomeView: View {
     @EnvironmentObject private var appState: AppState
     @State private var activeCheckInType: CheckInType?
+    @State private var pendingResponse: ResponseWrapper?
     @State private var completedResponse: ResponseWrapper?
 
     var body: some View {
@@ -63,15 +64,17 @@ struct HomeView: View {
                 await appState.loadMoodStatus()
             }
         }
-        .sheet(item: $activeCheckInType) { type in
+        .sheet(item: $activeCheckInType, onDismiss: {
+            // Present response sheet after check-in sheet fully dismisses
+            if let pending = pendingResponse {
+                completedResponse = pending
+                pendingResponse = nil
+            }
+        }) { type in
             NavigationStack {
                 MoodCheckInView(checkInType: type) { response, mood in
-                    // Dismiss check-in sheet first, then show response
+                    pendingResponse = ResponseWrapper(response: response, selectedMood: mood)
                     activeCheckInType = nil
-                    // Small delay to let the first sheet fully dismiss
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        completedResponse = ResponseWrapper(response: response, selectedMood: mood)
-                    }
                 }
                 .navigationTitle(type.displayName)
                 .navigationBarTitleDisplayMode(.inline)

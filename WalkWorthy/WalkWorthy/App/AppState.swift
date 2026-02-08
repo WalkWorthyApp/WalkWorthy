@@ -7,7 +7,6 @@
 
 import Foundation
 import SwiftUI
-import Combine
 
 @MainActor
 final class AppState: ObservableObject {
@@ -150,14 +149,12 @@ final class AppState: ObservableObject {
 
     func startSignIn(email: String, password: String) async throws {
         do {
-            // Delegate to injected authSession for dependency injection and testability
             try await authSession.signIn(email: email, password: password)
             isAuthenticated = true
             authenticationNotice = nil
             await refreshAuthenticatedUser()
         } catch {
             isAuthenticated = false
-            authenticationNotice = error.localizedDescription
             setAuthenticatedUserSub(nil)
             throw error
         }
@@ -165,14 +162,12 @@ final class AppState: ObservableObject {
 
     func createAccount(email: String, password: String) async throws {
         do {
-            // Delegate to injected authSession for dependency injection and testability
             try await authSession.createAccount(email: email, password: password)
             isAuthenticated = true
             authenticationNotice = nil
             await refreshAuthenticatedUser()
         } catch {
             isAuthenticated = false
-            authenticationNotice = error.localizedDescription
             setAuthenticatedUserSub(nil)
             throw error
         }
