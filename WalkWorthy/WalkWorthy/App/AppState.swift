@@ -26,8 +26,6 @@ final class AppState: ObservableObject {
     // MARK: - Mood Tracking State
     @Published var currentMoodStatus: MoodStatusResponse?
     @Published var latestMoodResponse: MoodCheckInResponse?
-    @Published var isSubmittingMood: Bool = false
-    @Published var moodError: String?
 
     private(set) var apiClient: any EncouragementAPI
     private let notificationScheduler: NotificationScheduler
@@ -345,29 +343,14 @@ final class AppState: ObservableObject {
             throw MoodError.notAuthenticated
         }
 
+        let response = try await apiClient.submitMoodCheckIn(request)
         await MainActor.run {
-            isSubmittingMood = true
-            moodError = nil
-        }
-
-        do {
-            let response = try await apiClient.submitMoodCheckIn(request)
-            await MainActor.run {
-                latestMoodResponse = response
-                isSubmittingMood = false
-                // Refresh mood status to get the updated check-in
-                Task {
-                    await loadMoodStatus()
-                }
+            latestMoodResponse = response
+            Task {
+                await loadMoodStatus()
             }
-            return response
-        } catch {
-            await MainActor.run {
-                isSubmittingMood = false
-                moodError = error.localizedDescription
-            }
-            throw error
         }
+        return response
     }
 
     func loadMoodHistory(days: Int = 7) async throws -> MoodHistoryResponse {
@@ -379,7 +362,6 @@ final class AppState: ObservableObject {
     func clearMoodState() {
         currentMoodStatus = nil
         latestMoodResponse = nil
-        moodError = nil
     }
 
     enum MoodError: LocalizedError {

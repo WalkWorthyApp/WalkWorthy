@@ -133,7 +133,7 @@ function calculateOverallSentiment(
   evening?: CheckInSummary | null,
 ): 'positive' | 'neutral' | 'challenging' | null {
   const positiveMoods = ['hopeful', 'confident', 'better than expected', 'great day', 'good day', 'ready'];
-  const challengingMoods = ['anxious', 'tired', 'nervous', 'stressful', 'harder than expected', 'challenging day', 'difficult day'];
+  const challengingMoods = ['anxious', 'nervous', 'stressful', 'harder than expected', 'challenging day', 'difficult day'];
 
   const moods = [morning?.primaryMood, midday?.primaryMood, evening?.primaryMood].filter(Boolean) as string[];
 
