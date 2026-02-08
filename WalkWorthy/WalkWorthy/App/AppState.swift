@@ -26,7 +26,6 @@ final class AppState: ObservableObject {
 
     // MARK: - Mood Tracking State
     @Published var currentMoodStatus: MoodStatusResponse?
-    @Published var moodHistory: [DailyMoodSummary] = []
     @Published var latestMoodResponse: MoodCheckInResponse?
     @Published var isSubmittingMood: Bool = false
     @Published var moodError: String?
@@ -398,16 +397,11 @@ final class AppState: ObservableObject {
     func loadMoodHistory(days: Int = 7) async throws -> MoodHistoryResponse {
         guard isAuthenticated else { throw MoodError.notAuthenticated }
 
-        let response = try await apiClient.fetchMoodHistory(days: days)
-        await MainActor.run {
-            moodHistory = response.summaries
-        }
-        return response
+        return try await apiClient.fetchMoodHistory(days: days)
     }
 
     func clearMoodState() {
         currentMoodStatus = nil
-        moodHistory = []
         latestMoodResponse = nil
         moodError = nil
     }

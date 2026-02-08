@@ -99,30 +99,11 @@ final class LiveAPIClient: EncouragementAPI {
     }
 
     func fetchMoodHistory(days: Int) async throws -> MoodHistoryResponse {
-        let url = baseURL.appendingPathComponent("moodCheckIn")
-
-        // Safely compose URL with query parameters
-        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-            throw APIError.invalidResponse
-        }
-        components.queryItems = [URLQueryItem(name: "history", value: String(days))]
-
-        guard let finalURL = components.url else {
-            throw APIError.invalidResponse
-        }
-
-        var request = URLRequest(url: finalURL)
-        request.httpMethod = "GET"
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 20
-
-        do {
-            let token = try await tokenProvider.validBearerToken()
-            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        } catch {
-            throw APIError.notAuthenticated
-        }
-
+        let request = try await makeRequest(
+            path: "moodCheckIn",
+            method: "GET",
+            queryItems: [URLQueryItem(name: "history", value: String(days))]
+        )
         return try await send(request, decode: MoodHistoryResponse.self)
     }
 
@@ -135,13 +116,24 @@ final class LiveAPIClient: EncouragementAPI {
         return request
     }
 
-    private func makeRequest(path: String, method: String) async throws -> URLRequest {
+    private func makeRequest(path: String, method: String, queryItems: [URLQueryItem]? = nil) async throws -> URLRequest {
         var url = baseURL
         if !path.isEmpty {
             let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             for component in trimmed.split(separator: "/") {
                 url.appendPathComponent(String(component))
             }
+        }
+
+        if let queryItems {
+            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                throw APIError.invalidResponse
+            }
+            components.queryItems = queryItems
+            guard let finalURL = components.url else {
+                throw APIError.invalidResponse
+            }
+            url = finalURL
         }
 
         var request = URLRequest(url: url)

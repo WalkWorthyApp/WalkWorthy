@@ -63,10 +63,6 @@ actor FirebaseAuthSession: BearerTokenProviding {
         return user.uid
     }
 
-    func isSignedIn() -> Bool {
-        Auth.auth().currentUser != nil
-    }
-
     func signIn(email: String, password: String) async throws {
         _ = try await Auth.auth().signIn(withEmail: email, password: password)
         tokenCache.clear()  // Clear any cached tokens from previous session
@@ -108,9 +104,5 @@ actor FirebaseAuthSession: BearerTokenProviding {
         func clear() {
             cached = nil
         }
-    }
-
-    private var cachedToken: TokenCache.CachedToken? {
-        tokenCache.cachedToken()
     }
 }
