@@ -10,6 +10,7 @@ import { Agent, run } from "@openai/agents";
 import { setDefaultOpenAIKey, setOpenAIAPI } from "@openai/agents-openai";
 import { z } from "zod";
 import Ajv from "ajv";
+import { logger } from "firebase-functions/v2";
 import type {
   AgeRange,
   Gender,
@@ -316,11 +317,11 @@ export async function runMoodAgent(
   apiKey: string,
   model = process.env.OPENAI_MODEL || "gpt-4o-mini"
 ): Promise<AIEncouragementResponse> {
-  console.log("[MoodAgent] Starting with model:", model);
+  logger.info("[MoodAgent] Starting with model:", model);
 
   // Create or retrieve cached agent; ensureAgent handles SDK configuration
   const agent = ensureAgent(model, apiKey);
-  console.log("[MoodAgent] Agent created");
+  logger.info("[MoodAgent] Agent created");
 
   const payload = {
     profile: sanitizeProfile(input.profile),
@@ -335,15 +336,15 @@ export async function runMoodAgent(
   let lastError: unknown;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
-    console.log(`[MoodAgent] Attempt ${attempt + 1}/${MAX_RETRIES}`);
+    logger.info(`[MoodAgent] Attempt ${attempt + 1}/${MAX_RETRIES}`);
     try {
-      console.log("[MoodAgent] Calling OpenAI agent...");
+      logger.info("[MoodAgent] Calling OpenAI agent...");
       const result = await run(agent, serializedInput);
-      console.log("[MoodAgent] Agent returned response");
+      logger.info("[MoodAgent] Agent returned response");
       return parseEncouragement(result.finalOutput, payload.translationPreference);
     } catch (err) {
       lastError = err;
-      console.error(`[MoodAgent] Attempt ${attempt + 1} failed:`, err);
+      logger.error(`[MoodAgent] Attempt ${attempt + 1} failed:`, err);
     }
   }
 
@@ -378,8 +379,8 @@ function parseEncouragement(
           .join("; ")
       : "unknown validation error";
 
-    console.error("[MoodAgent] Validation errors:", validationErrors);
-    console.error("[MoodAgent] Failed data:", JSON.stringify(data));
+    logger.error("[MoodAgent] Validation errors:", validationErrors);
+    logger.error("[MoodAgent] Failed data:", JSON.stringify(data));
 
     throw new Error(`Agent output failed schema validation: ${validationErrors}`);
   }

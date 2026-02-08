@@ -1,3 +1,5 @@
+import { logger } from "firebase-functions/v2";
+
 /**
  * Age ranges for user demographic profiling.
  * SENSITIVE: This field is PII; never log or expose unnecessarily.
@@ -98,14 +100,14 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
   // REQUIRED: Validate ageRange
   const ageRange = validateAgeRange(obj.ageRange);
   if (!ageRange) {
-    console.error('Profile validation failed: missing or invalid ageRange');
+    logger.error('Profile validation failed: missing or invalid ageRange');
     return undefined;
   }
 
   // REQUIRED: Validate gender
   const gender = validateGender(obj.gender);
   if (!gender) {
-    console.error('Profile validation failed: missing or invalid gender');
+    logger.error('Profile validation failed: missing or invalid gender');
     return undefined;
   }
 
@@ -119,7 +121,7 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
     }
   }
   if (!translationPref) {
-    console.error('Profile validation failed: missing or invalid translationPreference');
+    logger.error('Profile validation failed: missing or invalid translationPreference');
     return undefined;
   }
 
@@ -129,7 +131,7 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
     timezone = obj.timezone;
   }
   if (!timezone) {
-    console.error('Profile validation failed: missing or invalid timezone');
+    logger.error('Profile validation failed: missing or invalid timezone');
     return undefined;
   }
 
@@ -138,7 +140,7 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
   if (Array.isArray(obj.hobbies)) {
     hobbies = obj.hobbies.filter((h) => typeof h === 'string').slice(0, 10);
   } else {
-    console.error('Profile validation failed: missing or invalid hobbies');
+    logger.error('Profile validation failed: missing or invalid hobbies');
     return undefined;
   }
 
