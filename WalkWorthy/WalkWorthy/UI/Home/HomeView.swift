@@ -99,13 +99,7 @@ struct HomeView: View {
                 )
                 .navigationBarTitleDisplayMode(.inline)
                 .onDisappear {
-                    // Save response on any dismissal (button tap or swipe gesture).
-                    // wrapper is captured at sheet presentation, so it's always valid.
-                    appState.latestMoodResponse = wrapper.response
                     completedResponse = nil
-                    Task {
-                        await appState.loadMoodStatus()
-                    }
                 }
             }
             .presentationDetents([.large])
