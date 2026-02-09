@@ -33,7 +33,6 @@ infrastructure/cdk-env.sh
 
 # Firebase & Secrets
 users.json
-WalkWorthy/WalkWorthy/GoogleService-Info.plist
 firebase-debug.log
 FIREBASE_AUTH_MIGRATION.md
 WalkWorthy/FIREBASE_SDK_SETUP.md
