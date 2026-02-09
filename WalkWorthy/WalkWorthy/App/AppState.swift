@@ -154,6 +154,7 @@ final class AppState: ObservableObject {
             await refreshAuthenticatedUser()
         } catch {
             isAuthenticated = false
+            authenticationNotice = nil
             setAuthenticatedUserSub(nil)
             throw error
         }
@@ -167,6 +168,7 @@ final class AppState: ObservableObject {
             await refreshAuthenticatedUser()
         } catch {
             isAuthenticated = false
+            authenticationNotice = nil
             setAuthenticatedUserSub(nil)
             throw error
         }
