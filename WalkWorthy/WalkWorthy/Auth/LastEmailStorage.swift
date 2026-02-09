@@ -22,9 +22,4 @@ enum LastEmailStorage {
     static func loadEmail() -> String? {
         UserDefaults.standard.string(forKey: key)
     }
-
-    /// Clear the saved email
-    static func clearEmail() {
-        UserDefaults.standard.removeObject(forKey: key)
-    }
 }

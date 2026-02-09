@@ -175,12 +175,9 @@ final class AppState: ObservableObject {
     func signOut() {
         Task {
             try? await authSession.signOut()
-
-            await MainActor.run { [self] in
-                isAuthenticated = false
-                authenticationNotice = "You have been signed out. Please sign in again."
-                setAuthenticatedUserSub(nil)
-            }
+            isAuthenticated = false
+            authenticationNotice = "You have been signed out. Please sign in again."
+            setAuthenticatedUserSub(nil)
         }
     }
 
@@ -329,9 +326,7 @@ final class AppState: ObservableObject {
 
         do {
             let status = try await apiClient.fetchMoodStatus()
-            await MainActor.run {
-                currentMoodStatus = status
-            }
+            currentMoodStatus = status
         } catch {
             #if DEBUG
             print("[AppState] Failed to load mood status: \(error)")
@@ -345,11 +340,9 @@ final class AppState: ObservableObject {
         }
 
         let response = try await apiClient.submitMoodCheckIn(request)
-        await MainActor.run {
-            latestMoodResponse = response
-            Task {
-                await loadMoodStatus()
-            }
+        latestMoodResponse = response
+        Task {
+            await loadMoodStatus()
         }
         return response
     }
