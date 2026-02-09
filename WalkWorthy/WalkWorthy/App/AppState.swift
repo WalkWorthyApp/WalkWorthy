@@ -28,7 +28,7 @@ final class AppState: ObservableObject {
     @Published var currentMoodStatus: MoodStatusResponse?
     @Published var latestMoodResponse: MoodCheckInResponse?
 
-    private(set) var apiClient: any EncouragementAPI
+    private let apiClient: any EncouragementAPI
     private let notificationScheduler: NotificationScheduler
     private let defaults: UserDefaults
     private let config: Config
