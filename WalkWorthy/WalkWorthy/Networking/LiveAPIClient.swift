@@ -2,7 +2,7 @@
 //  LiveAPIClient.swift
 //  WalkWorthy
 //
-//  Production API client backed by the deployed AWS stack.
+//  Production API client backed by Firebase Cloud Functions.
 //
 
 import Foundation
@@ -29,40 +29,82 @@ final class LiveAPIClient: EncouragementAPI {
 
     // MARK: - EncouragementAPI
 
-    func fetchNext() async throws -> NextResponse {
-        var request = try await makeRequest(path: "encouragement/next", method: "GET")
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-        return try await send(request, decode: NextResponse.self)
-    }
-
-    func triggerScanNow() async throws -> ScanNowResponse {
-        let request = try await makeRequest(path: "scan/now", method: "POST", body: EmptyPayload())
-        return try await send(request, decode: ScanNowResponse.self)
-    }
-
     func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws {
-        let request = try await makeRequest(path: "user/profile", method: "POST", body: payload)
+        let request = try await makeRequest(path: "userProfile", method: "PATCH", body: payload)
         try await sendExpectingNoContent(request)
     }
 
-    func fetchCalendarAgenda() async throws -> CalendarAgendaResponse {
-        let request = try await makeRequest(path: "user/calendar-agenda", method: "GET")
-        return try await send(request, decode: CalendarAgendaResponse.self)
+    // MARK: - Mood API
+
+    /// Submit a mood check-in with automatic retry for cold start errors.
+    ///
+    /// Firebase Cloud Functions can experience cold start delays on the first request,
+    /// which may result in a 500 error. This method automatically retries once on
+    /// server errors (500) to handle this transient condition.
+    func submitMoodCheckIn(_ moodRequest: MoodCheckInRequest) async throws -> MoodCheckInResponse {
+        #if DEBUG
+        print("[LiveAPIClient] Submitting mood check-in: \(moodRequest.checkInType), \(moodRequest.primaryMood)")
+        #endif
+
+        let maxAttempts = 2
+        var lastError: Error?
+
+        for attempt in 1...maxAttempts {
+            do {
+                let request = try await makeRequest(path: "moodCheckIn", method: "POST", body: moodRequest)
+                #if DEBUG
+                if attempt == 1 {
+                    print("[LiveAPIClient] Full Request URL: \(request.url?.absoluteString ?? "nil")")
+                }
+                #endif
+                let response = try await send(request, decode: MoodCheckInResponse.self)
+                #if DEBUG
+                print("[LiveAPIClient] Mood check-in success (attempt \(attempt))")
+                #endif
+                return response
+            } catch let error as APIError {
+                lastError = error
+
+                // Only retry on server errors (500s) which are likely cold start issues
+                if case .server(let statusCode, _) = error, statusCode >= 500 && statusCode < 600 {
+                    if attempt < maxAttempts {
+                        #if DEBUG
+                        print("[LiveAPIClient] Server error \(statusCode), retrying... (attempt \(attempt)/\(maxAttempts))")
+                        #endif
+                        // Brief delay before retry to allow function to warm up
+                        try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+                        continue
+                    }
+                }
+                #if DEBUG
+                print("[LiveAPIClient] Mood check-in failed: \(error)")
+                #endif
+                throw error
+            } catch {
+                lastError = error
+                #if DEBUG
+                print("[LiveAPIClient] Mood check-in failed: \(error)")
+                #endif
+                throw error
+            }
+        }
+
+        // Should not reach here, but throw last error if we do
+        throw lastError ?? APIError.invalidResponse
     }
 
-    func fetchCalendarLinkStatus() async throws -> CalendarLinkStatus {
-        let request = try await makeRequest(path: "user/calendar-link", method: "GET")
-        return try await send(request, decode: CalendarLinkStatus.self)
+    func fetchMoodStatus() async throws -> MoodStatusResponse {
+        let request = try await makeRequest(path: "moodCheckIn", method: "GET")
+        return try await send(request, decode: MoodStatusResponse.self)
     }
 
-    func updateCalendarLink(_ payload: CalendarLinkUpdateRequest) async throws -> CalendarLinkStatus {
-        let request = try await makeRequest(path: "user/calendar-link", method: "PUT", body: payload)
-        return try await send(request, decode: CalendarLinkStatus.self)
-    }
-
-    func deleteCalendarLink() async throws {
-        let request = try await makeRequest(path: "user/calendar-link", method: "DELETE")
-        try await sendExpectingNoContent(request)
+    func fetchMoodHistory(days: Int) async throws -> MoodHistoryResponse {
+        let request = try await makeRequest(
+            path: "moodCheckIn",
+            method: "GET",
+            queryItems: [URLQueryItem(name: "history", value: String(days))]
+        )
+        return try await send(request, decode: MoodHistoryResponse.self)
     }
 
     // MARK: - Internal helpers
@@ -74,7 +116,7 @@ final class LiveAPIClient: EncouragementAPI {
         return request
     }
 
-    private func makeRequest(path: String, method: String) async throws -> URLRequest {
+    private func makeRequest(path: String, method: String, queryItems: [URLQueryItem]? = nil) async throws -> URLRequest {
         var url = baseURL
         if !path.isEmpty {
             let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -83,10 +125,21 @@ final class LiveAPIClient: EncouragementAPI {
             }
         }
 
+        if let queryItems {
+            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                throw APIError.invalidResponse
+            }
+            components.queryItems = queryItems
+            guard let finalURL = components.url else {
+                throw APIError.invalidResponse
+            }
+            url = finalURL
+        }
+
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 20
+        request.timeoutInterval = 60
 
         do {
             let token = try await tokenProvider.validBearerToken()
@@ -101,10 +154,18 @@ final class LiveAPIClient: EncouragementAPI {
     private func send<T: Decodable>(_ request: URLRequest, decode type: T.Type) async throws -> T {
         do {
             let (data, response) = try await urlSession.data(for: request)
+            #if DEBUG
+            if let httpResponse = response as? HTTPURLResponse {
+                print("[LiveAPIClient] HTTP Status: \(httpResponse.statusCode), body: \(data.count) bytes")
+            }
+            #endif
             return try handleResponse(data: data, response: response, decode: type)
         } catch let apiError as APIError {
             throw apiError
         } catch {
+            #if DEBUG
+            print("[LiveAPIClient] Network error: \(error)")
+            #endif
             throw APIError.network(error)
         }
     }
@@ -120,8 +181,8 @@ final class LiveAPIClient: EncouragementAPI {
 
         switch http.statusCode {
         case 200...299:
-            if T.self == EmptyPayload.self {
-                return EmptyPayload() as! T
+            if T.self == EmptyPayload.self, let empty = EmptyPayload() as? T {
+                return empty
             }
             guard !data.isEmpty else {
                 throw APIError.invalidResponse

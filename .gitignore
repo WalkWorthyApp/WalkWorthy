@@ -27,3 +27,16 @@ infrastructure/cdk-env.sh
 
 # Claude
 .claude/*
+
+# Xcode auto-generated asset metadata
+**/Assets.xcassets/**/Contents.json
+
+# Firebase & Secrets
+users.json
+WalkWorthy/WalkWorthy/GoogleService-Info.plist
+firebase-debug.log
+FIREBASE_AUTH_MIGRATION.md
+WalkWorthy/FIREBASE_SDK_SETUP.md
+claude.md
+tasks/todo.md
+tasks/security-fixes-summary.md

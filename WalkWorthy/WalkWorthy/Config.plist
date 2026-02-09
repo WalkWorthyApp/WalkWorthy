@@ -5,21 +5,7 @@
 	<key>API_MODE</key>
 	<string>live</string>
 	<key>API_BASE_URL</key>
-	<string>https://8v2zv70fej.execute-api.us-east-1.amazonaws.com</string>
-	<key>COGNITO_DOMAIN</key>
-	<string>https://us-east-1f3oxbodre.auth.us-east-1.amazoncognito.com</string>
-	<key>COGNITO_CLIENT_ID</key>
-	<string>5tv5emqco09g816iscn4ki072q</string>
-	<key>COGNITO_REDIRECT_URI</key>
-	<string>walkworthy://auth/callback</string>
-	<key>CANVAS_BASE_URL</key>
-	<string>https://uk.instructure.com</string>
-	<key>CANVAS_CLIENT_ID</key>
-	<string>manual</string>
-	<key>CANVAS_REDIRECT_URI</key>
-	<string>walkworthy://oauth/canvas</string>
-	<key>USE_FAKE_CANVAS</key>
-	<false/>
+	<string>https://us-central1-walkworthy-app.cloudfunctions.net/</string>
 	<key>NOTIFICATION_MODE</key>
 	<string>local</string>
 	<key>DEFAULT_TRANSLATION</key>

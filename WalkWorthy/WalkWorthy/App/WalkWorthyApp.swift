@@ -9,38 +9,36 @@
 import SwiftUI
 import UIKit
 import UserNotifications
-import BackgroundTasks
+import FirebaseCore
 
 @main
 struct WalkWorthyApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var appState: AppState
-    private let authSession: AuthSession?
+    private let authSession: FirebaseAuthSession
     private let config: Config
 
     init() {
-        let resolvedConfig = Config.shared
-        #if DEBUG
-        print("Cognito domain:", Config.shared.cognitoDomain as Any)
-        print("Cognito client ID:", Config.shared.cognitoClientId as Any)
-        print("Cognito redirect URI:", Config.shared.cognitoRedirectURI as Any)
-        print("BGTask identifiers:", Bundle.main.object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers") ?? "missing")
-        #endif
-
-        guard let session = AuthSession(config: resolvedConfig) else {
-            fatalError("Cognito configuration is missing")
+        // Initialize Firebase synchronously before creating FirebaseAuthSession
+        // This ensures Firebase is configured before any Firebase APIs are accessed
+        if FirebaseApp.app() == nil {
+            FirebaseApp.configure()
         }
 
-        guard let liveClient = LiveAPIClient(config: resolvedConfig, tokenProvider: session) else {
+        let resolvedConfig = Config.shared
+
+        #if DEBUG
+        print("API Base URL:", resolvedConfig.apiBaseURL as Any)
+        #endif
+
+        let authSession = FirebaseAuthSession()
+        guard let liveClient = LiveAPIClient(config: resolvedConfig, tokenProvider: authSession) else {
             fatalError("API_BASE_URL is not configured")
         }
 
+        self.authSession = authSession
         self.config = resolvedConfig
-        self.authSession = session
-        _appState = StateObject(wrappedValue: AppState(config: resolvedConfig, apiClient: liveClient, authSession: session))
-
-        BackgroundTasksManager.shared.configure(apiClient: liveClient)
-        BackgroundTasksManager.shared.register()
+        _appState = StateObject(wrappedValue: AppState(config: resolvedConfig, apiClient: liveClient, authSession: authSession))
     }
 
     var body: some Scene {
@@ -50,11 +48,6 @@ struct WalkWorthyApp: App {
                 .task {
                     await NotificationScheduler.shared.requestAuthorizationIfNeeded()
                     await appState.evaluateAuthentication()
-                    if appState.isAuthenticated {
-                        await appState.refreshCalendarLinkStatus(force: false)
-                        BackgroundTasksManager.shared.scheduleNextRefresh()
-                    }
-                    appState.refreshEncouragementDeck()
                 }
         }
     }
@@ -65,11 +58,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
+        // Firebase is already configured in WalkWorthyApp.init
+        // This guard is a safety net in case init hasn't run yet (though it should have)
+        if FirebaseApp.app() == nil {
+            FirebaseApp.configure()
+        }
         UNUserNotificationCenter.current().delegate = NotificationScheduler.shared
         return true
-    }
-
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        BackgroundTasksManager.shared.scheduleNextRefresh()
     }
 }

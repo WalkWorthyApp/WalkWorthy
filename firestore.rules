@@ -87,8 +87,10 @@ service cloud.firestore {
         && request.resource.data.deviceId is string
         && request.resource.data.platform in ['ios', 'android']
         && request.resource.data.notificationTokenHash is string
-        && request.resource.data.registeredAt is timestamp
-        && request.resource.data.lastActiveAt is timestamp
+        && request.resource.data.registeredAt is string  // ISO 8601 timestamp string
+        && request.resource.data.registeredAt.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{3})?Z$')
+        && request.resource.data.lastActiveAt is string  // ISO 8601 timestamp string
+        && request.resource.data.lastActiveAt.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{3})?Z$')
         && request.resource.data.notificationsEnabled is bool
         && request.resource.data.notificationTokenHash.matches('^[a-f0-9]{64}$');
 
@@ -116,7 +118,8 @@ service cloud.firestore {
         && request.resource.data.registeredAt == resource.data.registeredAt
 
         // TYPE VALIDATION for required fields (must be present AND correct type)
-        && request.resource.data.lastActiveAt is timestamp
+        && request.resource.data.lastActiveAt is string  // ISO 8601 timestamp string
+        && request.resource.data.lastActiveAt.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{3})?Z$')
         && request.resource.data.notificationsEnabled is bool
         && request.resource.data.notificationTokenHash is string
 
@@ -124,7 +127,8 @@ service cloud.firestore {
         && (!(request.resource.data.keys().hasAny(['appVersion']))
             || request.resource.data.appVersion is string)
         && (!(request.resource.data.keys().hasAny(['tokenUpdatedAt']))
-            || request.resource.data.tokenUpdatedAt is timestamp)
+            || (request.resource.data.tokenUpdatedAt is string
+                && request.resource.data.tokenUpdatedAt.matches('^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{3})?Z$')))
 
         // FORMAT VALIDATION: notificationTokenHash must be 64 hex chars
         && request.resource.data.notificationTokenHash.matches('^[a-f0-9]{64}$')
@@ -149,8 +153,15 @@ service cloud.firestore {
       allow write: if false; // Only Cloud Functions can write
     }
 
-    // Calendar data - users can read their own calendar data
-    match /users/{userId}/calendar/{document=**} {
+    // Mood Check-ins - users can read their own mood data
+    // Cloud Functions create these via Admin SDK when user submits a check-in
+    match /users/{userId}/moodCheckIns/{checkInId} {
+      allow read: if isOwner(userId);
+      allow write: if false; // Only Cloud Functions can write
+    }
+
+    // Daily Mood Summaries - aggregated mood data per day
+    match /users/{userId}/moodSummaries/{date} {
       allow read: if isOwner(userId);
       allow write: if false; // Only Cloud Functions can write
     }

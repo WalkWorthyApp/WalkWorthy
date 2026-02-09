@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme
-   LastUpgradeVersion = "2600"
+   LastUpgradeVersion = "2620"
    version = "1.7">
    <BuildAction
       parallelizeBuildables = "YES"
@@ -53,42 +53,7 @@
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "API_BASE_URL"
-            value = "https://8v2zv70fej.execute-api.us-east-1.amazonaws.com"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "COGNITO_DOMAIN"
-            value = "https://us-east-1f3oxbodre.auth.us-east-1.amazoncognito.com"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "COGNITO_CLIENT_ID"
-            value = "5tv5emqco09g816iscn4ki072q"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "COGNITO_REDIRECT_URI"
-            value = "walkworthy://auth/callback"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "CANVAS_BASE_URL"
-            value = "https://uk.instructure.com/"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "CANVAS_REDIRECT_URI"
-            value = "walkworthy://oauth/canvas"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "CANVAS_CLIENT_ID"
-            value = "manual"
-            isEnabled = "YES">
-         </EnvironmentVariable>
-         <EnvironmentVariable
-            key = "USE_FAKE_CANVAS"
-            value = "false"
+            value = "https://us-central1-walkworthy-app.cloudfunctions.net/"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>

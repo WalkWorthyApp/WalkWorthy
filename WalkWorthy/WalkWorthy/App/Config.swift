@@ -13,12 +13,6 @@ struct Config {
     let notificationMode: String
     let defaultTranslation: Translation
     let apiBaseURL: URL?
-    let cognitoDomain: URL?
-    let cognitoClientId: String?
-    let cognitoRedirectURI: URL?
-    let canvasRedirectURI: URL?
-    let canvasBaseURL: URL?
-    let canvasClientId: String?
 
     init(bundle: Bundle = .main) {
         var merged: [String: Any] = bundle.infoDictionary ?? [:]
@@ -36,12 +30,6 @@ struct Config {
         }
 
         override("API_BASE_URL")
-        override("COGNITO_DOMAIN")
-        override("COGNITO_CLIENT_ID")
-        override("COGNITO_REDIRECT_URI")
-        override("CANVAS_BASE_URL")
-        override("CANVAS_CLIENT_ID")
-        override("CANVAS_REDIRECT_URI")
         override("DEFAULT_TRANSLATION") { $0.uppercased() }
         override("NOTIFICATION_MODE")
 
@@ -49,18 +37,6 @@ struct Config {
         let translationKey = (merged["DEFAULT_TRANSLATION"] as? String)?.uppercased() ?? Translation.esv.rawValue
         defaultTranslation = Translation(rawValue: translationKey) ?? .esv
         apiBaseURL = Self.secureBaseURL(from: merged["API_BASE_URL"], allowLocalhostHTTP: true)
-        cognitoDomain = Self.secureBaseURL(from: merged["COGNITO_DOMAIN"])
-        cognitoClientId = (merged["COGNITO_CLIENT_ID"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        cognitoRedirectURI = (merged["COGNITO_REDIRECT_URI"] as? String)
-            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .flatMap(URL.init(string:))
-        canvasRedirectURI = (merged["CANVAS_REDIRECT_URI"] as? String)
-            .flatMap { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .flatMap(URL.init(string:))
-        canvasBaseURL = Self.secureBaseURL(from: merged["CANVAS_BASE_URL"])
-        canvasClientId = (merged["CANVAS_CLIENT_ID"] as? String)?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // Enforces HTTPS for remote endpoints; optionally allows localhost HTTP for development.

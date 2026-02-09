@@ -11,80 +11,93 @@ struct TitleScreenView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
 
-    @State private var isSigningIn = false
-    @State private var signInError: String?
+    @State private var showAuthForm = false
+    @State private var authViewModel: AuthenticationViewModel?
 
     var body: some View {
         ZStack {
             backgroundGradient
                 .ignoresSafeArea()
 
-            VStack(spacing: 32) {
-                Spacer()
+            ScrollView {
+                VStack(spacing: 32) {
+                    VStack(spacing: 32) {
+                        Spacer()
 
-                logoImage
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: 180)
-                    .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 10)
+                        logoImage
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 180)
+                            .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 10)
 
-                VStack(spacing: 16) {
-                    Text("For when life seems like rough waters, WalkWorthy knowing God is with you through the storm.")
-                        .font(.title2.bold())
-                        .multilineTextAlignment(.center)
-                        .foregroundStyle(.primary)
-                        .padding(.horizontal, 24)
+                        VStack(spacing: 16) {
+                            Text("For when life seems like rough waters, WalkWorthy knowing God is with you through the storm.")
+                                .font(.title2.bold())
+                                .multilineTextAlignment(.center)
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 24)
 
-                    Text("Tap continue to sign in with your WalkWorthy account.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                    
-                    if let notice = appState.authenticationNotice {
-                        Text(notice)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Color.red)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 24)
-                    }
-                }
+                            if !showAuthForm {
+                                Text("Tap continue to sign in with your WalkWorthy account.")
+                                    .font(.callout)
+                                    .foregroundStyle(.secondary)
+                            }
 
-                Button(action: startSignIn) {
-                    HStack {
-                        if isSigningIn {
-                            ProgressView()
-                                .tint(.white)
-                        } else {
-                            Text("Continue →")
-                                .font(.headline)
+                            if let notice = appState.authenticationNotice {
+                                Text(notice)
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(Color.red)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 24)
+                            }
                         }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(
-                        LinearGradient(
-                            colors: [Color.accentColor.opacity(0.85), Color.accentColor],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    )
-                    .foregroundStyle(Color.white)
-                }
-                .buttonStyle(.plain)
-                .disabled(isSigningIn)
-                .padding(.horizontal, 24)
 
-                Spacer()
+                        // Continue button (visible when form is hidden)
+                        if !showAuthForm {
+                            Button(action: startSignIn) {
+                                HStack {
+                                    Text("Continue →")
+                                        .font(.headline)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(
+                                    LinearGradient(
+                                        colors: [Color.accentColor.opacity(0.85), Color.accentColor],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    ),
+                                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                )
+                                .foregroundStyle(Color.white)
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 24)
+                            .transition(.opacity)
+                        }
+
+                        Spacer()
+                    }
+
+                    // Sign-in form (appears when Continue is tapped)
+                    if showAuthForm, let viewModel = authViewModel {
+                        VStack(spacing: 0) {
+                            Divider()
+                                .padding(.bottom, 16)
+
+                            SignInFormView(viewModel: viewModel)
+                        }
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    }
+                }
+                .padding(.vertical, 48)
             }
-            .padding(.vertical, 48)
         }
-        .alert("Sign-in failed", isPresented: Binding(
-            get: { signInError != nil },
-            set: { newValue in if !newValue { signInError = nil } }
-        )) {
-            Button("OK", role: .cancel) { signInError = nil }
-        } message: {
-            Text(signInError ?? "")
+        .onAppear {
+            // Initialize view model lazily when the view appears
+            if authViewModel == nil {
+                authViewModel = AuthenticationViewModel(appState: appState)
+            }
         }
     }
 
@@ -104,18 +117,8 @@ struct TitleScreenView: View {
     }
 
     private func startSignIn() {
-        guard !isSigningIn else { return }
-        isSigningIn = true
-
-        Task {
-            do {
-                try await appState.startSignIn(anchor: nil)
-            } catch {
-                signInError = error.localizedDescription
-            }
-            await MainActor.run {
-                isSigningIn = false
-            }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            showAuthForm = true
         }
     }
 }

@@ -1,19 +1,29 @@
 import { getFirestore } from 'firebase-admin/firestore';
-import type { AgeRange, Gender } from './types';
+import type { AgeRange, Gender, CheckInTimes, Translation } from './types';
 
 export interface UserProfile {
   /** SENSITIVE: Stored PII - use redactSensitiveFields() when logging */
   ageRange?: AgeRange;
 
-  /** Optional major/field of study */
+  /** SENSITIVE: Optional major/field of study (for students). Can identify users when combined with other profile data. */
   major?: string;
+
+  /** SENSITIVE: Optional occupation/job title (for non-students). Can identify users when combined with other profile data. */
+  occupation?: string;
 
   /** SENSITIVE: Stored PII - use redactSensitiveFields() when logging */
   gender?: Gender;
 
   hobbies?: string[];
   optInTailored?: boolean;
-  translationPreference?: 'ESV' | 'KJV' | 'NIV' | 'NKJV' | 'NASB' | 'CSB' | 'NLT';
+  translationPreference?: Translation;
+
+  /** User's preferred check-in notification times */
+  checkInTimes?: CheckInTimes;
+
+  /** User's timezone for scheduling notifications (e.g., "America/New_York") */
+  timezone?: string;
+
   updatedAt?: string;
 }
 
@@ -101,7 +111,7 @@ export function clearUserProfileCache(sub?: string) {
 /**
  * Start a periodic cleanup timer for long-lived environments (e.g., local dev, always-on servers).
  * Call this once at startup to enable background cache cleanup every 5 minutes.
- * Not needed for serverless (Lambda) since invocations are short-lived.
+ * Not needed for serverless (Cloud Functions) since invocations are short-lived.
  */
 export function startCleanupTimer(intervalMs: number = 5 * 60 * 1000): void {
   if (cleanupTimerId) return; // Already running

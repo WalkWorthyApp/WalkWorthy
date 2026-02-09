@@ -36,7 +36,9 @@ final class NotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
             }
         } catch {
             defaults.set(false, forKey: authorizationKey)
+            #if DEBUG
             print("[NotificationScheduler] Authorization error: \(error)")
+            #endif
         }
     }
 
@@ -58,33 +60,9 @@ final class NotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
             do {
                 try await center.add(request)
             } catch {
+                #if DEBUG
                 print("[NotificationScheduler] Failed to schedule test notification: \(error)")
-            }
-        }
-    }
-
-    func scheduleEncouragementNotification(_ payload: EncouragementPayload?) {
-        Task {
-            guard await isAuthorized else { return }
-            let content = UNMutableNotificationContent()
-            content.title = "Stay encouraged"
-            content.body = payload?.encouragement ?? "Tap to see today’s encouragement."
-            content.sound = .default
-            if let payload {
-                content.userInfo = [
-                    "id": payload.id,
-                    "ref": payload.ref,
-                    "translation": payload.translation ?? Translation.esv.rawValue
-                ]
-            }
-
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 5, repeats: false)
-            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
-
-            do {
-                try await center.add(request)
-            } catch {
-                print("[NotificationScheduler] Failed to schedule encouragement notification: \(error)")
+                #endif
             }
         }
     }
