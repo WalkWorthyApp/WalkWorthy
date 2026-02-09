@@ -408,7 +408,7 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
     const historyDays = req.query.history ? parseInt(req.query.history as string, 10) : undefined;
 
     if (historyDays && historyDays > 0) {
-      return handleGetHistory(userId, Math.min(historyDays, 30), db, timezone, res);
+      return handleGetHistory(userId, Math.min(historyDays, 31), db, timezone, res);
     }
     const todayDate = getTodayDateString(timezone);
 
