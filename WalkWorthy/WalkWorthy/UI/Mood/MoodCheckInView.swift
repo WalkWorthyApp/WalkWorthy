@@ -135,6 +135,7 @@ struct MoodCheckInView: View {
                             selectedFollowUp = option
                         }
                     )
+                    .disabled(isSubmitting)
                 }
             }
 
@@ -169,6 +170,7 @@ struct MoodCheckInView: View {
                 Text("Back")
                     .foregroundColor(.secondary)
             }
+            .disabled(isSubmitting)
         }
         .transition(.asymmetric(
             insertion: .move(edge: .trailing).combined(with: .opacity),

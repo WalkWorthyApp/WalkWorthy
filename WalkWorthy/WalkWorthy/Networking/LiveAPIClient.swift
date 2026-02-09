@@ -46,10 +46,10 @@ final class LiveAPIClient: EncouragementAPI {
         print("[LiveAPIClient] Submitting mood check-in: \(moodRequest.checkInType), \(moodRequest.primaryMood)")
         #endif
 
-        let maxRetries = 2
+        let maxAttempts = 2
         var lastError: Error?
 
-        for attempt in 1...maxRetries {
+        for attempt in 1...maxAttempts {
             do {
                 let request = try await makeRequest(path: "moodCheckIn", method: "POST", body: moodRequest)
                 #if DEBUG
@@ -67,9 +67,9 @@ final class LiveAPIClient: EncouragementAPI {
 
                 // Only retry on server errors (500s) which are likely cold start issues
                 if case .server(let statusCode, _) = error, statusCode >= 500 && statusCode < 600 {
-                    if attempt < maxRetries {
+                    if attempt < maxAttempts {
                         #if DEBUG
-                        print("[LiveAPIClient] Server error \(statusCode), retrying... (attempt \(attempt)/\(maxRetries))")
+                        print("[LiveAPIClient] Server error \(statusCode), retrying... (attempt \(attempt)/\(maxAttempts))")
                         #endif
                         // Brief delay before retry to allow function to warm up
                         try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds

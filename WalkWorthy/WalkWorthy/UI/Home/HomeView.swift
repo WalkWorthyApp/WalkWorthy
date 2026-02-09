@@ -242,7 +242,7 @@ struct HomeView: View {
             // Allow updating a previously completed check-in
             activeCheckInType = type
         }
-        .opacity(completed ? 0.7 : 1.0)
+        .opacity(completed ? 1.0 : 0.7)
     }
 
     private func latestEncouragementCard(_ response: MoodCheckInResponse) -> some View {
