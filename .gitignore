@@ -32,8 +32,8 @@ infrastructure/cdk-env.sh
 **/Assets.xcassets/**/Contents.json
 
 # Firebase & Secrets
+GoogleService-Info.plist
 users.json
-WalkWorthy/WalkWorthy/GoogleService-Info.plist
 firebase-debug.log
 FIREBASE_AUTH_MIGRATION.md
 WalkWorthy/FIREBASE_SDK_SETUP.md
