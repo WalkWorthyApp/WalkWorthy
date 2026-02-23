@@ -20,9 +20,6 @@ DerivedData/
 .build/
 .npm/
 
-# CDK local env/script
-infrastructure/cdk-env.sh
-
 /prompts/
 
 # Claude
