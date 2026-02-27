@@ -80,7 +80,7 @@ const encouragementJsonSchema = {
 // removeAdditional: false to prevent silent mutation of invalid responses
 const ajv = new Ajv({ allErrors: true, removeAdditional: false });
 const validateEncouragement = ajv.compile<AIEncouragementResponse>(
-  encouragementJsonSchema
+  encouragementJsonSchema,
 );
 
 // ============================================================================
@@ -215,7 +215,7 @@ function sanitize(text: string, max = 400): string {
 }
 
 function sanitizeProfile(
-  profile: UserProfilePayload | null | undefined
+  profile: UserProfilePayload | null | undefined,
 ): UserProfilePayload | null {
   if (!profile) return null;
 
@@ -271,7 +271,7 @@ function normalizeTranslation(value: Translation | string): Translation {
  */
 function ensureAgent(
   model: string,
-  apiKey: string
+  apiKey: string,
 ): Agent<object, typeof encouragementOutputSchema> {
   // Use first 8 characters of apiKey for cache key stability
   const apiKeyPrefix = apiKey.slice(0, 8);
@@ -315,7 +315,7 @@ const MAX_RETRIES = 2;
 export async function runMoodAgent(
   input: MoodAgentInput,
   apiKey: string,
-  model = process.env.OPENAI_MODEL || "gpt-4o-mini"
+  model = "gpt-5-nano",
 ): Promise<AIEncouragementResponse> {
   logger.info("[MoodAgent] Starting with model:", model);
 
@@ -341,19 +341,24 @@ export async function runMoodAgent(
       logger.info("[MoodAgent] Calling OpenAI agent...");
       const result = await run(agent, serializedInput);
       logger.info("[MoodAgent] Agent returned response");
-      return parseEncouragement(result.finalOutput, payload.translationPreference);
+      return parseEncouragement(
+        result.finalOutput,
+        payload.translationPreference,
+      );
     } catch (err) {
       lastError = err;
       logger.error(`[MoodAgent] Attempt ${attempt + 1} failed:`, err);
     }
   }
 
-  throw lastError instanceof Error ? lastError : new Error("Agent failed after retries");
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("Agent failed after retries");
 }
 
 function parseEncouragement(
   candidate: unknown,
-  fallbackTranslation: Translation
+  fallbackTranslation: Translation,
 ): AIEncouragementResponse {
   let data: Record<string, unknown>;
   if (typeof candidate === "string") {
@@ -374,7 +379,7 @@ function parseEncouragement(
       ? validateEncouragement.errors
           .map(
             (err) =>
-              `${err.instancePath || "root"}: ${err.message} (${err.keyword})`
+              `${err.instancePath || "root"}: ${err.message} (${err.keyword})`,
           )
           .join("; ")
       : "unknown validation error";
@@ -382,7 +387,9 @@ function parseEncouragement(
     logger.error("[MoodAgent] Validation errors:", validationErrors);
     logger.error("[MoodAgent] Failed data:", JSON.stringify(data));
 
-    throw new Error(`Agent output failed schema validation: ${validationErrors}`);
+    throw new Error(
+      `Agent output failed schema validation: ${validationErrors}`,
+    );
   }
 
   return {
@@ -390,7 +397,7 @@ function parseEncouragement(
     verseRef: data.verseRef as string,
     verseText: data.verseText as string,
     translation: normalizeTranslation(
-      (data.translation as string) || fallbackTranslation
+      (data.translation as string) || fallbackTranslation,
     ),
   };
 }
