@@ -297,7 +297,7 @@ function ensureAgent(
     instructions: MOOD_SYSTEM_PROMPT,
     model,
     modelSettings: {
-      temperature: 0.4, // Slightly higher for more natural, varied responses
+      temperature: 0.4,
       topP: 1,
     },
     outputType: encouragementOutputSchema,
@@ -315,7 +315,7 @@ const MAX_RETRIES = 2;
 export async function runMoodAgent(
   input: MoodAgentInput,
   apiKey: string,
-  model = "gpt-5-nano",
+  model = "gpt-4o-mini",
 ): Promise<AIEncouragementResponse> {
   logger.info("[MoodAgent] Starting with model:", model);
 

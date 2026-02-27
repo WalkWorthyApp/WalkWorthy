@@ -193,7 +193,7 @@ const MAX_RETRIES = 2;
 export async function runVerseSelectionAgent(
   input: AgentRunInput,
   apiKey: string,
-  model = "gpt-5-nano",
+  model = "gpt-4o-mini",
 ): Promise<VerseSelectionResult> {
   // Validate API key upfront; fail fast if missing
   const validatedApiKey = validateApiKey(apiKey);
