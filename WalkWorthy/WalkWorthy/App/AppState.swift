@@ -23,6 +23,7 @@ final class AppState: ObservableObject {
         }
     }
     @Published var authenticationNotice: String?
+    @Published var isCheckingAuth: Bool = true
 
     // MARK: - Mood Tracking State
     @Published var currentMoodStatus: MoodStatusResponse?
@@ -67,13 +68,6 @@ final class AppState: ObservableObject {
         self.onboardingCompleted = false
 
         reloadUserScopedPreferences()
-
-        if !onboardingCompleted {
-            isAuthenticated = false
-            Task {
-                try? await authSession.signOut()
-            }
-        }
     }
 
     func markOnboardingComplete() {
@@ -133,16 +127,20 @@ final class AppState: ObservableObject {
         notificationScheduler.scheduleTestNotification()
     }
 
-    func evaluateAuthentication() async {
-        do {
-            _ = try await authSession.validBearerToken()
-            isAuthenticated = true
-            authenticationNotice = nil
-            await refreshAuthenticatedUser()
-        } catch {
-            isAuthenticated = false
-            authenticationNotice = "Your session has expired. Please sign in again."
-            setAuthenticatedUserSub(nil)
+    func startObservingAuthState() async {
+        await authSession.observeAuthState { [weak self] isSignedIn in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if isSignedIn {
+                    self.isAuthenticated = true
+                    self.authenticationNotice = nil
+                    await self.refreshAuthenticatedUser()
+                } else {
+                    self.isAuthenticated = false
+                    self.setAuthenticatedUserSub(nil)
+                }
+                self.isCheckingAuth = false
+            }
         }
     }
 
