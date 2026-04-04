@@ -500,7 +500,25 @@ struct MoodHistoryView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding()
+            } else if summaries.isEmpty && periodOffset == 0 {
+                // Current period with no data — show onboarding guidance
+                VStack(spacing: 16) {
+                    Image(systemName: "heart.text.square")
+                        .font(.system(size: 48))
+                        .foregroundColor(.secondary)
+
+                    Text("No check-ins yet")
+                        .font(.headline)
+
+                    Text("Start tracking your mood to see your history here.")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 40)
             } else {
+                // Show all days in the period; empty days get a placeholder card
                 ForEach(daysToDisplay.reversed(), id: \.self) { dateString in
                     if let summary = summaries.first(where: { $0.date == dateString }) {
                         DailySummaryCard(
@@ -591,19 +609,22 @@ struct EmptyDayCard: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(formattedDate)
                     .font(.headline)
+                    .foregroundColor(.secondary)
                 Text("No check-ins")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.tertiary)
             }
             Spacer()
+            Text("—")
+                .font(.caption)
+                .foregroundColor(.tertiary)
         }
         .padding()
         .background(
             RoundedRectangle(cornerRadius: 16)
                 .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.05), radius: 5, y: 2)
+                .shadow(color: .black.opacity(0.02), radius: 3, y: 1)
         )
-        .opacity(0.5)
     }
 }
 
