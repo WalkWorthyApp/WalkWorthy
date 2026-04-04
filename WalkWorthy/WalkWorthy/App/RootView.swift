@@ -12,7 +12,10 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if appState.requiresAuthenticationGate {
+            if appState.isCheckingAuth {
+                Color(.systemBackground)
+                    .ignoresSafeArea()
+            } else if appState.requiresAuthenticationGate {
                 TitleScreenView()
                     .transition(.opacity)
             } else if appState.onboardingCompleted {
@@ -23,6 +26,7 @@ struct RootView: View {
                     .transition(.asymmetric(insertion: .move(edge: .leading), removal: .opacity))
             }
         }
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.isCheckingAuth)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.onboardingCompleted)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.requiresAuthenticationGate)
     }
