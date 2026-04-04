@@ -136,10 +136,8 @@ struct MoodHistoryView: View {
                     )
                 }
 
-                // Week overview
-                if !summaries.isEmpty {
-                    weekOverview
-                }
+                // Week overview - always show so empty periods still display the calendar
+                weekOverview
 
                 // Daily entries
                 dailyEntries
@@ -502,45 +500,30 @@ struct MoodHistoryView: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding()
-            } else if summaries.isEmpty {
-                emptyState
             } else {
-                ForEach(summaries) { summary in
-                    DailySummaryCard(
-                        summary: summary,
-                        isExpanded: expandedDate == summary.date,
-                        onTap: {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                if expandedDate == summary.date {
-                                    expandedDate = nil
-                                } else {
-                                    expandedDate = summary.date
+                ForEach(daysToDisplay.reversed(), id: \.self) { dateString in
+                    if let summary = summaries.first(where: { $0.date == dateString }) {
+                        DailySummaryCard(
+                            summary: summary,
+                            isExpanded: expandedDate == summary.date,
+                            onTap: {
+                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                    if expandedDate == summary.date {
+                                        expandedDate = nil
+                                    } else {
+                                        expandedDate = summary.date
+                                    }
                                 }
                             }
-                        }
-                    )
+                        )
+                    } else {
+                        EmptyDayCard(dateString: dateString)
+                    }
                 }
             }
         }
     }
 
-    private var emptyState: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "heart.text.square")
-                .font(.system(size: 48))
-                .foregroundColor(.secondary)
-
-            Text("No check-ins yet")
-                .font(.headline)
-
-            Text("Start tracking your mood to see your history here.")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
-    }
 
     private func loadHistory() {
         isLoading = true
@@ -592,6 +575,35 @@ struct MoodHistoryView: View {
                 isLoading = false
             }
         }
+    }
+}
+
+struct EmptyDayCard: View {
+    let dateString: String
+
+    private var formattedDate: String {
+        guard let date = isoDateFormatter.date(from: dateString) else { return dateString }
+        return displayDateFormatter.string(from: date)
+    }
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(formattedDate)
+                    .font(.headline)
+                Text("No check-ins")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Spacer()
+        }
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.05), radius: 5, y: 2)
+        )
+        .opacity(0.5)
     }
 }
 
