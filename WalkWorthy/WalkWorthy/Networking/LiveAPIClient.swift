@@ -98,11 +98,20 @@ final class LiveAPIClient: EncouragementAPI {
         return try await send(request, decode: MoodStatusResponse.self)
     }
 
-    func fetchMoodHistory(days: Int) async throws -> MoodHistoryResponse {
+    func fetchMoodHistory(days: Int, startDate: String?, endDate: String?) async throws -> MoodHistoryResponse {
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "history", value: String(days))
+        ]
+        if let startDate {
+            queryItems.append(URLQueryItem(name: "startDate", value: startDate))
+        }
+        if let endDate {
+            queryItems.append(URLQueryItem(name: "endDate", value: endDate))
+        }
         let request = try await makeRequest(
             path: "moodCheckIn",
             method: "GET",
-            queryItems: [URLQueryItem(name: "history", value: String(days))]
+            queryItems: queryItems
         )
         return try await send(request, decode: MoodHistoryResponse.self)
     }

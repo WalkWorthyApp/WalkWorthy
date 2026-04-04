@@ -21,6 +21,7 @@ DerivedData/
 .npm/
 
 /prompts/
+/docs/
 
 # Claude
 .claude/*
@@ -37,3 +38,4 @@ WalkWorthy/FIREBASE_SDK_SETUP.md
 claude.md
 tasks/todo.md
 tasks/security-fixes-summary.md
+claude 2.md

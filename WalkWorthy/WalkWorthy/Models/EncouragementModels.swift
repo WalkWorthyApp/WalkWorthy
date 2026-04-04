@@ -13,7 +13,7 @@ protocol EncouragementAPI {
     // Mood tracking methods
     func submitMoodCheckIn(_ request: MoodCheckInRequest) async throws -> MoodCheckInResponse
     func fetchMoodStatus() async throws -> MoodStatusResponse
-    func fetchMoodHistory(days: Int) async throws -> MoodHistoryResponse
+    func fetchMoodHistory(days: Int, startDate: String?, endDate: String?) async throws -> MoodHistoryResponse
 }
 
 struct RemoteUserProfileRequest: Codable {
