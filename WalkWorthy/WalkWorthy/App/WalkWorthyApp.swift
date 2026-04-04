@@ -47,7 +47,7 @@ struct WalkWorthyApp: App {
                 .environmentObject(appState)
                 .task {
                     await NotificationScheduler.shared.requestAuthorizationIfNeeded()
-                    await appState.evaluateAuthentication()
+                    await appState.startObservingAuthState()
                 }
         }
     }

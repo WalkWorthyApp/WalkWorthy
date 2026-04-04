@@ -23,6 +23,7 @@ final class AppState: ObservableObject {
         }
     }
     @Published var authenticationNotice: String?
+    @Published var isCheckingAuth: Bool = true
 
     // MARK: - Mood Tracking State
     @Published var currentMoodStatus: MoodStatusResponse?
@@ -33,6 +34,7 @@ final class AppState: ObservableObject {
     private let defaults: UserDefaults
     private let config: Config
     private let authSession: FirebaseAuthSession
+    private var isObservingAuth = false
     private static let userScopedKeys: Set<String> = [
         StorageKey.onboardingCompleted,
         StorageKey.useProfilePersonalization,
@@ -67,13 +69,6 @@ final class AppState: ObservableObject {
         self.onboardingCompleted = false
 
         reloadUserScopedPreferences()
-
-        if !onboardingCompleted {
-            isAuthenticated = false
-            Task {
-                try? await authSession.signOut()
-            }
-        }
     }
 
     func markOnboardingComplete() {
@@ -133,16 +128,28 @@ final class AppState: ObservableObject {
         notificationScheduler.scheduleTestNotification()
     }
 
-    func evaluateAuthentication() async {
-        do {
-            _ = try await authSession.validBearerToken()
-            isAuthenticated = true
-            authenticationNotice = nil
-            await refreshAuthenticatedUser()
-        } catch {
-            isAuthenticated = false
-            authenticationNotice = "Your session has expired. Please sign in again."
-            setAuthenticatedUserSub(nil)
+    func startObservingAuthState() async {
+        guard !isObservingAuth else { return }
+        isObservingAuth = true
+        await authSession.observeAuthState { [weak self] isSignedIn in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                if isSignedIn {
+                    self.isAuthenticated = true
+                    self.authenticationNotice = nil
+                    await self.refreshAuthenticatedUser()
+                } else {
+                    self.isAuthenticated = false
+                    self.setAuthenticatedUserSub(nil)
+                }
+                self.isCheckingAuth = false
+            }
+        }
+        // Fallback: unblock UI if Firebase hasn't responded within 5 seconds
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard let self, self.isCheckingAuth else { return }
+            self.isCheckingAuth = false
         }
     }
 
@@ -175,11 +182,10 @@ final class AppState: ObservableObject {
     }
 
     func signOut() {
+        authenticationNotice = "You have been signed out. Please sign in again."
         Task {
             try? await authSession.signOut()
-            isAuthenticated = false
-            authenticationNotice = "You have been signed out. Please sign in again."
-            setAuthenticatedUserSub(nil)
+            // Listener fires and sets isAuthenticated = false, clears userSub
         }
     }
 

@@ -409,6 +409,20 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
     const startDateParam = req.query.startDate as string | undefined;
     const endDateParam = req.query.endDate as string | undefined;
 
+    const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+    if (startDateParam && !ISO_DATE_RE.test(startDateParam)) {
+      res.status(400).json({ error: "Invalid startDate format. Expected YYYY-MM-DD." });
+      return;
+    }
+    if (endDateParam && !ISO_DATE_RE.test(endDateParam)) {
+      res.status(400).json({ error: "Invalid endDate format. Expected YYYY-MM-DD." });
+      return;
+    }
+    if (startDateParam && endDateParam && startDateParam > endDateParam) {
+      res.status(400).json({ error: "startDate must not be after endDate." });
+      return;
+    }
+
     if (historyDays && historyDays > 0) {
       return handleGetHistory(userId, Math.min(historyDays, 31), db, timezone, res, startDateParam, endDateParam);
     }
