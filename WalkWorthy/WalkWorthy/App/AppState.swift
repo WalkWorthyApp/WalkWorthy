@@ -349,10 +349,10 @@ final class AppState: ObservableObject {
         return response
     }
 
-    func loadMoodHistory(days: Int = 7) async throws -> MoodHistoryResponse {
+    func loadMoodHistory(days: Int = 7, startDate: String? = nil, endDate: String? = nil) async throws -> MoodHistoryResponse {
         guard isAuthenticated else { throw MoodError.notAuthenticated }
 
-        return try await apiClient.fetchMoodHistory(days: days)
+        return try await apiClient.fetchMoodHistory(days: days, startDate: startDate, endDate: endDate)
     }
 
     func clearMoodState() {

@@ -406,9 +406,11 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
 
     // Check for history query
     const historyDays = req.query.history ? parseInt(req.query.history as string, 10) : undefined;
+    const startDateParam = req.query.startDate as string | undefined;
+    const endDateParam = req.query.endDate as string | undefined;
 
     if (historyDays && historyDays > 0) {
-      return handleGetHistory(userId, Math.min(historyDays, 31), db, timezone, res);
+      return handleGetHistory(userId, Math.min(historyDays, 31), db, timezone, res, startDateParam, endDateParam);
     }
     const todayDate = getTodayDateString(timezone);
 
@@ -484,19 +486,26 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
 /**
  * Get mood history for past N days
  */
-async function handleGetHistory(userId: string, days: number, db: FirebaseFirestore.Firestore, timezone: string, res: Response): Promise<void> {
+async function handleGetHistory(userId: string, days: number, db: FirebaseFirestore.Firestore, timezone: string, res: Response, startDateOverride?: string, endDateOverride?: string): Promise<void> {
   try {
     // Compute date range in user's timezone to match stored summary keys
     const now = new Date();
     const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-    const startDateString = getDateStringInTimezone(startDate, timezone);
+    const startDateString = startDateOverride ?? getDateStringInTimezone(startDate, timezone);
 
-    const summariesQuery = await db
+    let query = db
       .collection(COLLECTIONS.users)
       .doc(userId)
       .collection('moodSummaries')
       .where('date', '>=', startDateString)
-      .orderBy('date', 'desc')
+      .orderBy('date', 'desc');
+
+    // Add upper bound when navigating to a past window
+    if (endDateOverride) {
+      query = query.where('date', '<=', endDateOverride);
+    }
+
+    const summariesQuery = await query
       .limit(days)
       .get();
 

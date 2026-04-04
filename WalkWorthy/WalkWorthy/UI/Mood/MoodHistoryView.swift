@@ -52,11 +52,55 @@ struct MoodHistoryView: View {
     @State private var isLoading = false
     @State private var expandedDate: String?
     @State private var errorMessage: String?
+    @State private var periodOffset: Int = 0
 
     // Calculate total days in current month for the given date
     private func daysInCurrentMonth(for date: Date) -> Int {
         let calendar = Calendar.current
         return calendar.range(of: .day, in: .month, for: date)?.count ?? 30
+    }
+
+    // Compute the start and end date for the current window
+    private var currentWindow: (startDate: String, endDate: String) {
+        let calendar = Calendar.current
+        let today = Date()
+
+        switch selectedRange {
+        case .days(let count):
+            // endDate = today shifted by (offset * count) days
+            // startDate = endDate minus (count - 1) days
+            let endDate = calendar.date(
+                byAdding: .day,
+                value: periodOffset * count,
+                to: today
+            )!
+            let startDate = calendar.date(
+                byAdding: .day,
+                value: -(count - 1),
+                to: endDate
+            )!
+            return (isoDateFormatter.string(from: startDate),
+                    isoDateFormatter.string(from: endDate))
+
+        case .thisMonth:
+            // Shift by 'offset' whole calendar months
+            let targetMonth = calendar.date(
+                byAdding: .month,
+                value: periodOffset,
+                to: today
+            )!
+            let startOfMonth = calendar.date(
+                from: calendar.dateComponents([.year, .month], from: targetMonth)
+            )!
+            let daysInMonth = calendar.range(of: .day, in: .month, for: targetMonth)!.count
+            let endOfMonth = calendar.date(
+                byAdding: .day,
+                value: daysInMonth - 1,
+                to: startOfMonth
+            )!
+            return (isoDateFormatter.string(from: startOfMonth),
+                    isoDateFormatter.string(from: endOfMonth))
+        }
     }
 
     var body: some View {
@@ -103,6 +147,23 @@ struct MoodHistoryView: View {
         .refreshable {
             await loadHistoryAsync()
         }
+        .gesture(
+            DragGesture(minimumDistance: 40, coordinateSpace: .local)
+                .onEnded { value in
+                    let horizontal = value.translation.width
+                    let vertical = value.translation.height
+                    guard abs(horizontal) > abs(vertical) else { return }  // horizontal swipe only
+                    if horizontal < 0 {
+                        // Swipe left → go back
+                        periodOffset -= 1
+                        loadHistory()
+                    } else if horizontal > 0 && periodOffset < 0 {
+                        // Swipe right → go forward, but not past present
+                        periodOffset += 1
+                        loadHistory()
+                    }
+                }
+        )
     }
 
     private var daysSelector: some View {
@@ -110,6 +171,7 @@ struct MoodHistoryView: View {
             // 7 days button
             Button(action: {
                 selectedRange = .days(7)
+                periodOffset = 0
                 loadHistory()
             }) {
                 Text("7 days")
@@ -127,6 +189,7 @@ struct MoodHistoryView: View {
             // 14 days button
             Button(action: {
                 selectedRange = .days(14)
+                periodOffset = 0
                 loadHistory()
             }) {
                 Text("14 days")
@@ -144,6 +207,7 @@ struct MoodHistoryView: View {
             // This Month button
             Button(action: {
                 selectedRange = .thisMonth
+                periodOffset = 0
                 loadHistory()
             }) {
                 Text("This Month")
@@ -162,9 +226,20 @@ struct MoodHistoryView: View {
 
     private var weekOverview: some View {
         VStack(alignment: .leading, spacing: 20) {
-            // Header with date range
+            // Header with navigation
             HStack {
-                VStack(alignment: .leading, spacing: 4) {
+                // Previous button
+                Button {
+                    periodOffset -= 1
+                    loadHistory()
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.subheadline.weight(.semibold))
+                }
+
+                Spacer()
+
+                VStack(alignment: .center, spacing: 4) {
                     Text(overviewTitle)
                         .font(.title3)
                         .fontWeight(.semibold)
@@ -176,24 +251,35 @@ struct MoodHistoryView: View {
 
                 Spacer()
 
-                // Streak or completion indicator
-                if !summaries.isEmpty {
-                    let completedDays = summaries.filter { $0.completedCount > 0 }.count
-                    HStack(spacing: 4) {
-                        Image(systemName: "flame.fill")
-                            .foregroundColor(.orange)
-                        Text("\(completedDays) days")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        Capsule()
-                            .fill(Color.orange.opacity(0.12))
-                    )
+                // Next button — disabled at offset 0
+                Button {
+                    periodOffset += 1
+                    loadHistory()
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.subheadline.weight(.semibold))
                 }
+                .disabled(periodOffset == 0)
+                .opacity(periodOffset == 0 ? 0.3 : 1)
+            }
+
+            // Streak or completion indicator
+            if !summaries.isEmpty {
+                let completedDays = summaries.filter { $0.completedCount > 0 }.count
+                HStack(spacing: 4) {
+                    Image(systemName: "flame.fill")
+                        .foregroundColor(.orange)
+                    Text("\(completedDays) days")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(
+                    Capsule()
+                        .fill(Color.orange.opacity(0.12))
+                )
             }
 
             // Day indicators - use grid for 14 days/This Month, HStack for 7 days
@@ -227,11 +313,24 @@ struct MoodHistoryView: View {
     }
 
     private var overviewTitle: String {
+        guard periodOffset != 0 else {
+            // Current period labels
+            switch selectedRange {
+            case .days(7): return "This Week"
+            case .days(14): return "Last 2 Weeks"
+            case .thisMonth: return "This Month"
+            default: return "Overview"
+            }
+        }
+        // Past period labels
         switch selectedRange {
-        case .days(7): return "This Week"
-        case .days(14): return "Last 2 Weeks"
-        case .thisMonth: return "This Month"
-        default: return "Overview"
+        case .thisMonth:
+            guard let start = isoDateFormatter.date(from: currentWindow.startDate) else { return "Past Month" }
+            let f = DateFormatter()
+            f.dateFormat = "MMMM yyyy"
+            return f.string(from: start)
+        default:
+            return "Past Period"
         }
     }
 
@@ -247,27 +346,18 @@ struct MoodHistoryView: View {
 
     private var daysToDisplay: [String] {
         let calendar = Calendar.current
+        let window = currentWindow
 
-        switch selectedRange {
-        case .thisMonth:
-            let today = Date()
-            let startOfMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: today))!
+        guard let start = isoDateFormatter.date(from: window.startDate),
+              let end = isoDateFormatter.date(from: window.endDate) else { return [] }
 
-            return (0..<daysInCurrentMonth(for: today)).compactMap { dayOffset in
-                guard let date = calendar.date(byAdding: .day, value: dayOffset, to: startOfMonth) else {
-                    return nil
-                }
-                return isoDateFormatter.string(from: date)
-            }
-
-        case .days(let count):
-            return (0..<count).reversed().compactMap { daysAgo in
-                guard let date = calendar.date(byAdding: .day, value: -daysAgo, to: Date()) else {
-                    return nil
-                }
-                return isoDateFormatter.string(from: date)
-            }
+        var dates: [String] = []
+        var cursor = start
+        while cursor <= end {
+            dates.append(isoDateFormatter.string(from: cursor))
+            cursor = calendar.date(byAdding: .day, value: 1, to: cursor)!
         }
+        return dates
     }
 
     private func dayIndicator(for dateString: String, compact: Bool = false) -> some View {
@@ -464,10 +554,24 @@ struct MoodHistoryView: View {
             case .days(let count):
                 daysToFetch = count
             case .thisMonth:
-                daysToFetch = daysInCurrentMonth(for: Date())
+                let window = currentWindow
+                guard let startDate = isoDateFormatter.date(from: window.startDate) else {
+                    daysToFetch = daysInCurrentMonth(for: Date())
+                    return
+                }
+                daysToFetch = daysInCurrentMonth(for: startDate)
             }
 
-            let response = try await appState.loadMoodHistory(days: daysToFetch)
+            let window = currentWindow
+            // Only pass explicit bounds when navigating away from the current period
+            let startDate: String? = periodOffset == 0 ? nil : window.startDate
+            let endDate: String? = periodOffset == 0 ? nil : window.endDate
+
+            let response = try await appState.loadMoodHistory(
+                days: daysToFetch,
+                startDate: startDate,
+                endDate: endDate
+            )
             await MainActor.run {
                 summaries = response.summaries
                 errorMessage = nil
