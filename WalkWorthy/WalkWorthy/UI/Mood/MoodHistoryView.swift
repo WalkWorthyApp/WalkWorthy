@@ -612,12 +612,12 @@ struct EmptyDayCard: View {
                     .foregroundColor(.secondary)
                 Text("No check-ins")
                     .font(.caption)
-                    .foregroundColor(.tertiary)
+                    .foregroundStyle(.tertiary)
             }
             Spacer()
             Text("—")
                 .font(.caption)
-                .foregroundColor(.tertiary)
+                .foregroundStyle(.tertiary)
         }
         .padding()
         .background(
