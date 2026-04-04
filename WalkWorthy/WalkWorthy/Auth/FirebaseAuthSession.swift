@@ -26,6 +26,8 @@ actor FirebaseAuthSession: BearerTokenProviding {
         }
     }
 
+    private var authStateHandle: AuthStateDidChangeListenerHandle?
+
     init() {
         // Firebase Auth is automatically initialized via GoogleService-Info.plist
     }
@@ -67,7 +69,8 @@ actor FirebaseAuthSession: BearerTokenProviding {
     }
 
     func observeAuthState(onChange: @escaping @Sendable (Bool) -> Void) {
-        Auth.auth().addStateDidChangeListener { _, user in
+        guard authStateHandle == nil else { return }
+        authStateHandle = Auth.auth().addStateDidChangeListener { _, user in
             onChange(user != nil)
         }
     }

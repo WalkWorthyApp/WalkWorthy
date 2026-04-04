@@ -45,6 +45,12 @@ private let displayDateFormatter: DateFormatter = {
     return f
 }()
 
+private let monthYearFormatter: DateFormatter = {
+    let f = DateFormatter()
+    f.dateFormat = "MMMM yyyy"
+    return f
+}()
+
 struct MoodHistoryView: View {
     @EnvironmentObject private var appState: AppState
     @State private var selectedRange: DateRangeSelection = .days(7)
@@ -326,9 +332,7 @@ struct MoodHistoryView: View {
         switch selectedRange {
         case .thisMonth:
             guard let start = isoDateFormatter.date(from: currentWindow.startDate) else { return "Past Month" }
-            let f = DateFormatter()
-            f.dateFormat = "MMMM yyyy"
-            return f.string(from: start)
+            return monthYearFormatter.string(from: start)
         default:
             return "Past Period"
         }

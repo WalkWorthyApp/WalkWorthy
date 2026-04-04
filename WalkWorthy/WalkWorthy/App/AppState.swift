@@ -34,6 +34,7 @@ final class AppState: ObservableObject {
     private let defaults: UserDefaults
     private let config: Config
     private let authSession: FirebaseAuthSession
+    private var isObservingAuth = false
     private static let userScopedKeys: Set<String> = [
         StorageKey.onboardingCompleted,
         StorageKey.useProfilePersonalization,
@@ -128,6 +129,8 @@ final class AppState: ObservableObject {
     }
 
     func startObservingAuthState() async {
+        guard !isObservingAuth else { return }
+        isObservingAuth = true
         await authSession.observeAuthState { [weak self] isSignedIn in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -141,6 +144,12 @@ final class AppState: ObservableObject {
                 }
                 self.isCheckingAuth = false
             }
+        }
+        // Fallback: unblock UI if Firebase hasn't responded within 5 seconds
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(5))
+            guard let self, self.isCheckingAuth else { return }
+            self.isCheckingAuth = false
         }
     }
 
@@ -173,11 +182,10 @@ final class AppState: ObservableObject {
     }
 
     func signOut() {
+        authenticationNotice = "You have been signed out. Please sign in again."
         Task {
             try? await authSession.signOut()
-            isAuthenticated = false
-            authenticationNotice = "You have been signed out. Please sign in again."
-            setAuthenticatedUserSub(nil)
+            // Listener fires and sets isAuthenticated = false, clears userSub
         }
     }
 
