@@ -65,4 +65,10 @@ actor FirebaseAuthSession: BearerTokenProviding {
     func signOut() async throws {
         try Auth.auth().signOut()
     }
+
+    func observeAuthState(onChange: @escaping @Sendable (Bool) -> Void) {
+        Auth.auth().addStateDidChangeListener { _, user in
+            onChange(user != nil)
+        }
+    }
 }
