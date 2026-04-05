@@ -166,6 +166,13 @@ service cloud.firestore {
       allow write: if false; // Only Cloud Functions can write
     }
 
+    // Daily Reflections - AI-generated devotional prompts cached per day
+    // Cloud Functions create these via Admin SDK
+    match /users/{userId}/dailyReflections/{date} {
+      allow read: if isOwner(userId);
+      allow write: if false; // Only Cloud Functions can write
+    }
+
     // Block everything else
     match /{document=**} {
       allow read, write: if false;

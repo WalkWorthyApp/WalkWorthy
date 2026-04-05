@@ -41,13 +41,21 @@ struct HomeView: View {
                         ))
                 }
 
-                // Today's progress
+                // Today's check-in progress
                 todayProgressCard
+
+                // Daily reflection
+                if appState.dailyReflection != nil {
+                    DailyReflectionCard(reflection: appState.dailyReflection)
+                }
 
                 // Latest encouragement
                 if let response = appState.latestMoodResponse {
                     latestEncouragementCard(response)
                 }
+
+                // Verse of the Day
+                DailyVerseCard()
 
                 // Quick actions
                 quickActions

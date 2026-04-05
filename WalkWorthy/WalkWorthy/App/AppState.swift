@@ -36,6 +36,15 @@ final class AppState: ObservableObject {
     private let config: Config
     private let authSession: FirebaseAuthSession
     private var isObservingAuth = false
+    private var reflectionFetchTask: Task<Void, Never>?
+    private static let isoDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+    private static let reflectionDecoder = JSONDecoder()
+    private static let reflectionEncoder = JSONEncoder()
     private static let userScopedKeys: Set<String> = [
         StorageKey.onboardingCompleted,
         StorageKey.useProfilePersonalization,
@@ -380,7 +389,7 @@ final class AppState: ObservableObject {
         let key = dailyReflectionCacheKey(for: date)
         guard !key.isEmpty,
               let data = defaults.data(forKey: key),
-              let reflection = try? JSONDecoder().decode(DailyReflection.self, from: data)
+              let reflection = try? Self.reflectionDecoder.decode(DailyReflection.self, from: data)
         else { return nil }
         return reflection
     }
@@ -388,38 +397,30 @@ final class AppState: ObservableObject {
     private func cacheReflection(_ reflection: DailyReflection) {
         let key = dailyReflectionCacheKey(for: reflection.date)
         guard !key.isEmpty,
-              let data = try? JSONEncoder().encode(reflection)
+              let data = try? Self.reflectionEncoder.encode(reflection)
         else { return }
         defaults.set(data, forKey: key)
     }
 
     func checkAndFetchDailyReflection() {
         guard isAuthenticated else { return }
-        let today = isoDate(Date())
+        let today = Self.isoDateFormatter.string(from: Date())
         if let cached = loadCachedReflection(for: today) {
             dailyReflection = cached
             return
         }
-        Task {
+        reflectionFetchTask?.cancel()
+        reflectionFetchTask = Task { @MainActor in
             do {
                 let result = try await apiClient.fetchDailyReflection()
-                await MainActor.run {
-                    self.dailyReflection = result
-                    self.cacheReflection(result)
-                }
+                self.dailyReflection = result
+                self.cacheReflection(result)
             } catch {
                 #if DEBUG
                 print("[AppState] Daily reflection fetch failed: \(error)")
                 #endif
             }
         }
-    }
-
-    private func isoDate(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.locale = Locale(identifier: "en_US_POSIX")
-        return f.string(from: date)
     }
 
     enum MoodError: LocalizedError {
