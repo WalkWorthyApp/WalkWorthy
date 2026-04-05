@@ -116,6 +116,11 @@ final class LiveAPIClient: EncouragementAPI {
         return try await send(request, decode: MoodHistoryResponse.self)
     }
 
+    func fetchDailyReflection() async throws -> DailyReflection {
+        let request = try await makeRequest(path: "dailyReflection", method: "GET")
+        return try await send(request, decode: DailyReflection.self)
+    }
+
     // MARK: - Internal helpers
 
     private func makeRequest<T: Encodable>(path: String, method: String, body: T) async throws -> URLRequest {
