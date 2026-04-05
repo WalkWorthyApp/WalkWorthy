@@ -32,9 +32,6 @@ struct HomeView: View {
                 // Greeting header
                 greetingHeader
 
-                // Today's check-in progress
-                todayProgressCard
-
                 // Mood check-in card (if available)
                 if let checkInType = appState.currentCheckInType {
                     checkInCard(for: checkInType)
@@ -43,6 +40,9 @@ struct HomeView: View {
                             removal: .opacity
                         ))
                 }
+
+                // Today's check-in progress
+                todayProgressCard
 
                 // Daily reflection
                 if appState.dailyReflection != nil {
