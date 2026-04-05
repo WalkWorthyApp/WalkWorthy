@@ -21,6 +21,7 @@ private struct ResponseWrapper: Identifiable {
 }
 
 struct HomeView: View {
+    @Binding var selectedTab: Int
     @EnvironmentObject private var appState: AppState
     @State private var activeCheckInType: CheckInType?
     @State private var pendingResponse: ResponseWrapper?
@@ -47,11 +48,6 @@ struct HomeView: View {
                 // Daily reflection
                 if appState.dailyReflection != nil {
                     DailyReflectionCard(reflection: appState.dailyReflection)
-                }
-
-                // Latest encouragement
-                if let response = appState.latestMoodResponse {
-                    latestEncouragementCard(response)
                 }
 
                 // Verse of the Day
@@ -253,46 +249,10 @@ struct HomeView: View {
         .opacity(completed ? 1.0 : 0.7)
     }
 
-    private func latestEncouragementCard(_ response: MoodCheckInResponse) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("Latest Encouragement")
-                    .font(.headline)
-
-                Spacer()
-
-                Text(response.aiResponse.verseRef)
-                    .font(.caption)
-                    .fontWeight(.medium)
-                    .foregroundColor(.accentColor)
-            }
-
-            Text(response.aiResponse.message)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .lineLimit(3)
-
-            Divider()
-
-            Text(response.aiResponse.verseText)
-                .font(.subheadline)
-                .italic()
-                .foregroundColor(.primary)
-                .lineLimit(4)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.05), radius: 10, y: 5)
-        )
-    }
-
     private var quickActions: some View {
         VStack(spacing: 12) {
-            NavigationLink {
-                MoodHistoryView()
+            Button {
+                selectedTab = 1
             } label: {
                 Label("View History", systemImage: "calendar")
                     .font(.headline)

@@ -139,6 +139,11 @@ struct MoodHistoryView: View {
                 // Week overview - always show so empty periods still display the calendar
                 weekOverview
 
+                // Latest encouragement
+                if let checkIn = appState.currentMoodStatus?.checkIn {
+                    latestEncouragementCard(checkIn)
+                }
+
                 SentimentChartView(
                     summaries: summaries,
                     daysToDisplay: daysToDisplay
@@ -149,6 +154,7 @@ struct MoodHistoryView: View {
         .navigationTitle("Mood History")
         .onAppear {
             loadHistory()
+            Task { await appState.loadMoodStatus() }
         }
         .refreshable {
             await loadHistoryAsync()
@@ -483,6 +489,42 @@ struct MoodHistoryView: View {
         }
 
         return Color(.systemGray3)
+    }
+
+    private func latestEncouragementCard(_ checkIn: MoodCheckIn) -> some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Text("Latest Encouragement")
+                    .font(.headline)
+
+                Spacer()
+
+                Text(checkIn.aiResponse.verseRef)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundColor(.accentColor)
+            }
+
+            Text(checkIn.aiResponse.message)
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .lineLimit(3)
+
+            Divider()
+
+            Text(checkIn.aiResponse.verseText)
+                .font(.subheadline)
+                .italic()
+                .foregroundColor(.primary)
+                .lineLimit(4)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .fill(Color(.systemBackground))
+                .shadow(color: .black.opacity(0.05), radius: 10, y: 5)
+        )
     }
 
     private func loadHistory() {
