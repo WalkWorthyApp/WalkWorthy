@@ -139,16 +139,16 @@ struct MoodHistoryView: View {
                 // Week overview - always show so empty periods still display the calendar
                 weekOverview
 
+                // Daily devotional reflection
+                if appState.dailyReflection != nil || !summaries.isEmpty {
+                    DailyReflectionCard(reflection: appState.dailyReflection)
+                }
+
                 // Sentiment trend chart
                 SentimentChartView(
                     summaries: summaries,
                     daysToDisplay: daysToDisplay
                 )
-
-                // Daily devotional reflection
-                if appState.dailyReflection != nil || !summaries.isEmpty {
-                    DailyReflectionCard(reflection: appState.dailyReflection)
-                }
             }
             .padding()
         }
