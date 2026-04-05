@@ -112,15 +112,6 @@ struct MoodHistoryView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
-                // Greeting — verse and reflection at the top
-                VStack(spacing: 12) {
-                    DailyVerseCard()
-
-                    if appState.dailyReflection != nil || !summaries.isEmpty {
-                        DailyReflectionCard(reflection: appState.dailyReflection)
-                    }
-                }
-
                 // Days selector
                 daysSelector
 
@@ -148,11 +139,17 @@ struct MoodHistoryView: View {
                 // Week overview - always show so empty periods still display the calendar
                 weekOverview
 
-                // Sentiment trend chart
-                SentimentChartView(
-                    summaries: summaries,
-                    daysToDisplay: daysToDisplay
-                )
+                // Daily devotional reflection + sentiment chart grouped tightly
+                VStack(spacing: 12) {
+                    if appState.dailyReflection != nil || !summaries.isEmpty {
+                        DailyReflectionCard(reflection: appState.dailyReflection)
+                    }
+
+                    SentimentChartView(
+                        summaries: summaries,
+                        daysToDisplay: daysToDisplay
+                    )
+                }
             }
             .padding()
         }
