@@ -56,4 +56,5 @@ export const COLLECTIONS = {
   calendar: (userId: string) => `users/${userId}/calendar`,
   moodCheckIns: (userId: string) => `users/${userId}/moodCheckIns`,
   moodSummaries: (userId: string) => `users/${userId}/moodSummaries`,
+  dailyReflections: (userId: string) => `users/${userId}/dailyReflections`,
 } as const;

@@ -279,6 +279,14 @@ struct MoodHistoryResponse: Codable {
     let daysRequested: Int
 }
 
+// MARK: - Daily Reflection
+
+struct DailyReflection: Codable, Equatable {
+    let reflection: String
+    let generatedAt: String
+    let date: String        // "yyyy-MM-dd"
+}
+
 // MARK: - Check-in Times
 
 struct CheckInTimes: Codable, Equatable {
