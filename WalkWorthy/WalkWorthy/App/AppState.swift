@@ -28,6 +28,7 @@ final class AppState: ObservableObject {
     // MARK: - Mood Tracking State
     @Published var currentMoodStatus: MoodStatusResponse?
     @Published var latestMoodResponse: MoodCheckInResponse?
+    @Published var dailyReflection: DailyReflection?
 
     private let apiClient: any EncouragementAPI
     private let notificationScheduler: NotificationScheduler
@@ -138,6 +139,7 @@ final class AppState: ObservableObject {
                     self.isAuthenticated = true
                     self.authenticationNotice = nil
                     await self.refreshAuthenticatedUser()
+                    self.checkAndFetchDailyReflection()
                 } else {
                     self.isAuthenticated = false
                     self.setAuthenticatedUserSub(nil)
@@ -159,6 +161,7 @@ final class AppState: ObservableObject {
             isAuthenticated = true
             authenticationNotice = nil
             await refreshAuthenticatedUser()
+            checkAndFetchDailyReflection()
         } catch {
             isAuthenticated = false
             authenticationNotice = nil
@@ -173,6 +176,7 @@ final class AppState: ObservableObject {
             isAuthenticated = true
             authenticationNotice = nil
             await refreshAuthenticatedUser()
+            checkAndFetchDailyReflection()
         } catch {
             isAuthenticated = false
             authenticationNotice = nil
@@ -364,6 +368,58 @@ final class AppState: ObservableObject {
     func clearMoodState() {
         currentMoodStatus = nil
         latestMoodResponse = nil
+        dailyReflection = nil
+    }
+
+    private func dailyReflectionCacheKey(for date: String) -> String {
+        guard let userSub = authenticatedUserSub else { return "" }
+        return "\(StorageKey.dailyReflectionPrefix)::\(userSub)::\(date)"
+    }
+
+    private func loadCachedReflection(for date: String) -> DailyReflection? {
+        let key = dailyReflectionCacheKey(for: date)
+        guard !key.isEmpty,
+              let data = defaults.data(forKey: key),
+              let reflection = try? JSONDecoder().decode(DailyReflection.self, from: data)
+        else { return nil }
+        return reflection
+    }
+
+    private func cacheReflection(_ reflection: DailyReflection) {
+        let key = dailyReflectionCacheKey(for: reflection.date)
+        guard !key.isEmpty,
+              let data = try? JSONEncoder().encode(reflection)
+        else { return }
+        defaults.set(data, forKey: key)
+    }
+
+    func checkAndFetchDailyReflection() {
+        guard isAuthenticated else { return }
+        let today = isoDate(Date())
+        if let cached = loadCachedReflection(for: today) {
+            dailyReflection = cached
+            return
+        }
+        Task {
+            do {
+                let result = try await apiClient.fetchDailyReflection()
+                await MainActor.run {
+                    self.dailyReflection = result
+                    self.cacheReflection(result)
+                }
+            } catch {
+                #if DEBUG
+                print("[AppState] Daily reflection fetch failed: \(error)")
+                #endif
+            }
+        }
+    }
+
+    private func isoDate(_ date: Date) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f.string(from: date)
     }
 
     enum MoodError: LocalizedError {
@@ -390,5 +446,6 @@ extension AppState {
         static let profileHobbies = "walkworthy.profile.hobbies"
         static let profileOptIn = "walkworthy.profile.optIn"
         static let lastAuthenticatedUser = "walkworthy.auth.lastUser"
+        static let dailyReflectionPrefix = "walkworthy.dailyReflection"
     }
 }
