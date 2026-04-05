@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import Charts
 
 enum DateRangeSelection: Equatable {
     case days(Int)
@@ -56,7 +57,6 @@ struct MoodHistoryView: View {
     @State private var selectedRange: DateRangeSelection = .days(7)
     @State private var summaries: [DailyMoodSummary] = []
     @State private var isLoading = false
-    @State private var expandedDate: String?
     @State private var errorMessage: String?
     @State private var periodOffset: Int = 0
 
@@ -139,8 +139,16 @@ struct MoodHistoryView: View {
                 // Week overview - always show so empty periods still display the calendar
                 weekOverview
 
-                // Daily entries
-                dailyEntries
+                // Sentiment trend chart
+                SentimentChartView(
+                    summaries: summaries,
+                    daysToDisplay: daysToDisplay
+                )
+
+                // Daily devotional reflection
+                if appState.dailyReflection != nil || !summaries.isEmpty {
+                    DailyReflectionCard(reflection: appState.dailyReflection)
+                }
             }
             .padding()
         }
@@ -387,15 +395,7 @@ struct MoodHistoryView: View {
         let ringWidth: CGFloat = compact ? 2 : 2.5
         let dotSize: CGFloat = compact ? 4 : 5
 
-        return Button(action: {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                if expandedDate == dateString {
-                    expandedDate = nil
-                } else if summary != nil {
-                    expandedDate = dateString
-                }
-            }
-        }) {
+        return Button(action: {}) {
             VStack(spacing: compact ? 4 : 8) {
                 // Day of week label - hide in compact mode except for first row
                 if !compact {
@@ -491,58 +491,6 @@ struct MoodHistoryView: View {
         return Color(.systemGray3)
     }
 
-    private var dailyEntries: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Daily Check-ins")
-                .font(.headline)
-
-            if isLoading {
-                ProgressView()
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding()
-            } else if summaries.isEmpty && periodOffset == 0 {
-                // Current period with no data — show onboarding guidance
-                VStack(spacing: 16) {
-                    Image(systemName: "heart.text.square")
-                        .font(.system(size: 48))
-                        .foregroundColor(.secondary)
-
-                    Text("No check-ins yet")
-                        .font(.headline)
-
-                    Text("Start tracking your mood to see your history here.")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 40)
-            } else {
-                // Show all days in the period; empty days get a placeholder card
-                ForEach(daysToDisplay.reversed(), id: \.self) { dateString in
-                    if let summary = summaries.first(where: { $0.date == dateString }) {
-                        DailySummaryCard(
-                            summary: summary,
-                            isExpanded: expandedDate == summary.date,
-                            onTap: {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                    if expandedDate == summary.date {
-                                        expandedDate = nil
-                                    } else {
-                                        expandedDate = summary.date
-                                    }
-                                }
-                            }
-                        )
-                    } else {
-                        EmptyDayCard(dateString: dateString)
-                    }
-                }
-            }
-        }
-    }
-
-
     private func loadHistory() {
         isLoading = true
         errorMessage = nil
@@ -596,138 +544,3 @@ struct MoodHistoryView: View {
     }
 }
 
-struct EmptyDayCard: View {
-    let dateString: String
-
-    private var formattedDate: String {
-        guard let date = isoDateFormatter.date(from: dateString) else { return dateString }
-        return displayDateFormatter.string(from: date)
-    }
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(formattedDate)
-                    .font(.headline)
-                    .foregroundColor(.secondary)
-                Text("No check-ins")
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-            Spacer()
-            Text("—")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.02), radius: 3, y: 1)
-        )
-    }
-}
-
-struct DailySummaryCard: View {
-    let summary: DailyMoodSummary
-    let isExpanded: Bool
-    let onTap: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header
-            Button(action: onTap) {
-                HStack {
-                    // Date
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(formattedDate)
-                            .font(.headline)
-
-                        Text("\(summary.completedCount)/3 check-ins")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-
-                    Spacer()
-
-                    // Sentiment indicator
-                    if let sentiment = summary.sentiment {
-                        Circle()
-                            .fill(sentiment.color)
-                            .frame(width: 12, height: 12)
-                    }
-
-                    // Mood emojis
-                    HStack(spacing: 4) {
-                        if let morning = summary.morning?.moodOption {
-                            Text(morning.emoji)
-                        }
-                        if let midday = summary.midday?.moodOption {
-                            Text(midday.emoji)
-                        }
-                        if let evening = summary.evening?.moodOption {
-                            Text(evening.emoji)
-                        }
-                    }
-                    .font(.title3)
-
-                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                        .foregroundColor(.secondary)
-                        .font(.caption)
-                }
-            }
-            .buttonStyle(.plain)
-
-            // Expanded details
-            if isExpanded {
-                VStack(spacing: 8) {
-                    checkInRow(type: .morning, summary: summary.morning)
-                    checkInRow(type: .midday, summary: summary.midday)
-                    checkInRow(type: .evening, summary: summary.evening)
-                }
-                .padding(.top, 8)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .padding()
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.systemBackground))
-                .shadow(color: .black.opacity(0.05), radius: 5, y: 2)
-        )
-    }
-
-    private var formattedDate: String {
-        guard let date = isoDateFormatter.date(from: summary.date) else {
-            return summary.date
-        }
-        return displayDateFormatter.string(from: date)
-    }
-
-    private func checkInRow(type: CheckInType, summary: CheckInSummary?) -> some View {
-        HStack {
-            Image(systemName: type.iconName)
-                .foregroundColor(type.color)
-                .frame(width: 24)
-
-            Text(type.displayName)
-                .font(.subheadline)
-
-            Spacer()
-
-            if let summary = summary, let mood = summary.moodOption {
-                HStack(spacing: 4) {
-                    Text(mood.emoji)
-                    Text(mood.displayName)
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            } else {
-                Text("Not completed")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-}
