@@ -32,15 +32,6 @@ struct HomeView: View {
                 // Greeting header
                 greetingHeader
 
-                // Daily verse and reflection
-                VStack(spacing: 12) {
-                    DailyVerseCard()
-
-                    if appState.dailyReflection != nil {
-                        DailyReflectionCard(reflection: appState.dailyReflection)
-                    }
-                }
-
                 // Mood check-in card (if available)
                 if let checkInType = appState.currentCheckInType {
                     checkInCard(for: checkInType)
@@ -48,6 +39,15 @@ struct HomeView: View {
                             insertion: .scale(scale: 0.95).combined(with: .opacity),
                             removal: .opacity
                         ))
+                }
+
+                // Daily verse and reflection
+                VStack(spacing: 12) {
+                    DailyVerseCard()
+
+                    if appState.dailyReflection != nil {
+                        DailyReflectionCard(reflection: appState.dailyReflection)
+                    }
                 }
 
                 // Today's progress
