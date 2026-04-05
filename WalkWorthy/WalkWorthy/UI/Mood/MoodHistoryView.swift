@@ -139,17 +139,10 @@ struct MoodHistoryView: View {
                 // Week overview - always show so empty periods still display the calendar
                 weekOverview
 
-                // Daily devotional reflection + sentiment chart grouped tightly
-                VStack(spacing: 12) {
-                    if appState.dailyReflection != nil || !summaries.isEmpty {
-                        DailyReflectionCard(reflection: appState.dailyReflection)
-                    }
-
-                    SentimentChartView(
-                        summaries: summaries,
-                        daysToDisplay: daysToDisplay
-                    )
-                }
+                SentimentChartView(
+                    summaries: summaries,
+                    daysToDisplay: daysToDisplay
+                )
             }
             .padding()
         }

@@ -44,19 +44,18 @@ struct HomeView: View {
                         ))
                 }
 
-                // Daily verse and reflection
-                VStack(spacing: 12) {
-                    DailyVerseCard()
-
-                    if appState.dailyReflection != nil {
-                        DailyReflectionCard(reflection: appState.dailyReflection)
-                    }
+                // Daily reflection
+                if appState.dailyReflection != nil {
+                    DailyReflectionCard(reflection: appState.dailyReflection)
                 }
 
                 // Latest encouragement
                 if let response = appState.latestMoodResponse {
                     latestEncouragementCard(response)
                 }
+
+                // Verse of the Day
+                DailyVerseCard()
 
                 // Quick actions
                 quickActions
