@@ -25,12 +25,27 @@ const httpsOptions: HttpsOptions = {
   secrets: [openaiApiKey],
 };
 
-function getTodayString(): string {
+function getServerUTCDateString(): string {
   return new Date().toISOString().split("T")[0];
 }
 
-function getSevenDaysAgoString(): string {
-  const d = new Date();
+/** Validates a client-supplied date string and returns it if within ±1 day of server UTC. */
+function resolveDate(clientDate: string | undefined): string {
+  const serverToday = getServerUTCDateString();
+  if (!clientDate || !/^\d{4}-\d{2}-\d{2}$/.test(clientDate)) {
+    return serverToday;
+  }
+  const serverMs = new Date(serverToday).getTime();
+  const clientMs = new Date(clientDate).getTime();
+  const oneDayMs = 24 * 60 * 60 * 1000;
+  if (Math.abs(clientMs - serverMs) <= oneDayMs) {
+    return clientDate;
+  }
+  return serverToday;
+}
+
+function getSevenDaysAgoString(today: string): string {
+  const d = new Date(today);
   d.setDate(d.getDate() - 6);
   return d.toISOString().split("T")[0];
 }
@@ -52,7 +67,7 @@ async function handleGet(req: Request, res: Response): Promise<void> {
 
   const { userId } = authReq;
   const db = getDb();
-  const today = getTodayString();
+  const today = resolveDate(req.query.date as string | undefined);
 
   try {
     // Check Firestore cache first
@@ -67,7 +82,7 @@ async function handleGet(req: Request, res: Response): Promise<void> {
     // Fetch past 7 days of mood summaries
     const summariesSnap = await db
       .collection(COLLECTIONS.moodSummaries(userId))
-      .where("date", ">=", getSevenDaysAgoString())
+      .where("date", ">=", getSevenDaysAgoString(today))
       .where("date", "<=", today)
       .orderBy("date", "desc")
       .limit(7)

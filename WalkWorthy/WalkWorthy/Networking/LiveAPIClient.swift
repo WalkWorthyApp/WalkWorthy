@@ -117,9 +117,23 @@ final class LiveAPIClient: EncouragementAPI {
     }
 
     func fetchDailyReflection() async throws -> DailyReflection {
-        let request = try await makeRequest(path: "dailyReflection", method: "GET")
+        let localDate = isoDateFormatter.string(from: Date())
+        let request = try await makeRequest(
+            path: "dailyReflection",
+            method: "GET",
+            queryItems: [URLQueryItem(name: "date", value: localDate)]
+        )
         return try await send(request, decode: DailyReflection.self)
     }
+
+    private static let isoDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
+    private var isoDateFormatter: DateFormatter { Self.isoDateFormatter }
 
     // MARK: - Internal helpers
 

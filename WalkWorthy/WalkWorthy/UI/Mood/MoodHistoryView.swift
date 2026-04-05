@@ -503,7 +503,7 @@ struct MoodHistoryView: View {
             case .thisMonth:
                 let window = currentWindow
                 guard let startDate = isoDateFormatter.date(from: window.startDate) else {
-                    daysToFetch = daysInCurrentMonth(for: Date())
+                    await MainActor.run { isLoading = false }
                     return
                 }
                 daysToFetch = daysInCurrentMonth(for: startDate)

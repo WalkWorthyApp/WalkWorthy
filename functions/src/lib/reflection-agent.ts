@@ -45,15 +45,14 @@ No prose, code fences, or explanations outside the JSON.`;
 // ============================================================================
 
 let cachedAgent: Agent<object, typeof reflectionOutputSchema> | undefined;
-let cachedApiKeyPrefix: string | undefined;
+let cachedApiKey: string | undefined;
 
 function ensureAgent(apiKey: string): Agent<object, typeof reflectionOutputSchema> {
-  const prefix = apiKey.slice(0, 8);
-  if (cachedAgent && cachedApiKeyPrefix === prefix) return cachedAgent;
+  if (cachedAgent && cachedApiKey === apiKey) return cachedAgent;
 
   setDefaultOpenAIKey(apiKey);
   setOpenAIAPI("responses");
-  cachedApiKeyPrefix = prefix;
+  cachedApiKey = apiKey;
 
   cachedAgent = new Agent<object, typeof reflectionOutputSchema>({
     name: "WalkWorthyReflectionAgent",
@@ -107,16 +106,13 @@ export async function runReflectionAgent(
       const result = await run(agent, input);
       const output = result.finalOutput;
 
-      let parsed: { reflection: string };
-      if (typeof output === "string") {
-        parsed = JSON.parse(output) as { reflection: string };
-      } else if (typeof output === "object" && output !== null && "reflection" in output) {
-        parsed = output as { reflection: string };
-      } else {
-        throw new Error("Unexpected output shape");
-      }
+      const raw =
+        typeof output === "string"
+          ? JSON.parse(output)
+          : output;
+      const parsed = reflectionOutputSchema.parse(raw);
 
-      if (typeof parsed.reflection !== "string" || parsed.reflection.trim() === "") {
+      if (parsed.reflection.trim() === "") {
         throw new Error("Empty reflection returned");
       }
 
