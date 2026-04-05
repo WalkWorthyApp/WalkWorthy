@@ -23,3 +23,6 @@ export { moodCheckIn } from './api/mood-checkin';
 
 // Encouragement - Get latest and historical encouragements
 export { encouragementNext, encouragementHistory } from './api/encouragement-next';
+
+// Daily Reflection - AI-generated devotional prompt cached once per day
+export { dailyReflection } from './api/daily-reflection';
