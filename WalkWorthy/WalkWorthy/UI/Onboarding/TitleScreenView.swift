@@ -11,90 +11,71 @@ struct TitleScreenView: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.colorScheme) private var colorScheme
 
-    @State private var showAuthForm = false
     @State private var authViewModel: AuthenticationViewModel?
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottom) {
             backgroundGradient
                 .ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 32) {
-                    VStack(spacing: 32) {
-                        Spacer()
+            VStack(spacing: 0) {
+                // MARK: - Top hero: logo + quote (fills remaining space above the card)
+                Spacer()
 
-                        logoImage
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxWidth: 180)
-                            .shadow(color: .black.opacity(0.15), radius: 20, x: 0, y: 10)
+                VStack(spacing: 16) {
+                    logoImage
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 180)
+                        .shadow(color: .black.opacity(0.2), radius: 16, x: 0, y: 8)
 
-                        VStack(spacing: 16) {
-                            Text("For when life seems like rough waters, WalkWorthy knowing God is with you through the storm.")
-                                .font(.title2.bold())
-                                .multilineTextAlignment(.center)
-                                .foregroundStyle(.primary)
-                                .padding(.horizontal, 24)
+                    Text("WalkWorthy")
+                        .font(.title2.bold())
+                        .foregroundStyle(.white)
+                        .tracking(1)
 
-                            if !showAuthForm {
-                                Text("Tap continue to sign in with your WalkWorthy account.")
-                                    .font(.callout)
-                                    .foregroundStyle(.secondary)
-                            }
+                    Text("For when life seems like rough waters, WalkWorthy knowing God is with you through the storm.")
+                        .font(.subheadline)
+                        .italic()
+                        .foregroundStyle(.white.opacity(0.85))
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 32)
 
-                            if let notice = appState.authenticationNotice {
-                                Text(notice)
-                                    .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(Color.red)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.horizontal, 24)
-                            }
-                        }
-
-                        // Continue button (visible when form is hidden)
-                        if !showAuthForm {
-                            Button(action: startSignIn) {
-                                HStack {
-                                    Text("Continue →")
-                                        .font(.headline)
-                                }
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(
-                                    LinearGradient(
-                                        colors: [Color.accentColor.opacity(0.85), Color.accentColor],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    ),
-                                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                )
-                                .foregroundStyle(Color.white)
-                            }
-                            .buttonStyle(.plain)
+                    if let notice = appState.authenticationNotice {
+                        Text(notice)
+                            .font(.footnote.weight(.semibold))
+                            .foregroundStyle(Color.red)
+                            .multilineTextAlignment(.center)
                             .padding(.horizontal, 24)
-                            .transition(.opacity)
-                        }
-
-                        Spacer()
-                    }
-
-                    // Sign-in form (appears when Continue is tapped)
-                    if showAuthForm, let viewModel = authViewModel {
-                        VStack(spacing: 0) {
-                            Divider()
-                                .padding(.bottom, 16)
-
-                            SignInFormView(viewModel: viewModel)
-                        }
-                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
                 }
-                .padding(.vertical, 48)
+
+                Spacer()
+
+                // MARK: - Bottom card: content-sized white panel, anchored to bottom
+                if let viewModel = authViewModel {
+                    SignInFormView(viewModel: viewModel)
+                        .padding(.top, 16)
+                        .padding(.bottom, 8)
+                        .background(
+                            Color(.systemBackground)
+                                .clipShape(
+                                    UnevenRoundedRectangle(
+                                        cornerRadii: .init(
+                                            topLeading: 28,
+                                            bottomLeading: 0,
+                                            bottomTrailing: 0,
+                                            topTrailing: 28
+                                        ),
+                                        style: .continuous
+                                    )
+                                )
+                                .ignoresSafeArea(edges: .bottom)
+                        )
+                }
             }
         }
         .onAppear {
-            // Initialize view model lazily when the view appears
             if authViewModel == nil {
                 authViewModel = AuthenticationViewModel(appState: appState)
             }
@@ -114,12 +95,6 @@ struct TitleScreenView: View {
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
-    }
-
-    private func startSignIn() {
-        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-            showAuthForm = true
-        }
     }
 }
 

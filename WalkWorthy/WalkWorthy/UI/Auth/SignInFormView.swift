@@ -90,10 +90,10 @@ struct SignInFormView: View {
                     .padding(.vertical, 10)
             }
         }
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.white.opacity(0.2), lineWidth: 1)
+                .stroke(Color(.systemGray4), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
@@ -111,9 +111,10 @@ struct SignInFormView: View {
                 .keyboardType(.emailAddress)
                 .focused($focusedField, equals: .email)
                 .padding(12)
-                .background(
+                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay(
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Color.white.opacity(0.35), lineWidth: 1.2)
+                        .strokeBorder(Color(.systemGray4), lineWidth: 1)
                 )
         }
     }
@@ -148,9 +149,10 @@ struct SignInFormView: View {
             }
             .padding(.leading, 12)
             .padding(.vertical, 12)
-            .background(
+            .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.35), lineWidth: 1.2)
+                    .strokeBorder(Color(.systemGray4), lineWidth: 1)
             )
 
             if viewModel.mode == .createAccount {
