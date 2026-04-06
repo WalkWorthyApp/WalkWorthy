@@ -35,8 +35,8 @@ enum CheckInType: String, Codable, CaseIterable, Identifiable {
 
     var followUpQuestion: String {
         switch self {
-        case .morning: return "Do you have a lot on your plate today?"
-        case .midday: return "What would help you most right now?"
+        case .morning: return "How are you feeling about today?"
+        case .midday: return "How much is on your plate right now?"
         case .evening: return "How are you feeling about tomorrow?"
         }
     }
@@ -55,9 +55,9 @@ enum CheckInType: String, Codable, CaseIterable, Identifiable {
     var followUpOptions: [String] {
         switch self {
         case .morning:
-            return ["Yes", "No", "Somewhat"]
+            return ["Dreading it", "A bit uneasy", "Okay about it", "Ready and excited"]
         case .midday:
-            return ["Encouragement", "Peace", "Strength", "Wisdom"]
+            return ["Completely buried", "A lot on my plate", "Manageable", "Feeling on top of it"]
         case .evening:
             return ["Hopeful", "Nervous", "Uncertain", "Ready"]
         }
@@ -77,6 +77,60 @@ enum CheckInType: String, Codable, CaseIterable, Identifiable {
         case .midday: return .yellow
         case .evening: return .indigo
         }
+    }
+}
+
+// MARK: - Mood Level
+
+enum MoodLevel: String, Codable, CaseIterable {
+    case veryUnpleasant = "very_unpleasant"
+    case unpleasant = "unpleasant"
+    case neutral = "neutral"
+    case pleasant = "pleasant"
+    case veryPleasant = "very_pleasant"
+
+    var displayName: String {
+        switch self {
+        case .veryUnpleasant: return "Very Unpleasant"
+        case .unpleasant: return "Unpleasant"
+        case .neutral: return "Neutral"
+        case .pleasant: return "Pleasant"
+        case .veryPleasant: return "Very Pleasant"
+        }
+    }
+
+    /// Derive MoodLevel from a numeric score (1–10)
+    static func from(score: Int) -> MoodLevel {
+        switch score {
+        case ...2: return .veryUnpleasant
+        case 3...4: return .unpleasant
+        case 5...6: return .neutral
+        case 7...8: return .pleasant
+        default: return .veryPleasant
+        }
+    }
+
+    var sentiment: MoodSentiment {
+        switch self {
+        case .veryUnpleasant, .unpleasant: return .challenging
+        case .neutral: return .neutral
+        case .pleasant, .veryPleasant: return .positive
+        }
+    }
+}
+
+// MARK: - Mood Spectrum Data
+
+struct MoodSpectrumData: Codable, Equatable {
+    let moodScore: Int           // 1–10
+    let moodLevel: String        // matches MoodLevel.rawValue, derived server-side
+    let emotionTags: [String]    // selected emotion words
+    let impactCategories: [String] // selected impact areas
+    let followUpScore: Int       // 1–4
+    let note: String?            // optional free text
+
+    var moodLevelEnum: MoodLevel? {
+        MoodLevel(rawValue: moodLevel)
     }
 }
 
@@ -184,8 +238,7 @@ enum MoodSentiment: String, Codable {
 
 struct MoodCheckInRequest: Codable {
     let checkInType: String
-    let primaryMood: String
-    let followUpResponse: String
+    let moodSpectrumData: MoodSpectrumData
 }
 
 struct MoodCheckInResponse: Codable {
@@ -213,7 +266,7 @@ struct MoodCheckIn: Codable, Identifiable, Equatable {
     let checkInType: String
     let timestamp: String
     let date: String
-    let responses: MoodResponses
+    let moodSpectrumData: MoodSpectrumData?  // nil for old check-ins
     let aiResponse: AIEncouragementResponse
     let createdAt: String
     let expiresAt: String
@@ -222,18 +275,18 @@ struct MoodCheckIn: Codable, Identifiable, Equatable {
         CheckInType(rawValue: checkInType)
     }
 
-    var moodOption: MoodOption? {
-        MoodOption(rawValue: responses.primaryMood)
+    var moodLevelEnum: MoodLevel? {
+        moodSpectrumData?.moodLevelEnum
     }
 }
 
 struct CheckInSummary: Codable, Equatable {
     let checkInId: String
-    let primaryMood: String
+    let moodLevel: String        // matches MoodLevel.rawValue
     let respondedAt: String
 
-    var moodOption: MoodOption? {
-        MoodOption(rawValue: primaryMood)
+    var moodLevelEnum: MoodLevel? {
+        MoodLevel(rawValue: moodLevel)
     }
 }
 
@@ -331,4 +384,3 @@ struct CheckInTimes: Codable, Equatable {
         return date
     }
 }
-

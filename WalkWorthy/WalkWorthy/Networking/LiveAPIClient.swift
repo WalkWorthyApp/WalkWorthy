@@ -43,7 +43,7 @@ final class LiveAPIClient: EncouragementAPI {
     /// server errors (500) to handle this transient condition.
     func submitMoodCheckIn(_ moodRequest: MoodCheckInRequest) async throws -> MoodCheckInResponse {
         #if DEBUG
-        print("[LiveAPIClient] Submitting mood check-in: \(moodRequest.checkInType), \(moodRequest.primaryMood)")
+        print("[LiveAPIClient] Submitting mood check-in: \(moodRequest.checkInType), score=\(moodRequest.moodSpectrumData.moodScore)")
         #endif
 
         let maxAttempts = 2
