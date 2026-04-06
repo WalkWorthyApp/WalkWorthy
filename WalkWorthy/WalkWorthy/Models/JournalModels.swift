@@ -30,6 +30,7 @@ extension JournalEntry {
         let f = DateFormatter()
         f.dateStyle = .medium
         f.timeStyle = .none
+        f.locale = Locale(identifier: "en_US_POSIX")
         return f
     }()
 
