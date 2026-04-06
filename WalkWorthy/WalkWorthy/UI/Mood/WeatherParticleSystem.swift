@@ -109,10 +109,10 @@ struct WeatherParticleSystem: View {
     // MARK: - Beach Waves (moodScore 0.4–0.6)
 
     private func drawBeachWaves(context: inout GraphicsContext, size: CGSize, time: Double) {
-        guard moodScore > 0.3 && moodScore < 0.7 else { return }
+        guard moodScore >= 0.4 && moodScore <= 0.6 else { return }
 
         // Opacity peaks at 0.5
-        let proximity = 1.0 - abs(moodScore - 0.5) / 0.2
+        let proximity = 1.0 - abs(moodScore - 0.5) / 0.1
         let opacity = max(0, min(1, proximity)) * 0.3
 
         let waveCount = 3
@@ -146,10 +146,10 @@ struct WeatherParticleSystem: View {
     // MARK: - Cloud Drift (moodScore 0.5–1.0)
 
     private func drawClouds(context: inout GraphicsContext, size: CGSize, time: Double) {
-        guard moodScore > 0.4 else { return }
+        guard moodScore >= 0.5 else { return }
 
         // Opacity: 20% at neutral, 60% at very pleasant
-        let t = min(max((moodScore - 0.4) / 0.6, 0), 1)
+        let t = min(max((moodScore - 0.5) / 0.5, 0), 1)
         let baseOpacity = 0.2 + t * 0.4
 
         for i in 0..<3 {
@@ -182,9 +182,9 @@ struct WeatherParticleSystem: View {
     // MARK: - Grass Blades (moodScore 0.7–1.0, intensity peaks at 1.0)
 
     private func drawGrass(context: inout GraphicsContext, size: CGSize, time: Double) {
-        guard moodScore > 0.6 else { return }
+        guard moodScore >= 0.7 else { return }
 
-        let intensity = min(max((moodScore - 0.6) / 0.4, 0), 1)
+        let intensity = min(max((moodScore - 0.7) / 0.3, 0), 1)
         let bladeCount = Int(40.0 * intensity)
 
         for i in 0..<bladeCount {

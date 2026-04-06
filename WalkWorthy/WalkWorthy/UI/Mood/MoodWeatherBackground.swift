@@ -49,6 +49,7 @@ struct MoodWeatherBackground: View {
             .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
             .shadow(color: colors.bottom.opacity(0.6), radius: 20)
             .frame(width: 100, height: 100)
+            .animation(.easeInOut(duration: 0.5), value: moodScore)
     }
 
     // MARK: - Sky Gradient
