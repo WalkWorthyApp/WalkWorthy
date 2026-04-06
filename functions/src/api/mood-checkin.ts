@@ -50,24 +50,28 @@ function normalizeTranslation(value?: string): Translation {
 }
 
 /**
- * Get today's date string in YYYY-MM-DD format
+ * Get the logical day date string in YYYY-MM-DD format.
+ * Hours 0–2 AM still belong to the previous logical day (morning starts at 3 AM).
  */
-function getTodayDateString(timezone?: string): string {
+function getLogicalDateString(timezone?: string): string {
   const now = new Date();
-  if (timezone) {
-    try {
-      const formatter = new Intl.DateTimeFormat('en-CA', {
+  let hour: number;
+  try {
+    if (timezone) {
+      const fmt = new Intl.DateTimeFormat('en-US', {
         timeZone: timezone,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
+        hour: 'numeric',
+        hourCycle: 'h23',
       });
-      return formatter.format(now);
-    } catch {
-      // Fall back to UTC if timezone is invalid
+      hour = parseInt(fmt.format(now), 10);
+    } else {
+      hour = now.getUTCHours();
     }
+  } catch {
+    hour = now.getUTCHours();
   }
-  return now.toISOString().split('T')[0];
+  const logicalNow = hour < 3 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
+  return getDateStringInTimezone(logicalNow, timezone);
 }
 
 /**
@@ -196,7 +200,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     const profile = await getUserProfileOnce(userId);
     const translation = normalizeTranslation(profile?.translationPreference);
     const timezone = profile?.timezone || 'America/New_York';
-    const todayDate = getTodayDateString(timezone);
+    const todayDate = getLogicalDateString(timezone);
 
     logger.info('Processing mood check-in', {
       userId,
@@ -427,7 +431,7 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
     if (historyDays && historyDays > 0) {
       return handleGetHistory(userId, Math.min(historyDays, 31), db, timezone, res, startDateParam, endDateParam);
     }
-    const todayDate = getTodayDateString(timezone);
+    const todayDate = getLogicalDateString(timezone);
 
     // Get today's summary to see what check-ins are done
     const summaryRef = db
