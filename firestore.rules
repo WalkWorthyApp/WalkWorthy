@@ -173,6 +173,13 @@ service cloud.firestore {
       allow write: if false; // Only Cloud Functions can write
     }
 
+    // Journal Entries - users can read their own journal data
+    // Cloud Functions create/update/delete these via Admin SDK
+    match /users/{userId}/journalEntries/{entryId} {
+      allow read: if isOwner(userId);
+      allow write: if false; // Only Cloud Functions can write
+    }
+
     // Block everything else
     match /{document=**} {
       allow read, write: if false;

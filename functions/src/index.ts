@@ -26,3 +26,6 @@ export { encouragementNext, encouragementHistory } from './api/encouragement-nex
 
 // Daily Reflection - AI-generated devotional prompt cached once per day
 export { dailyReflection } from './api/daily-reflection';
+
+// Journal - CRUD operations for user journal entries
+export { journal } from './api/journal';
