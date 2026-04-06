@@ -404,9 +404,15 @@ final class AppState: ObservableObject {
         defaults.set(data, forKey: key)
     }
 
+    private static func logicalDate() -> Date {
+        let hour = Calendar.current.component(.hour, from: Date())
+        guard hour < 3 else { return Date() }
+        return Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+    }
+
     func checkAndFetchDailyReflection() {
         guard isAuthenticated else { return }
-        let today = Self.isoDateFormatter.string(from: Date())
+        let today = Self.isoDateFormatter.string(from: Self.logicalDate())
         if let cached = loadCachedReflection(for: today) {
             dailyReflection = cached
             return

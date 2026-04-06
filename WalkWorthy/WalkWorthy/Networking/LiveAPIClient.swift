@@ -116,8 +116,14 @@ final class LiveAPIClient: EncouragementAPI {
         return try await send(request, decode: MoodHistoryResponse.self)
     }
 
+    private static func logicalDate() -> Date {
+        let hour = Calendar.current.component(.hour, from: Date())
+        guard hour < 3 else { return Date() }
+        return Calendar.current.date(byAdding: .day, value: -1, to: Date()) ?? Date()
+    }
+
     func fetchDailyReflection() async throws -> DailyReflection {
-        let localDate = isoDateFormatter.string(from: Date())
+        let localDate = isoDateFormatter.string(from: Self.logicalDate())
         let request = try await makeRequest(
             path: "dailyReflection",
             method: "GET",
