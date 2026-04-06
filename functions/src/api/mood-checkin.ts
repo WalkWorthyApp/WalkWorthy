@@ -104,23 +104,24 @@ function getCurrentCheckInType(
     const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone,
       hour: 'numeric',
-      hour12: false,
+      hourCycle: 'h23',
     });
     hour = parseInt(formatter.format(now), 10);
   } catch {
     hour = now.getUTCHours();
   }
 
-  // Default time windows if no custom times
+  // Evening wraps past midnight — morning doesn't start until 3am
+  const morningStart = 3;
   const morningEnd = checkInTimes ? parseInt(checkInTimes.midday.split(':')[0], 10) : 11;
   const middayEnd = checkInTimes ? parseInt(checkInTimes.evening.split(':')[0], 10) : 17;
 
-  if (hour < morningEnd) {
+  if (hour >= morningStart && hour < morningEnd) {
     return 'morning';
-  } else if (hour < middayEnd) {
+  } else if (hour >= morningEnd && hour < middayEnd) {
     return 'midday';
   } else {
-    return 'evening';
+    return 'evening'; // covers evening start–23 and midnight–2am
   }
 }
 
