@@ -335,8 +335,44 @@ export interface CheckInTimes {
 // ============================================================================
 
 const VALID_CHECK_IN_TYPES: CheckInType[] = ['morning', 'midday', 'evening'];
-const VALID_MOOD_LEVELS: MoodLevel[] = ['very_unpleasant', 'unpleasant', 'neutral', 'pleasant', 'very_pleasant'];
 const VALID_TRANSLATIONS: Translation[] = ['ESV', 'KJV', 'NIV', 'NKJV', 'NASB', 'CSB', 'NLT'];
+
+// All valid emotion tags across all mood levels
+const VALID_EMOTION_TAGS: ReadonlySet<string> = new Set([
+  // Very Unpleasant
+  'Angry', 'Anxious', 'Scared', 'Overwhelmed', 'Ashamed', 'Disgusted', 'Embarrassed',
+  'Frustrated', 'Annoyed', 'Jealous', 'Stressed', 'Worried', 'Guilty', 'Hopeless',
+  'Irritated', 'Lonely', 'Discouraged', 'Disappointed', 'Drained', 'Sad',
+  // Unpleasant / Neutral / Pleasant / Very Pleasant
+  'Tired', 'Uncertain', 'Indifferent', 'Steady', 'Okay',
+  'Content', 'Calm', 'Peaceful', 'Hopeful', 'Grateful', 'Confident', 'Relieved',
+  'Encouraged', 'Joyful', 'Satisfied',
+  'Amazed', 'Excited', 'Blessed', 'Faithful', 'Proud', 'Thankful', 'Inspired', 'Energized',
+]);
+
+const VALID_IMPACT_CATEGORIES: ReadonlySet<string> = new Set([
+  // Faith
+  'Faith', 'Scripture', 'Prayer', 'Church', 'Community',
+  // Personal
+  'Health', 'Self-Care', 'Hobbies', 'Identity', 'Fitness',
+  // Relationships
+  'Family', 'Friends', 'Dating', 'Partner',
+  // School/Work
+  'Education', 'Tasks', 'Work', 'Money',
+  // External
+  'Weather', 'Current Events', 'Travel',
+]);
+
+/**
+ * Derives the MoodLevel from a validated moodScore (1–10).
+ */
+function moodLevelFromScore(score: number): MoodLevel {
+  if (score <= 2) return 'very_unpleasant';
+  if (score <= 4) return 'unpleasant';
+  if (score <= 6) return 'neutral';
+  if (score <= 8) return 'pleasant';
+  return 'very_pleasant';
+}
 
 /**
  * Validates check-in type.
@@ -358,21 +394,18 @@ export function validateMoodSpectrumData(input: unknown): MoodSpectrumData | und
   if (typeof obj.moodScore !== 'number' || !Number.isInteger(obj.moodScore) || obj.moodScore < 1 || obj.moodScore > 10) {
     return undefined;
   }
+  // derive moodLevel server-side — never trust client value
+  const moodLevel = moodLevelFromScore(obj.moodScore);
 
-  // validate moodLevel (one of the 5 valid values)
-  if (typeof obj.moodLevel !== 'string' || !VALID_MOOD_LEVELS.includes(obj.moodLevel as MoodLevel)) {
-    return undefined;
-  }
-
-  // validate emotionTags (array of strings, max 10 items, each max 50 chars)
+  // validate emotionTags (array of strings); filter to allowlist, max 5 items
   if (!Array.isArray(obj.emotionTags)) return undefined;
-  if (obj.emotionTags.length > 10) return undefined;
-  if (!obj.emotionTags.every((tag) => typeof tag === 'string' && tag.length <= 50)) return undefined;
+  const rawTags = obj.emotionTags.filter((tag): tag is string => typeof tag === 'string');
+  const emotionTags = rawTags.filter((t) => VALID_EMOTION_TAGS.has(t)).slice(0, 5);
 
-  // validate impactCategories (array of strings, max 10 items, each max 50 chars)
+  // validate impactCategories (array of strings); filter to allowlist, max 5 items
   if (!Array.isArray(obj.impactCategories)) return undefined;
-  if (obj.impactCategories.length > 10) return undefined;
-  if (!obj.impactCategories.every((cat) => typeof cat === 'string' && cat.length <= 50)) return undefined;
+  const rawCategories = obj.impactCategories.filter((cat): cat is string => typeof cat === 'string');
+  const impactCategories = rawCategories.filter((c) => VALID_IMPACT_CATEGORIES.has(c)).slice(0, 5);
 
   // validate followUpScore (integer 1-4)
   if (typeof obj.followUpScore !== 'number' || !Number.isInteger(obj.followUpScore) || obj.followUpScore < 1 || obj.followUpScore > 4) {
@@ -386,9 +419,9 @@ export function validateMoodSpectrumData(input: unknown): MoodSpectrumData | und
 
   return {
     moodScore: obj.moodScore,
-    moodLevel: obj.moodLevel as MoodLevel,
-    emotionTags: obj.emotionTags as string[],
-    impactCategories: obj.impactCategories as string[],
+    moodLevel,
+    emotionTags,
+    impactCategories,
     followUpScore: obj.followUpScore,
     note: typeof obj.note === 'string' ? obj.note : undefined,
   };
