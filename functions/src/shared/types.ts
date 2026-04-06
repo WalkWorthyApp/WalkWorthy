@@ -216,52 +216,38 @@ export interface EncouragementPayload {
 export type CheckInType = 'morning' | 'midday' | 'evening';
 
 /**
- * Morning mood options - how user feels about their upcoming day.
+ * Mood level derived from moodScore on the spectrum slider.
  */
-export type MorningMood = 'hopeful' | 'anxious' | 'tired' | 'confident' | 'nervous' | 'uncertain';
+export type MoodLevel = 'very_unpleasant' | 'unpleasant' | 'neutral' | 'pleasant' | 'very_pleasant';
 
 /**
- * Midday mood options - how the day is going so far.
+ * Mood spectrum data collected during a check-in.
  */
-export type MiddayMood = 'better than expected' | 'as expected' | 'harder than expected' | 'stressful';
+export interface MoodSpectrumData {
+  moodScore: number;          // 1–10, mapped from slider
+  moodLevel: MoodLevel;       // derived from moodScore
+  emotionTags: string[];      // selected emotion words (multi-select)
+  impactCategories: string[]; // selected life impact areas (multi-select)
+  followUpScore: number;      // 1–4 numeric from follow-up question
+  note?: string;              // optional free text
+}
 
 /**
- * Evening mood options - how the day went.
+ * A standalone journal entry optionally linked to a check-in.
  */
-export type EveningMood = 'great day' | 'good day' | 'challenging day' | 'difficult day';
-
-/**
- * All possible mood values across check-in types.
- */
-export type MoodOption = MorningMood | MiddayMood | EveningMood;
-
-/**
- * Morning follow-up options - workload for the day.
- */
-export type MorningFollowUp = 'yes' | 'no' | 'somewhat';
-
-/**
- * Midday follow-up options - what would help most.
- */
-export type MiddayFollowUp = 'encouragement' | 'peace' | 'strength' | 'wisdom';
-
-/**
- * Evening follow-up options - feelings about tomorrow.
- */
-export type EveningFollowUp = 'hopeful' | 'nervous' | 'uncertain' | 'ready';
+export interface JournalEntry {
+  id: string;
+  text: string;
+  date: string;               // YYYY-MM-DD
+  linkedCheckInId?: string;   // optional link to check-in
+  createdAt: string;          // ISO 8601
+  updatedAt: string;          // ISO 8601
+}
 
 /**
  * Bible translation options.
  */
 export type Translation = 'ESV' | 'KJV' | 'NIV' | 'NKJV' | 'NASB' | 'CSB' | 'NLT';
-
-/**
- * User's mood responses for a check-in.
- */
-export interface MoodResponses {
-  primaryMood: string;
-  followUpResponse: string;
-}
 
 /**
  * AI-generated encouragement response.
@@ -279,12 +265,12 @@ export interface AIEncouragementResponse {
 export interface MoodCheckIn {
   id: string;
   checkInType: CheckInType;
-  timestamp: string;       // ISO 8601
-  date: string;           // YYYY-MM-DD for easy querying
-  responses: MoodResponses;
+  timestamp: string;          // ISO 8601
+  date: string;               // YYYY-MM-DD for easy querying
+  moodSpectrumData: MoodSpectrumData;
   aiResponse: AIEncouragementResponse;
-  createdAt: string;      // ISO 8601
-  expiresAt: string;      // 24-hour TTL
+  createdAt: string;          // ISO 8601
+  expiresAt: string;          // 24-hour TTL
 }
 
 /**
@@ -292,7 +278,7 @@ export interface MoodCheckIn {
  */
 export interface CheckInSummary {
   checkInId: string;
-  primaryMood: string;
+  moodLevel: MoodLevel;
   respondedAt: string;    // ISO 8601
 }
 
@@ -313,8 +299,7 @@ export interface DailyMoodSummary {
  */
 export interface MoodCheckInInput {
   checkInType: CheckInType;
-  primaryMood: string;
-  followUpResponse: string;
+  moodSpectrumData: MoodSpectrumData;
 }
 
 /**
@@ -350,12 +335,7 @@ export interface CheckInTimes {
 // ============================================================================
 
 const VALID_CHECK_IN_TYPES: CheckInType[] = ['morning', 'midday', 'evening'];
-const VALID_MORNING_MOODS: MorningMood[] = ['hopeful', 'anxious', 'tired', 'confident', 'nervous', 'uncertain'];
-const VALID_MIDDAY_MOODS: MiddayMood[] = ['better than expected', 'as expected', 'harder than expected', 'stressful'];
-const VALID_EVENING_MOODS: EveningMood[] = ['great day', 'good day', 'challenging day', 'difficult day'];
-const VALID_MORNING_FOLLOWUPS: MorningFollowUp[] = ['yes', 'no', 'somewhat'];
-const VALID_MIDDAY_FOLLOWUPS: MiddayFollowUp[] = ['encouragement', 'peace', 'strength', 'wisdom'];
-const VALID_EVENING_FOLLOWUPS: EveningFollowUp[] = ['hopeful', 'nervous', 'uncertain', 'ready'];
+const VALID_MOOD_LEVELS: MoodLevel[] = ['very_unpleasant', 'unpleasant', 'neutral', 'pleasant', 'very_pleasant'];
 const VALID_TRANSLATIONS: Translation[] = ['ESV', 'KJV', 'NIV', 'NKJV', 'NASB', 'CSB', 'NLT'];
 
 /**
@@ -367,41 +347,51 @@ export function validateCheckInType(value: unknown): CheckInType | undefined {
 }
 
 /**
- * Validates mood based on check-in type.
+ * Validates mood spectrum data from client input.
  */
-export function validateMood(checkInType: CheckInType, mood: unknown): string | undefined {
-  if (typeof mood !== 'string') return undefined;
-  const moodLower = mood.toLowerCase();
+export function validateMoodSpectrumData(input: unknown): MoodSpectrumData | undefined {
+  if (!input || typeof input !== 'object') return undefined;
 
-  switch (checkInType) {
-    case 'morning':
-      return VALID_MORNING_MOODS.includes(moodLower as MorningMood) ? moodLower : undefined;
-    case 'midday':
-      return VALID_MIDDAY_MOODS.includes(moodLower as MiddayMood) ? moodLower : undefined;
-    case 'evening':
-      return VALID_EVENING_MOODS.includes(moodLower as EveningMood) ? moodLower : undefined;
-    default:
-      return undefined;
+  const obj = input as Record<string, unknown>;
+
+  // validate moodScore (integer 1-10)
+  if (typeof obj.moodScore !== 'number' || !Number.isInteger(obj.moodScore) || obj.moodScore < 1 || obj.moodScore > 10) {
+    return undefined;
   }
-}
 
-/**
- * Validates follow-up response based on check-in type.
- */
-export function validateFollowUp(checkInType: CheckInType, followUp: unknown): string | undefined {
-  if (typeof followUp !== 'string') return undefined;
-  const followUpLower = followUp.toLowerCase();
-
-  switch (checkInType) {
-    case 'morning':
-      return VALID_MORNING_FOLLOWUPS.includes(followUpLower as MorningFollowUp) ? followUpLower : undefined;
-    case 'midday':
-      return VALID_MIDDAY_FOLLOWUPS.includes(followUpLower as MiddayFollowUp) ? followUpLower : undefined;
-    case 'evening':
-      return VALID_EVENING_FOLLOWUPS.includes(followUpLower as EveningFollowUp) ? followUpLower : undefined;
-    default:
-      return undefined;
+  // validate moodLevel (one of the 5 valid values)
+  if (typeof obj.moodLevel !== 'string' || !VALID_MOOD_LEVELS.includes(obj.moodLevel as MoodLevel)) {
+    return undefined;
   }
+
+  // validate emotionTags (array of strings, max 10 items, each max 50 chars)
+  if (!Array.isArray(obj.emotionTags)) return undefined;
+  if (obj.emotionTags.length > 10) return undefined;
+  if (!obj.emotionTags.every((tag) => typeof tag === 'string' && tag.length <= 50)) return undefined;
+
+  // validate impactCategories (array of strings, max 10 items, each max 50 chars)
+  if (!Array.isArray(obj.impactCategories)) return undefined;
+  if (obj.impactCategories.length > 10) return undefined;
+  if (!obj.impactCategories.every((cat) => typeof cat === 'string' && cat.length <= 50)) return undefined;
+
+  // validate followUpScore (integer 1-4)
+  if (typeof obj.followUpScore !== 'number' || !Number.isInteger(obj.followUpScore) || obj.followUpScore < 1 || obj.followUpScore > 4) {
+    return undefined;
+  }
+
+  // note is optional string, max 500 chars
+  if (obj.note !== undefined && (typeof obj.note !== 'string' || obj.note.length > 500)) {
+    return undefined;
+  }
+
+  return {
+    moodScore: obj.moodScore,
+    moodLevel: obj.moodLevel as MoodLevel,
+    emotionTags: obj.emotionTags as string[],
+    impactCategories: obj.impactCategories as string[],
+    followUpScore: obj.followUpScore,
+    note: typeof obj.note === 'string' ? obj.note : undefined,
+  };
 }
 
 /**
@@ -411,30 +401,6 @@ export function validateTranslation(value: unknown): Translation | undefined {
   if (typeof value !== 'string') return undefined;
   const upper = value.toUpperCase();
   return VALID_TRANSLATIONS.includes(upper as Translation) ? (upper as Translation) : undefined;
-}
-
-/**
- * Validates mood check-in input.
- */
-export function validateMoodCheckInInput(input: unknown): MoodCheckInInput | undefined {
-  if (!input || typeof input !== 'object') return undefined;
-
-  const obj = input as Record<string, unknown>;
-
-  const checkInType = validateCheckInType(obj.checkInType);
-  if (!checkInType) return undefined;
-
-  const primaryMood = validateMood(checkInType, obj.primaryMood);
-  if (!primaryMood) return undefined;
-
-  const followUpResponse = validateFollowUp(checkInType, obj.followUpResponse);
-  if (!followUpResponse) return undefined;
-
-  return {
-    checkInType,
-    primaryMood,
-    followUpResponse,
-  };
 }
 
 /**

@@ -16,12 +16,15 @@ import { requireAuth, errorResponse, successResponse } from '../shared/auth';
 import { getUserProfileOnce } from '../shared/profile';
 import { runMoodAgent, UserProfilePayload } from '../lib/mood-agent';
 import {
-  validateMoodCheckInInput,
+  validateCheckInType,
+  validateMoodSpectrumData,
   MoodCheckIn,
+  MoodCheckInInput,
   MoodCheckInResponse,
   DailyMoodSummary,
   CheckInSummary,
   CheckInType,
+  MoodLevel,
   Translation,
   PendingCheckIn,
 } from '../shared/types';
@@ -130,26 +133,26 @@ function getCurrentCheckInType(
 }
 
 /**
- * Calculate overall sentiment from day's moods
+ * Calculate overall sentiment from day's mood levels
  */
 function calculateOverallSentiment(
   morning?: CheckInSummary | null,
   midday?: CheckInSummary | null,
   evening?: CheckInSummary | null,
 ): 'positive' | 'neutral' | 'challenging' | null {
-  const positiveMoods = ['hopeful', 'confident', 'better than expected', 'great day', 'good day', 'ready'];
-  const challengingMoods = ['anxious', 'nervous', 'stressful', 'harder than expected', 'challenging day', 'difficult day'];
+  const positiveLevels: MoodLevel[] = ['pleasant', 'very_pleasant'];
+  const challengingLevels: MoodLevel[] = ['unpleasant', 'very_unpleasant'];
 
-  const moods = [morning?.primaryMood, midday?.primaryMood, evening?.primaryMood].filter(Boolean) as string[];
+  const levels = [morning?.moodLevel, midday?.moodLevel, evening?.moodLevel].filter(Boolean) as MoodLevel[];
 
-  if (moods.length === 0) return null;
+  if (levels.length === 0) return null;
 
   let positiveCount = 0;
   let challengingCount = 0;
 
-  for (const mood of moods) {
-    if (positiveMoods.includes(mood)) positiveCount++;
-    if (challengingMoods.includes(mood)) challengingCount++;
+  for (const level of levels) {
+    if (positiveLevels.includes(level)) positiveCount++;
+    if (challengingLevels.includes(level)) challengingCount++;
   }
 
   if (positiveCount > challengingCount) return 'positive';
@@ -191,10 +194,15 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
 
   try {
     // Validate input
-    const input = validateMoodCheckInInput(req.body);
-    if (!input) {
-      return errorResponse(res, 400, 'Invalid check-in data. Please provide checkInType, primaryMood, and followUpResponse.');
+    const checkInType = validateCheckInType(req.body?.checkInType);
+    if (!checkInType) {
+      return errorResponse(res, 400, 'Invalid check-in data. Please provide a valid checkInType.');
     }
+    const moodSpectrumData = validateMoodSpectrumData(req.body?.moodSpectrumData);
+    if (!moodSpectrumData) {
+      return errorResponse(res, 400, 'Invalid check-in data. Please provide valid moodSpectrumData.');
+    }
+    const input: MoodCheckInInput = { checkInType, moodSpectrumData };
 
     // Get user profile
     const profile = await getUserProfileOnce(userId);
@@ -205,7 +213,8 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     logger.info('Processing mood check-in', {
       userId,
       checkInType: input.checkInType,
-      primaryMood: input.primaryMood,
+      moodLevel: input.moodSpectrumData.moodLevel,
+      moodScore: input.moodSpectrumData.moodScore,
       translation,
     });
 
@@ -230,13 +239,13 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       const existingDoc = await transaction.get(checkInRef);
       if (existingDoc.exists) {
         const existingData = existingDoc.data() as MoodCheckIn;
-        // If same mood, return existing response (avoid redundant AI call)
-        if (existingData.responses.primaryMood === input.primaryMood &&
-            existingData.responses.followUpResponse === input.followUpResponse) {
+        // If same mood score, return existing response (avoid redundant AI call)
+        if (existingData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&
+            existingData.moodSpectrumData.followUpScore === input.moodSpectrumData.followUpScore) {
           logger.info('Returning existing check-in (same mood)', {
             userId,
             checkInId: existingData.id,
-            mood: input.primaryMood,
+            moodLevel: input.moodSpectrumData.moodLevel,
           });
           return { type: 'existing' as const, data: existingData };
         }
@@ -259,11 +268,13 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     }
 
     // Step 2: Generate AI response (outside transaction - may take time)
+    // NOTE: mood-agent.ts will be updated in Step 3 to accept MoodSpectrumData directly.
+    // For now, bridge to the existing MoodAgentInput interface.
     const agentInput = {
       profile: profile as UserProfilePayload | null,
       checkInType: input.checkInType,
-      primaryMood: input.primaryMood,
-      followUpResponse: input.followUpResponse,
+      primaryMood: input.moodSpectrumData.moodLevel,
+      followUpResponse: String(input.moodSpectrumData.followUpScore),
       translationPreference: translation,
     };
 
@@ -282,10 +293,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       checkInType: input.checkInType,
       timestamp: now.toISOString(),
       date: todayDate,
-      responses: {
-        primaryMood: input.primaryMood,
-        followUpResponse: input.followUpResponse,
-      },
+      moodSpectrumData: input.moodSpectrumData,
       aiResponse,
       createdAt: transactionResult.type === 'update' ? transactionResult.data.createdAt : now.toISOString(),
       expiresAt: expiresAt.toISOString(),
@@ -301,8 +309,8 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         const existingCheckInDoc = await transaction.get(checkInRef);
         if (existingCheckInDoc.exists) {
           const existingCheckInData = existingCheckInDoc.data() as MoodCheckIn;
-          if (existingCheckInData.responses.primaryMood === input.primaryMood &&
-              existingCheckInData.responses.followUpResponse === input.followUpResponse) {
+          if (existingCheckInData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&
+              existingCheckInData.moodSpectrumData.followUpScore === input.moodSpectrumData.followUpScore) {
             logger.info('Concurrent request already created identical check-in, skipping write', {
               userId,
               checkInId: existingCheckInData.id,
@@ -321,7 +329,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
 
         const checkInSummary: CheckInSummary = {
           checkInId,
-          primaryMood: input.primaryMood,
+          moodLevel: input.moodSpectrumData.moodLevel,
           respondedAt: now.toISOString(),
         };
 
