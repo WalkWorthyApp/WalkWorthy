@@ -14,7 +14,7 @@ import type { Request, Response } from 'express';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
 import { requireAuth, errorResponse, successResponse } from '../shared/auth';
 import { getUserProfileOnce } from '../shared/profile';
-import { runMoodAgent, UserProfilePayload } from '../lib/mood-agent';
+import { runMoodAgent, UserProfilePayload, MoodAgentInput } from '../lib/mood-agent';
 import {
   validateCheckInType,
   validateMoodSpectrumData,
@@ -268,13 +268,10 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     }
 
     // Step 2: Generate AI response (outside transaction - may take time)
-    // NOTE: mood-agent.ts will be updated in Step 3 to accept MoodSpectrumData directly.
-    // For now, bridge to the existing MoodAgentInput interface.
-    const agentInput = {
+    const agentInput: MoodAgentInput = {
       profile: profile as UserProfilePayload | null,
       checkInType: input.checkInType,
-      primaryMood: input.moodSpectrumData.moodLevel,
-      followUpResponse: String(input.moodSpectrumData.followUpScore),
+      moodSpectrumData: input.moodSpectrumData,
       translationPreference: translation,
     };
 
