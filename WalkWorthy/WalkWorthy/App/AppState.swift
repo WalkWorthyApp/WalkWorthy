@@ -344,6 +344,7 @@ final class AppState: ObservableObject {
 
     func loadMoodStatus() async {
         guard isAuthenticated else { return }
+        guard currentMoodStatus == nil else { return }
 
         do {
             let status = try await apiClient.fetchMoodStatus()
@@ -362,6 +363,7 @@ final class AppState: ObservableObject {
 
         let response = try await apiClient.submitMoodCheckIn(request)
         latestMoodResponse = response
+        currentMoodStatus = nil
         Task {
             await loadMoodStatus()
         }
