@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct MoodSliderView: View {
     @Binding var sliderValue: Double   // 0.0–1.0
