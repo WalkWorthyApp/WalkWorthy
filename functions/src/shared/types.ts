@@ -229,7 +229,7 @@ export interface MoodSpectrumData {
   emotionTags: string[];      // selected emotion words (multi-select)
   impactCategories: string[]; // selected life impact areas (multi-select)
   followUpScore: number;      // 1–4 numeric from follow-up question
-  note?: string;              // optional free text
+  note: string | null;        // optional free text; null when not provided
 }
 
 /**
@@ -423,7 +423,7 @@ export function validateMoodSpectrumData(input: unknown): MoodSpectrumData | und
     emotionTags,
     impactCategories,
     followUpScore: obj.followUpScore,
-    note: typeof obj.note === 'string' ? obj.note : undefined,
+    note: typeof obj.note === 'string' ? obj.note : null,
   };
 }
 
