@@ -83,7 +83,7 @@ struct MoodResponseContent: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("WalkWorthy")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: 13))
+                    .font(Font.newsreaderSemiBoldItalic(fixedSize: 13))
                     .foregroundColor(.secondary)
 
                 Text(response.aiResponse.message)
@@ -104,7 +104,7 @@ struct MoodResponseContent: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text(response.aiResponse.verseRef)
-                    .font(.newsreaderSemiBoldItalic(fixedSize: 17))
+                    .font(Font.newsreaderSemiBoldItalic(fixedSize: 17))
                     .foregroundColor(.accentColor)
 
                 Spacer()
@@ -121,7 +121,7 @@ struct MoodResponseContent: View {
             .offset(y: showVerseReference ? 0 : 8)
 
             Text(response.aiResponse.verseText)
-                .font(.newsreader(fixedSize: 17))
+                .font(Font.newsreader(fixedSize: 17))
                 .foregroundColor(.primary)
                 .lineSpacing(4)
                 .opacity(showVerseText ? 1 : 0)
