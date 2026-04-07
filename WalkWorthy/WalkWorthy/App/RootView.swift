@@ -53,11 +53,19 @@ private struct MainTabView: View {
             }
             .tag(1)
 
+            NavigationStack {
+                JournalTabView()
+            }
+            .tabItem {
+                Label("Journal", systemImage: "book.closed.fill")
+            }
+            .tag(2)
+
             SettingsView()
                 .tabItem {
                     Label("Settings", systemImage: "gearshape.fill")
                 }
-            .tag(2)
+            .tag(3)
         }
     }
 }

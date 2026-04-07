@@ -15,6 +15,12 @@ protocol EncouragementAPI {
     func fetchMoodStatus() async throws -> MoodStatusResponse
     func fetchMoodHistory(days: Int, startDate: String?, endDate: String?) async throws -> MoodHistoryResponse
     func fetchDailyReflection() async throws -> DailyReflection
+
+    // Journal methods
+    func createJournalEntry(text: String, linkedCheckInId: String?) async throws -> JournalEntry
+    func fetchJournalEntries(date: String?, limit: Int?) async throws -> [JournalEntry]
+    func updateJournalEntry(id: String, text: String) async throws -> JournalEntry
+    func deleteJournalEntry(id: String) async throws
 }
 
 struct RemoteUserProfileRequest: Codable {

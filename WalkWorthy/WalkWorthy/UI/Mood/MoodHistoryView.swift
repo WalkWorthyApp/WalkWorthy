@@ -466,8 +466,8 @@ struct MoodHistoryView: View {
         let checkIns = [summary.morning, summary.midday, summary.evening]
         if index < checkIns.count, checkIns[index] != nil {
             // Use the mood color for completed check-ins
-            if let moodOption = checkIns[index]?.moodOption {
-                return moodOption.color
+            if let moodLevel = checkIns[index]?.moodLevelEnum {
+                return moodLevel.sentiment.color
             }
             return Color.accentColor
         }

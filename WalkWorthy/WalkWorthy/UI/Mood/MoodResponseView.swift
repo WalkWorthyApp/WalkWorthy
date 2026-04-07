@@ -9,7 +9,7 @@ import SwiftUI
 
 struct MoodResponseView: View {
     let response: MoodCheckInResponse
-    let mood: MoodOption?
+    let moodLevel: MoodLevel?
     let onDismiss: () -> Void
 
     @State private var showVerse = false
@@ -115,11 +115,11 @@ struct MoodResponseView: View {
 
     private var headerSection: some View {
         VStack(spacing: 12) {
-            if let mood = mood {
-                Text(mood.emoji)
-                    .font(.system(size: 48))
+            if let level = moodLevel {
+                MoodWeatherBackground(moodScore: moodLevelToScore(level), isCompact: true)
+                    .frame(width: 80, height: 80)
 
-                Text("You're feeling \(mood.displayName.lowercased())")
+                Text("You're feeling \(level.displayName.lowercased())")
                     .font(.headline)
                     .foregroundColor(.secondary)
             }
