@@ -82,8 +82,9 @@ struct CinematicTransitionView: View {
                                 .padding(.horizontal, 16)
                                 .padding(.top, 16)
                                 .padding(.bottom, 40)
+                                .frame(maxWidth: .infinity)
                         }
-                        .frame(height: geo.size.height * 0.65)
+                        .frame(width: screenW, height: geo.size.height * 0.65)
                         .background(.ultraThinMaterial.opacity(0.15))
                         .transition(.opacity.animation(.easeIn(duration: 0.7)))
                     } else if let error = errorMessage {

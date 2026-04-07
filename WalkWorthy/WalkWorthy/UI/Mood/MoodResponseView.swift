@@ -59,6 +59,7 @@ struct MoodResponseContent: View {
                     ))
             }
         }
+        .frame(maxWidth: .infinity)
         .onAppear { animateContentSequence() }
     }
 
