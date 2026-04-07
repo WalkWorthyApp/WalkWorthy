@@ -85,7 +85,7 @@ struct MoodResponseContent: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("WalkWorthy")
                     .font(Font.newsreaderSemiBoldItalic(fixedSize: 13))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.accentColor)
 
                 Text(response.aiResponse.message)
                     .font(.body)
