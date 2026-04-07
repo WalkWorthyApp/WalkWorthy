@@ -44,11 +44,11 @@ struct ImpactCategoriesView: View {
 
                     // Mood level name
                     Text(moodLevel.displayName)
-                        .font(.system(size: 24, weight: .bold))
+                        .font(Font.newsreaderSemiBoldItalic(fixedSize: 26))
 
                     // Prompt
                     Text("What\u{2019}s having the biggest impact on you?")
-                        .font(.body)
+                        .font(Font.newsreader(fixedSize: 17))
                         .foregroundColor(.secondary)
                         .padding(.bottom, 8)
 

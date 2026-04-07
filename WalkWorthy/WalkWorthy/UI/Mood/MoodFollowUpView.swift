@@ -38,11 +38,11 @@ struct MoodFollowUpView: View {
 
                     // Mood level name
                     Text(moodLevel.displayName)
-                        .font(.system(size: 24, weight: .bold))
+                        .font(Font.newsreaderSemiBoldItalic(fixedSize: 26))
 
                     // Follow-up question
                     Text(checkInType.followUpQuestion)
-                        .font(.body)
+                        .font(Font.newsreader(fixedSize: 17))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 16)
