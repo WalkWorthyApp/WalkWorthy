@@ -228,15 +228,12 @@ struct MoodResponseContent: View {
 
 struct MoodResponseView: View {
     let response: MoodCheckInResponse
-    let moodLevel: MoodLevel?
     let onDismiss: () -> Void
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 24) {
-                MoodResponseContent(response: response, onDismiss: onDismiss)
-            }
-            .padding()
+            MoodResponseContent(response: response, onDismiss: onDismiss)
+                .padding()
         }
     }
 }
