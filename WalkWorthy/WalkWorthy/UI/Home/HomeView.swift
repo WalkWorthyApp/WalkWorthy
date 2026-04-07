@@ -7,25 +7,10 @@
 
 import SwiftUI
 
-// Wrapper to make MoodCheckInResponse identifiable for sheet(item:)
-private struct ResponseWrapper: Identifiable {
-    let id: String
-    let response: MoodCheckInResponse
-    let selectedMood: MoodOption?
-
-    init(response: MoodCheckInResponse, selectedMood: MoodOption?) {
-        self.id = response.checkInId
-        self.response = response
-        self.selectedMood = selectedMood
-    }
-}
-
 struct HomeView: View {
     @Binding var selectedTab: Int
     @EnvironmentObject private var appState: AppState
     @State private var activeCheckInType: CheckInType?
-    @State private var pendingResponse: ResponseWrapper?
-    @State private var completedResponse: ResponseWrapper?
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -68,43 +53,9 @@ struct HomeView: View {
                 await appState.loadMoodStatus()
             }
         }
-        .sheet(item: $activeCheckInType, onDismiss: {
-            // Present response sheet after check-in sheet fully dismisses
-            if let pending = pendingResponse {
-                completedResponse = pending
-                pendingResponse = nil
-            }
-        }) { type in
-            NavigationStack {
-                MoodCheckInView(checkInType: type) { response, mood in
-                    pendingResponse = ResponseWrapper(response: response, selectedMood: mood)
-                    activeCheckInType = nil
-                }
-                .navigationTitle(type.displayName)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") {
-                            activeCheckInType = nil
-                        }
-                    }
-                }
-            }
-            .presentationDetents([.large])
-        }
-        .sheet(item: $completedResponse) { wrapper in
-            NavigationStack {
-                MoodResponseView(
-                    response: wrapper.response,
-                    mood: wrapper.selectedMood,
-                    onDismiss: {
-                        completedResponse = nil
-                    }
-                )
-                .navigationBarTitleDisplayMode(.inline)
-                .onDisappear {
-                    completedResponse = nil
-                }
+        .sheet(item: $activeCheckInType) { type in
+            MoodCheckInView(checkInType: type) {
+                activeCheckInType = nil
             }
             .presentationDetents([.large])
         }
