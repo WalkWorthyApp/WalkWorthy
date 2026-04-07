@@ -152,6 +152,13 @@ struct MoodHistoryView: View {
             .padding()
         }
         .navigationTitle("Mood History")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Mood History")
+                    .font(.newsreaderSemiBoldItalic(fixedSize: 20))
+            }
+        }
         .onAppear {
             loadHistory()
             Task { await appState.loadMoodStatus() }
@@ -253,8 +260,7 @@ struct MoodHistoryView: View {
 
                 VStack(alignment: .center, spacing: 4) {
                     Text(overviewTitle)
-                        .font(.title3)
-                        .fontWeight(.semibold)
+                        .font(.newsreaderSemiBoldItalic(fixedSize: 19))
 
                     Text(dateRangeString)
                         .font(.caption)
@@ -466,8 +472,8 @@ struct MoodHistoryView: View {
         let checkIns = [summary.morning, summary.midday, summary.evening]
         if index < checkIns.count, checkIns[index] != nil {
             // Use the mood color for completed check-ins
-            if let moodOption = checkIns[index]?.moodOption {
-                return moodOption.color
+            if let moodLevel = checkIns[index]?.moodLevelEnum {
+                return moodLevel.sentiment.color
             }
             return Color.accentColor
         }
@@ -495,28 +501,25 @@ struct MoodHistoryView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Latest Encouragement")
-                    .font(.headline)
+                    .font(.newsreaderSemiBoldItalic(fixedSize: 17))
 
                 Spacer()
 
                 Text(checkIn.aiResponse.verseRef)
-                    .font(.caption)
-                    .fontWeight(.medium)
+                    .font(.newsreaderSemiBoldItalic(fixedSize: 13))
                     .foregroundColor(.accentColor)
             }
 
             Text(checkIn.aiResponse.message)
-                .font(.subheadline)
+                .font(.newsreader(fixedSize: 15))
                 .foregroundColor(.secondary)
-                .lineLimit(3)
 
             Divider()
 
             Text(checkIn.aiResponse.verseText)
-                .font(.subheadline)
-                .italic()
+                .font(.newsreader(fixedSize: 15))
+                .lineSpacing(3)
                 .foregroundColor(.primary)
-                .lineLimit(4)
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)

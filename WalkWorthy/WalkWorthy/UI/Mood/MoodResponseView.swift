@@ -2,134 +2,71 @@
 //  MoodResponseView.swift
 //  WalkWorthy
 //
-//  Displays the AI encouragement response in a chat-like format.
+//  MoodResponseContent — reusable card content (message bubble + verse card
+//  + done button) with staggered spring animations. Used standalone via
+//  MoodResponseView and as an overlay inside CinematicTransitionView.
 //
 
 import SwiftUI
 
-struct MoodResponseView: View {
+// MARK: - Response Content (reusable overlay)
+
+/// Card content only — no ScrollView or background. Used by both
+/// MoodResponseView and CinematicTransitionView.
+struct MoodResponseContent: View {
     let response: MoodCheckInResponse
-    let mood: MoodOption?
     let onDismiss: () -> Void
 
-    @State private var showVerse = false
     @State private var showMessage = false
-
-    // Staggered verse card content animations
+    @State private var showVerse = false
     @State private var showVerseReference = false
     @State private var showVerseText = false
     @State private var showShareButton = false
     @State private var verseGlowOpacity: Double = 0
-
-    // Done button animation state
     @State private var showDoneButton = false
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Header
-                headerSection
-
-                // AI Message bubble
-                if showMessage {
-                    messageBubble
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.8).combined(with: .opacity),
-                            removal: .opacity
-                        ))
-                }
-
-                // Verse card with enhanced animation
-                if showVerse {
-                    verseCard
-                        .transition(.asymmetric(
-                            insertion: .modifier(
-                                active: VerseCardTransitionModifier(scale: 0.92, yOffset: 30, opacity: 0),
-                                identity: VerseCardTransitionModifier(scale: 1, yOffset: 0, opacity: 1)
-                            ),
-                            removal: .opacity
-                        ))
-                }
-
-                Spacer(minLength: 40)
-
-                // Done button with slide-up animation
-                if showDoneButton {
-                    doneButton
-                        .transition(.asymmetric(
-                            insertion: .modifier(
-                                active: SlideUpTransitionModifier(yOffset: 40, opacity: 0),
-                                identity: SlideUpTransitionModifier(yOffset: 0, opacity: 1)
-                            ),
-                            removal: .opacity
-                        ))
-                }
+        VStack(spacing: 24) {
+            if showMessage {
+                messageBubble
+                    .transition(.asymmetric(
+                        insertion: .scale(scale: 0.8).combined(with: .opacity),
+                        removal: .opacity
+                    ))
             }
-            .padding()
-        }
-        .onAppear {
-            animateContentSequence()
-        }
-    }
 
-    // MARK: - Animation Orchestration
+            if showVerse {
+                verseCard
+                    .transition(.asymmetric(
+                        insertion: .modifier(
+                            active: VerseCardTransitionModifier(scale: 0.92, yOffset: 30, opacity: 0),
+                            identity: VerseCardTransitionModifier(scale: 1, yOffset: 0, opacity: 1)
+                        ),
+                        removal: .opacity
+                    ))
+            }
 
-    private func animateContentSequence() {
-        // Step 1: Show message bubble with gentle spring
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.75).delay(0.2)) {
-            showMessage = true
-        }
+            Spacer(minLength: 40)
 
-        // Step 2: Reveal verse card with softer, more natural timing
-        withAnimation(.spring(response: 0.8, dampingFraction: 0.72).delay(0.8)) {
-            showVerse = true
-        }
-
-        // Step 3: Stagger the verse card's internal content
-        withAnimation(.easeOut(duration: 0.5).delay(1.1)) {
-            showVerseReference = true
-        }
-
-        withAnimation(.easeOut(duration: 0.6).delay(1.3)) {
-            showVerseText = true
-        }
-
-        withAnimation(.easeOut(duration: 0.4).delay(1.6)) {
-            showShareButton = true
-        }
-
-        // Step 4: Done button slides up from bottom
-        withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(1.9)) {
-            showDoneButton = true
-        }
-
-        // Step 5: Subtle glow pulse to draw attention
-        withAnimation(.easeInOut(duration: 1.2).delay(1.0)) {
-            verseGlowOpacity = 0.4
-        }
-        // Fade glow back down
-        withAnimation(.easeInOut(duration: 1.5).delay(2.2)) {
-            verseGlowOpacity = 0
-        }
-    }
-
-    private var headerSection: some View {
-        VStack(spacing: 12) {
-            if let mood = mood {
-                Text(mood.emoji)
-                    .font(.system(size: 48))
-
-                Text("You're feeling \(mood.displayName.lowercased())")
-                    .font(.headline)
-                    .foregroundColor(.secondary)
+            if showDoneButton {
+                doneButton
+                    .transition(.asymmetric(
+                        insertion: .modifier(
+                            active: SlideUpTransitionModifier(yOffset: 40, opacity: 0),
+                            identity: SlideUpTransitionModifier(yOffset: 0, opacity: 1)
+                        ),
+                        removal: .opacity
+                    ))
             }
         }
-        .padding(.top, 20)
+        .frame(maxWidth: .infinity)
+        .onAppear { animateContentSequence() }
     }
+
+    // MARK: - Subviews
 
     private var messageBubble: some View {
         HStack(alignment: .top, spacing: 12) {
-            // Avatar
             Circle()
                 .fill(LinearGradient(
                     colors: [Color.accentColor, Color.accentColor.opacity(0.7)],
@@ -145,33 +82,30 @@ struct MoodResponseView: View {
                 )
                 .accessibilityLabel("WalkWorthy assistant")
 
-            // Message
             VStack(alignment: .leading, spacing: 4) {
                 Text("WalkWorthy")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.secondary)
+                    .font(Font.newsreaderSemiBoldItalic(fixedSize: 13))
+                    .foregroundColor(.accentColor)
 
                 Text(response.aiResponse.message)
                     .font(.body)
                     .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(12)
                     .background(
                         RoundedRectangle(cornerRadius: 16)
-                            .fill(Color(.systemGray6))
+                            .fill(Color.white.opacity(0.81))
                     )
             }
-
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     private var verseCard: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Verse reference - animated in first
             HStack {
                 Text(response.aiResponse.verseRef)
-                    .font(.headline)
+                    .font(Font.newsreaderSemiBoldItalic(fixedSize: 17))
                     .foregroundColor(.accentColor)
 
                 Spacer()
@@ -182,24 +116,18 @@ struct MoodResponseView: View {
                     .foregroundColor(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(
-                        Capsule()
-                            .fill(Color.accentColor)
-                    )
+                    .background(Capsule().fill(Color.accentColor))
             }
             .opacity(showVerseReference ? 1 : 0)
             .offset(y: showVerseReference ? 0 : 8)
 
-            // Verse text - animated in second
             Text(response.aiResponse.verseText)
-                .font(.body)
-                .italic()
+                .font(Font.newsreader(fixedSize: 17))
                 .foregroundColor(.primary)
                 .lineSpacing(4)
                 .opacity(showVerseText ? 1 : 0)
                 .offset(y: showVerseText ? 0 : 12)
 
-            // Share button - animated in last
             HStack {
                 Spacer()
                 ShareLink(
@@ -216,11 +144,9 @@ struct MoodResponseView: View {
         .padding(20)
         .background(
             ZStack {
-                // Base background
                 RoundedRectangle(cornerRadius: 20)
-                    .fill(Color(.systemBackground))
+                    .fill(Color.white.opacity(0.81))
 
-                // Animated glow layer
                 RoundedRectangle(cornerRadius: 20)
                     .fill(
                         LinearGradient(
@@ -236,13 +162,12 @@ struct MoodResponseView: View {
             }
         )
         .background(
-            // Outer glow shadow
             RoundedRectangle(cornerRadius: 20)
                 .fill(Color.accentColor.opacity(verseGlowOpacity * 0.15))
                 .blur(radius: 20)
                 .offset(y: 4)
         )
-        .shadow(color: .black.opacity(0.1), radius: 10, y: 5)
+        .shadow(color: .black.opacity(0.08), radius: 10, y: 5)
         .overlay(
             RoundedRectangle(cornerRadius: 20)
                 .stroke(
@@ -265,18 +190,57 @@ struct MoodResponseView: View {
                 .font(.headline)
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 16)
-                .background(
-                    RoundedRectangle(cornerRadius: 14)
-                        .fill(Color.accentColor)
-                )
+                .background(RoundedRectangle(cornerRadius: 14).fill(Color.accentColor))
                 .foregroundColor(.white)
+        }
+    }
+
+    // MARK: - Animation
+
+    private func animateContentSequence() {
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.75).delay(0.2)) {
+            showMessage = true
+        }
+        withAnimation(.spring(response: 0.8, dampingFraction: 0.72).delay(0.8)) {
+            showVerse = true
+        }
+        withAnimation(.easeOut(duration: 0.5).delay(1.1)) {
+            showVerseReference = true
+        }
+        withAnimation(.easeOut(duration: 0.6).delay(1.3)) {
+            showVerseText = true
+        }
+        withAnimation(.easeOut(duration: 0.4).delay(1.6)) {
+            showShareButton = true
+        }
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.8).delay(1.9)) {
+            showDoneButton = true
+        }
+        withAnimation(.easeInOut(duration: 1.2).delay(1.0)) {
+            verseGlowOpacity = 0.4
+        }
+        withAnimation(.easeInOut(duration: 1.5).delay(2.2)) {
+            verseGlowOpacity = 0
+        }
+    }
+}
+
+// MARK: - Standalone wrapper (preserves existing usage)
+
+struct MoodResponseView: View {
+    let response: MoodCheckInResponse
+    let onDismiss: () -> Void
+
+    var body: some View {
+        ScrollView {
+            MoodResponseContent(response: response, onDismiss: onDismiss)
+                .padding()
         }
     }
 }
 
 // MARK: - Custom Transition Modifiers
 
-/// A ViewModifier that creates a smooth entrance animation with scale, offset, and opacity
 private struct VerseCardTransitionModifier: ViewModifier {
     let scale: CGFloat
     let yOffset: CGFloat
@@ -290,7 +254,6 @@ private struct VerseCardTransitionModifier: ViewModifier {
     }
 }
 
-/// A ViewModifier for slide-up entrance animations (used by Done button)
 private struct SlideUpTransitionModifier: ViewModifier {
     let yOffset: CGFloat
     let opacity: Double

@@ -43,7 +43,7 @@ final class LiveAPIClient: EncouragementAPI {
     /// server errors (500) to handle this transient condition.
     func submitMoodCheckIn(_ moodRequest: MoodCheckInRequest) async throws -> MoodCheckInResponse {
         #if DEBUG
-        print("[LiveAPIClient] Submitting mood check-in: \(moodRequest.checkInType), \(moodRequest.primaryMood)")
+        print("[LiveAPIClient] Submitting mood check-in: \(moodRequest.checkInType), score=\(moodRequest.moodSpectrumData.moodScore)")
         #endif
 
         let maxAttempts = 2
@@ -130,6 +130,34 @@ final class LiveAPIClient: EncouragementAPI {
             queryItems: [URLQueryItem(name: "date", value: localDate)]
         )
         return try await send(request, decode: DailyReflection.self)
+    }
+
+    // MARK: - Journal API
+
+    func createJournalEntry(text: String, linkedCheckInId: String?) async throws -> JournalEntry {
+        let body = CreateJournalEntryRequest(text: text, linkedCheckInId: linkedCheckInId)
+        let request = try await makeRequest(path: "journal", method: "POST", body: body)
+        return try await send(request, decode: JournalEntry.self)
+    }
+
+    func fetchJournalEntries(date: String?, limit: Int?) async throws -> [JournalEntry] {
+        var queryItems: [URLQueryItem] = []
+        if let date { queryItems.append(URLQueryItem(name: "date", value: date)) }
+        if let limit { queryItems.append(URLQueryItem(name: "limit", value: String(limit))) }
+        let request = try await makeRequest(path: "journal", method: "GET", queryItems: queryItems.isEmpty ? nil : queryItems)
+        let response = try await send(request, decode: JournalListResponse.self)
+        return response.entries
+    }
+
+    func updateJournalEntry(id: String, text: String) async throws -> JournalEntry {
+        let body = UpdateJournalEntryRequest(text: text)
+        let request = try await makeRequest(path: "journal/\(id)", method: "PATCH", body: body)
+        return try await send(request, decode: JournalEntry.self)
+    }
+
+    func deleteJournalEntry(id: String) async throws {
+        let request = try await makeRequest(path: "journal/\(id)", method: "DELETE")
+        try await sendExpectingNoContent(request)
     }
 
     private static let isoDateFormatter: DateFormatter = {

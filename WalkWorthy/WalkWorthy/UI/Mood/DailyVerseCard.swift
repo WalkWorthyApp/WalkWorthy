@@ -52,16 +52,17 @@ struct DailyVerseCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("Verse of the Day")
-                    .font(.headline)
+                    .font(.newsreaderSemiBoldItalic(fixedSize: 15))
             }
 
             Text(todaysVerse.text)
-                .font(.body)
+                .font(.newsreader(fixedSize: 17))
                 .foregroundStyle(.primary)
+                .lineSpacing(4)
                 .fixedSize(horizontal: false, vertical: true)
 
             Text("— \(todaysVerse.ref)")
-                .font(.caption)
+                .font(.newsreaderSemiBoldItalic(fixedSize: 13))
                 .foregroundStyle(.secondary)
         }
         .padding()

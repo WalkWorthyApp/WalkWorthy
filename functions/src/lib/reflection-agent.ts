@@ -77,9 +77,9 @@ function buildPrompt(summaries: DailyMoodSummary[]): string {
   const entries = summaries.map((s) => ({
     date: s.date,
     sentiment: s.overallSentiment ?? "unknown",
-    morning: s.morning?.primaryMood ?? null,
-    midday: s.midday?.primaryMood ?? null,
-    evening: s.evening?.primaryMood ?? null,
+    morning: s.morning?.moodLevel ?? null,
+    midday: s.midday?.moodLevel ?? null,
+    evening: s.evening?.moodLevel ?? null,
   }));
 
   return JSON.stringify({ weekSummary: entries }, null, 2);

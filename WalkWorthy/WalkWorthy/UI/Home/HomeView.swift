@@ -7,25 +7,10 @@
 
 import SwiftUI
 
-// Wrapper to make MoodCheckInResponse identifiable for sheet(item:)
-private struct ResponseWrapper: Identifiable {
-    let id: String
-    let response: MoodCheckInResponse
-    let selectedMood: MoodOption?
-
-    init(response: MoodCheckInResponse, selectedMood: MoodOption?) {
-        self.id = response.checkInId
-        self.response = response
-        self.selectedMood = selectedMood
-    }
-}
-
 struct HomeView: View {
     @Binding var selectedTab: Int
     @EnvironmentObject private var appState: AppState
     @State private var activeCheckInType: CheckInType?
-    @State private var pendingResponse: ResponseWrapper?
-    @State private var completedResponse: ResponseWrapper?
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -57,54 +42,24 @@ struct HomeView: View {
                 quickActions
             }
             .padding(.horizontal, 24)
-            .padding(.top, 24)
+            .padding(.top, 8)
             .padding(.bottom, 120)
         }
         .background(backgroundGradient)
-        .navigationTitle("WalkWorthy")
-        .toolbarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("WalkWorthy")
+                    .font(.newsreaderSemiBoldItalic(fixedSize: 20))
+            }
+        }
         .onAppear {
             Task {
                 await appState.loadMoodStatus()
             }
         }
-        .sheet(item: $activeCheckInType, onDismiss: {
-            // Present response sheet after check-in sheet fully dismisses
-            if let pending = pendingResponse {
-                completedResponse = pending
-                pendingResponse = nil
-            }
-        }) { type in
-            NavigationStack {
-                MoodCheckInView(checkInType: type) { response, mood in
-                    pendingResponse = ResponseWrapper(response: response, selectedMood: mood)
-                    activeCheckInType = nil
-                }
-                .navigationTitle(type.displayName)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") {
-                            activeCheckInType = nil
-                        }
-                    }
-                }
-            }
-            .presentationDetents([.large])
-        }
-        .sheet(item: $completedResponse) { wrapper in
-            NavigationStack {
-                MoodResponseView(
-                    response: wrapper.response,
-                    mood: wrapper.selectedMood,
-                    onDismiss: {
-                        completedResponse = nil
-                    }
-                )
-                .navigationBarTitleDisplayMode(.inline)
-                .onDisappear {
-                    completedResponse = nil
-                }
+        .sheet(item: $activeCheckInType) { type in
+            MoodCheckInView(checkInType: type) {
+                activeCheckInType = nil
             }
             .presentationDetents([.large])
         }
@@ -113,7 +68,7 @@ struct HomeView: View {
     private var greetingHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(timeBasedGreeting)
-                .font(.largeTitle.bold())
+                .font(.newsreaderSemiBoldItalic(fixedSize: 40))
                 .foregroundStyle(.primary)
 
             Text(motivationalSubtitle)
@@ -121,7 +76,6 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 12)
     }
 
     private var timeBasedGreeting: String {
@@ -171,7 +125,7 @@ struct HomeView: View {
                 // Text
                 VStack(alignment: .leading, spacing: 4) {
                     Text(type.displayName + " Check-in")
-                        .font(.headline)
+                        .font(.newsreaderSemiBoldItalic(fixedSize: 17))
                         .foregroundColor(.primary)
 
                     Text("How are you feeling?")
@@ -201,7 +155,7 @@ struct HomeView: View {
     private var todayProgressCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Today's Check-ins")
-                .font(.headline)
+                .font(.newsreaderSemiBoldItalic(fixedSize: 17))
 
             HStack(spacing: 16) {
                 checkInStatusPill(type: .morning, completed: appState.currentMoodStatus?.summary?.morning != nil)

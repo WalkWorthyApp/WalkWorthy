@@ -19,6 +19,7 @@ final class AppState: ObservableObject {
         didSet {
             if !isAuthenticated {
                 clearMoodState()
+                clearJournalState()
             }
         }
     }
@@ -29,6 +30,9 @@ final class AppState: ObservableObject {
     @Published var currentMoodStatus: MoodStatusResponse?
     @Published var latestMoodResponse: MoodCheckInResponse?
     @Published var dailyReflection: DailyReflection?
+
+    // MARK: - Journal State
+    @Published var journalEntries: [JournalEntry] = []
 
     private let apiClient: any EncouragementAPI
     private let notificationScheduler: NotificationScheduler
@@ -380,6 +384,44 @@ final class AppState: ObservableObject {
         currentMoodStatus = nil
         latestMoodResponse = nil
         dailyReflection = nil
+    }
+
+    // MARK: - Journal
+
+    func loadJournalEntries(date: String? = nil) async {
+        guard isAuthenticated else { return }
+        do {
+            journalEntries = try await apiClient.fetchJournalEntries(date: date, limit: 50)
+        } catch {
+            #if DEBUG
+            print("[AppState] Failed to load journal entries: \(error)")
+            #endif
+        }
+    }
+
+    func createJournalEntry(text: String, linkedCheckInId: String? = nil) async throws -> JournalEntry {
+        guard isAuthenticated else { throw MoodError.notAuthenticated }
+        let entry = try await apiClient.createJournalEntry(text: text, linkedCheckInId: linkedCheckInId)
+        journalEntries.insert(entry, at: 0)
+        return entry
+    }
+
+    func updateJournalEntry(id: String, text: String) async throws {
+        guard isAuthenticated else { throw MoodError.notAuthenticated }
+        let updated = try await apiClient.updateJournalEntry(id: id, text: text)
+        if let index = journalEntries.firstIndex(where: { $0.id == id }) {
+            journalEntries[index] = updated
+        }
+    }
+
+    func deleteJournalEntry(id: String) async throws {
+        guard isAuthenticated else { throw MoodError.notAuthenticated }
+        try await apiClient.deleteJournalEntry(id: id)
+        journalEntries.removeAll { $0.id == id }
+    }
+
+    func clearJournalState() {
+        journalEntries = []
     }
 
     private func dailyReflectionCacheKey(for date: String) -> String {

@@ -15,24 +15,25 @@ struct DailyReflectionCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("Today's Reflection")
-                    .font(.headline)
+                    .font(.newsreaderSemiBoldItalic(fixedSize: 15))
             }
 
             if let reflection {
                 Text(reflection.reflection)
-                    .font(.body)
+                    .font(.newsreader(fixedSize: 17))
                     .foregroundStyle(.primary)
+                    .lineSpacing(4)
                     .fixedSize(horizontal: false, vertical: true)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             } else {
                 // Shimmer placeholder — three lines of redacted text
                 VStack(alignment: .leading, spacing: 6) {
                     Text("This is a placeholder reflection line for sizing purposes.")
-                        .font(.body)
+                        .font(.newsreader(fixedSize: 17))
                     Text("Second line of the placeholder.")
-                        .font(.body)
+                        .font(.newsreader(fixedSize: 17))
                     Text("Third shorter line.")
-                        .font(.body)
+                        .font(.newsreader(fixedSize: 17))
                 }
                 .redacted(reason: .placeholder)
             }
