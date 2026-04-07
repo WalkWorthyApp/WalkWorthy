@@ -92,6 +92,8 @@ struct CinematicTransitionView: View {
                     }
                 }
             }
+            .frame(width: screenW, height: geo.size.height)
+            .clipped()
             .ignoresSafeArea()
             // .task ties the animation lifetime to the view — auto-cancels on dismiss
             .task {
