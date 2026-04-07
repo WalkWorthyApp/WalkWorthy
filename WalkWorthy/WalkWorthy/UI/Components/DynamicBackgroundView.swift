@@ -29,6 +29,7 @@ struct DynamicBackgroundView: View {
                         endPoint: .bottom
                     )
                 )
+                .ignoresSafeArea(edges: .top)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }

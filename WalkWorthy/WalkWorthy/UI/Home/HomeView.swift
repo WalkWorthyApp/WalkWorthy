@@ -13,39 +13,41 @@ struct HomeView: View {
     @State private var activeCheckInType: CheckInType?
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 24) {
-                // Greeting header
-                greetingHeader
+        ZStack {
+            DynamicBackgroundView()
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 24) {
+                    // Greeting header
+                    greetingHeader
 
-                // Mood check-in card (if available)
-                if let checkInType = appState.currentCheckInType {
-                    checkInCard(for: checkInType)
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.95).combined(with: .opacity),
-                            removal: .opacity
-                        ))
+                    // Mood check-in card (if available)
+                    if let checkInType = appState.currentCheckInType {
+                        checkInCard(for: checkInType)
+                            .transition(.asymmetric(
+                                insertion: .scale(scale: 0.95).combined(with: .opacity),
+                                removal: .opacity
+                            ))
+                    }
+
+                    // Today's check-in progress
+                    todayProgressCard
+
+                    // Daily reflection
+                    if appState.dailyReflection != nil {
+                        DailyReflectionCard(reflection: appState.dailyReflection)
+                    }
+
+                    // Verse of the Day
+                    DailyVerseCard()
+
+                    // Quick actions
+                    quickActions
                 }
-
-                // Today's check-in progress
-                todayProgressCard
-
-                // Daily reflection
-                if appState.dailyReflection != nil {
-                    DailyReflectionCard(reflection: appState.dailyReflection)
-                }
-
-                // Verse of the Day
-                DailyVerseCard()
-
-                // Quick actions
-                quickActions
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 120)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 8)
-            .padding(.bottom, 120)
         }
-        .background(backgroundGradient)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("WalkWorthy")
@@ -216,9 +218,6 @@ struct HomeView: View {
         }
     }
 
-    private var backgroundGradient: some View {
-        DynamicBackgroundView()
-    }
 }
 
 private struct GlassButtonStyle: ButtonStyle {
