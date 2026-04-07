@@ -41,17 +41,6 @@ enum CheckInType: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    var moodOptions: [MoodOption] {
-        switch self {
-        case .morning:
-            return [.hopeful, .anxious, .tired, .confident, .nervous, .uncertain]
-        case .midday:
-            return [.betterThanExpected, .asExpected, .harderThanExpected, .stressful]
-        case .evening:
-            return [.greatDay, .goodDay, .challengingDay, .difficultDay]
-        }
-    }
-
     var followUpOptions: [String] {
         switch self {
         case .morning:
@@ -134,92 +123,6 @@ struct MoodSpectrumData: Codable, Equatable {
     }
 }
 
-// MARK: - Mood Options
-
-enum MoodOption: String, Codable, CaseIterable, Identifiable {
-    // Morning moods
-    case hopeful
-    case anxious
-    case tired
-    case confident
-    case nervous
-    case uncertain
-
-    // Midday moods
-    case betterThanExpected = "better than expected"
-    case asExpected = "as expected"
-    case harderThanExpected = "harder than expected"
-    case stressful
-
-    // Evening moods
-    case greatDay = "great day"
-    case goodDay = "good day"
-    case challengingDay = "challenging day"
-    case difficultDay = "difficult day"
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .hopeful: return "Hopeful"
-        case .anxious: return "Anxious"
-        case .tired: return "Tired"
-        case .confident: return "Confident"
-        case .nervous: return "Nervous"
-        case .uncertain: return "Uncertain"
-        case .betterThanExpected: return "Better than expected"
-        case .asExpected: return "As expected"
-        case .harderThanExpected: return "Harder than expected"
-        case .stressful: return "Stressful"
-        case .greatDay: return "Great day"
-        case .goodDay: return "Good day"
-        case .challengingDay: return "Challenging day"
-        case .difficultDay: return "Difficult day"
-        }
-    }
-
-    var emoji: String {
-        switch self {
-        case .hopeful: return "🌅"
-        case .anxious: return "😰"
-        case .tired: return "😴"
-        case .confident: return "💪"
-        case .nervous: return "😬"
-        case .uncertain: return "🤔"
-        case .betterThanExpected: return "😊"
-        case .asExpected: return "😌"
-        case .harderThanExpected: return "😓"
-        case .stressful: return "😤"
-        case .greatDay: return "🎉"
-        case .goodDay: return "😊"
-        case .challengingDay: return "😔"
-        case .difficultDay: return "💔"
-        }
-    }
-
-    var color: Color {
-        switch self {
-        case .hopeful, .confident, .betterThanExpected, .greatDay, .goodDay:
-            return Color(red: 0.4, green: 0.7, blue: 0.4) // Soft green
-        case .tired, .asExpected, .uncertain:
-            return Color(red: 0.95, green: 0.7, blue: 0.3) // Warm orange
-        case .anxious, .nervous, .harderThanExpected, .stressful, .challengingDay, .difficultDay:
-            return Color(red: 0.85, green: 0.4, blue: 0.4) // Soft coral/red
-        }
-    }
-
-    var sentiment: MoodSentiment {
-        switch self {
-        case .hopeful, .confident, .betterThanExpected, .greatDay, .goodDay:
-            return .positive
-        case .tired, .asExpected, .uncertain:
-            return .neutral
-        case .anxious, .nervous, .harderThanExpected, .stressful, .challengingDay, .difficultDay:
-            return .challenging
-        }
-    }
-}
-
 enum MoodSentiment: String, Codable {
     case positive
     case neutral
@@ -254,11 +157,6 @@ struct AIEncouragementResponse: Codable, Equatable {
     let verseRef: String
     let verseText: String
     let translation: String
-}
-
-struct MoodResponses: Codable, Equatable {
-    let primaryMood: String
-    let followUpResponse: String
 }
 
 struct MoodCheckIn: Codable, Identifiable, Equatable {
