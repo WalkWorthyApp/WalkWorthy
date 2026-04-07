@@ -210,5 +210,4 @@ struct MoodCheckInView: View {
 
 #Preview {
     MoodCheckInView(checkInType: .morning, onComplete: {})
-        .environmentObject(AppState())
 }

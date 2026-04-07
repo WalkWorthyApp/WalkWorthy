@@ -93,5 +93,4 @@ struct JournalEntryView: View {
     NavigationStack {
         JournalEntryView(entry: nil)
     }
-    .environmentObject(AppState())
 }

@@ -120,5 +120,4 @@ private struct JournalRowView: View {
     NavigationStack {
         JournalTabView()
     }
-    .environmentObject(AppState())
 }
