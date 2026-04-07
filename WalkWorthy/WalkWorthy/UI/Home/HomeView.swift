@@ -217,12 +217,7 @@ struct HomeView: View {
     }
 
     private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [Color(.systemBackground), Color(.systemIndigo).opacity(0.08), Color(.systemBackground)],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+        DynamicBackgroundView()
     }
 }
 
