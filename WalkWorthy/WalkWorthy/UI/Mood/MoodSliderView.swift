@@ -34,7 +34,7 @@ struct MoodSliderView: View {
                 Slider(value: $sliderValue, in: 0...1)
                     .accentColor(.white)
                     .padding(.horizontal, 24)
-                    .onChange(of: sliderValue) { _ in
+                    .onChange(of: sliderValue) {
                         checkHapticSnap()
                     }
 
