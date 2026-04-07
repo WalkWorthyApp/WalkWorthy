@@ -89,6 +89,7 @@ struct MoodFollowUpView: View {
                         ZStack(alignment: .topLeading) {
                             TextEditor(text: $note)
                                 .frame(minHeight: 100)
+                                .scrollContentBackground(.hidden)
                                 .padding(4)
 
                             if note.isEmpty {
