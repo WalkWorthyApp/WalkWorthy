@@ -94,7 +94,7 @@ struct MoodResponseContent: View {
                     .padding(12)
                     .background(
                         RoundedRectangle(cornerRadius: 16)
-                            .fill(Color.white.opacity(0.92))
+                            .fill(Color.white.opacity(0.70))
                     )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -145,7 +145,7 @@ struct MoodResponseContent: View {
         .background(
             ZStack {
                 RoundedRectangle(cornerRadius: 20)
-                    .fill(Color.white.opacity(0.92))
+                    .fill(Color.white.opacity(0.70))
 
                 RoundedRectangle(cornerRadius: 20)
                     .fill(
