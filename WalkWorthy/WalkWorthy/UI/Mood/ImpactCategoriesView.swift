@@ -23,69 +23,72 @@ struct ImpactCategoriesView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Navigation bar
-            HStack {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.title3.weight(.semibold))
-                        .foregroundColor(.primary)
+        ZStack {
+            DynamicBackgroundView()
+            VStack(spacing: 0) {
+                // Navigation bar
+                HStack {
+                    Button(action: onBack) {
+                        Image(systemName: "chevron.left")
+                            .font(.title3.weight(.semibold))
+                            .foregroundColor(.primary)
+                    }
+                    Spacer()
                 }
-                Spacer()
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
+                .padding(.horizontal, 20)
+                .padding(.top, 20)
 
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Compact mood orb
-                    MoodWeatherBackground(moodScore: moodLevelToScore(moodLevel), isCompact: true)
-                        .padding(.top, 8)
+                ScrollView {
+                    VStack(spacing: 16) {
+                        // Compact mood orb
+                        MoodWeatherBackground(moodScore: moodLevelToScore(moodLevel), isCompact: true)
+                            .padding(.top, 8)
 
-                    // Mood level name
-                    Text(moodLevel.displayName)
-                        .font(Font.newsreaderSemiBoldItalic(fixedSize: 26))
+                        // Mood level name
+                        Text(moodLevel.displayName)
+                            .font(Font.newsreaderSemiBoldItalic(fixedSize: 26))
 
-                    // Prompt
-                    Text("What\u{2019}s having the biggest impact on you?")
-                        .font(Font.newsreader(fixedSize: 17))
-                        .foregroundColor(.secondary)
-                        .padding(.bottom, 8)
+                        // Prompt
+                        Text("What\u{2019}s having the biggest impact on you?")
+                            .font(Font.newsreader(fixedSize: 17))
+                            .foregroundColor(.secondary)
+                            .padding(.bottom, 8)
 
-                    // Category chips
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 100), spacing: 10)],
-                        spacing: 10
-                    ) {
-                        ForEach(allCategories, id: \.self) { category in
-                            ChipButton(
-                                label: category,
-                                isSelected: selectedCategories.contains(category),
-                                selectedColor: chipColor(for: moodLevel)
-                            ) {
-                                toggleCategory(category)
+                        // Category chips
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 100), spacing: 10)],
+                            spacing: 10
+                        ) {
+                            ForEach(allCategories, id: \.self) { category in
+                                ChipButton(
+                                    label: category,
+                                    isSelected: selectedCategories.contains(category),
+                                    selectedColor: chipColor(for: moodLevel)
+                                ) {
+                                    toggleCategory(category)
+                                }
                             }
                         }
+                        .padding(.horizontal, 16)
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
                 }
-                .padding(.bottom, 24)
-            }
+                .scrollContentBackground(.hidden)
 
-            // Next button
-            Button(action: onNext) {
-                Text("Next \u{2192}")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(chipColor(for: moodLevel))
-                    .cornerRadius(30)
+                // Next button
+                Button(action: onNext) {
+                    Text("Next \u{2192}")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(chipColor(for: moodLevel))
+                        .cornerRadius(30)
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 40)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 40)
         }
-        .background(Color(.systemBackground))
     }
 
     // MARK: - Helpers
