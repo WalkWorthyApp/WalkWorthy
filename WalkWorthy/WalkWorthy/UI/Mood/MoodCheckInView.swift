@@ -108,7 +108,6 @@ struct MoodCheckInView: View {
         if let result = submissionResult {
             MoodResponseView(
                 response: result,
-                moodLevel: currentMoodLevel,
                 onDismiss: onComplete
             )
         } else if let error = errorMessage {
