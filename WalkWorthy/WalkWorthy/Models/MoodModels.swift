@@ -180,11 +180,12 @@ struct MoodCheckIn: Codable, Identifiable, Equatable {
 
 struct CheckInSummary: Codable, Equatable {
     let checkInId: String
-    let moodLevel: String        // matches MoodLevel.rawValue
+    let moodLevel: String?       // nil for old check-ins (used primaryMood)
     let respondedAt: String
 
     var moodLevelEnum: MoodLevel? {
-        MoodLevel(rawValue: moodLevel)
+        guard let moodLevel else { return nil }
+        return MoodLevel(rawValue: moodLevel)
     }
 }
 
