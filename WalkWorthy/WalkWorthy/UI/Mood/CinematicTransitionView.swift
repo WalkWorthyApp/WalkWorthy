@@ -67,7 +67,7 @@ struct CinematicTransitionView: View {
                         Color(red: 0.92, green: 0.76, blue: 0.24).opacity(0.30),
                         Color.clear
                     ],
-                    center: UnitPoint(x: 0.25, y: 0.38),  // cross/sun position after pan settles
+                    center: UnitPoint(x: 0.35, y: 0.38),  // cross/sun position after pan settles
                     startRadius: 5,
                     endRadius: screenW * 0.5
                 )
@@ -175,7 +175,7 @@ struct CinematicTransitionView: View {
         // Phase 2: Pan begins at 0.4s, runs for 5.0s (settles at ~5.4s)
         try? await Task.sleep(for: .milliseconds(400))
         withAnimation(.timingCurve(0.25, 0.1, 0.05, 1.0, duration: 5.0)) {
-            imageOffsetX = -screenW * 0.25
+            imageOffsetX = -screenW * 0.15
         }
 
         // Phase 3: Sun bloom starts as pan decelerates (4.0s mark)
