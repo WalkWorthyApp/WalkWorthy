@@ -20,18 +20,18 @@ struct DynamicBackgroundView: View {
             Image(timeOfDay.imageName)
                 .resizable()
                 .scaledToFill()
-                .frame(height: 280)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .clipped()
                 .overlay(
                     LinearGradient(
                         colors: [.clear, Color("AppBackground")],
-                        startPoint: UnitPoint(x: 0.5, y: 0.25), // fade begins 25% down the image
+                        startPoint: UnitPoint(x: 0.5, y: 0.55), // fade begins 55% down the screen
                         endPoint: .bottom
                     )
                 )
                 .ignoresSafeArea(edges: .top)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 
