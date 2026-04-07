@@ -25,8 +25,8 @@ struct EmotionTagsView: View {
                 }
                 Spacer()
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
 
             ScrollView {
                 VStack(spacing: 16) {
@@ -150,7 +150,7 @@ struct ChipButton: View {
         Button(action: action) {
             Text(label)
                 .font(.subheadline)
-                .lineLimit(1)
+                .multilineTextAlignment(.center)
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
                 .frame(minWidth: 0)

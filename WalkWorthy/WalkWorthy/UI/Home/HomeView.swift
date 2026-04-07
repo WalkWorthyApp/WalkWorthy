@@ -42,12 +42,16 @@ struct HomeView: View {
                 quickActions
             }
             .padding(.horizontal, 24)
-            .padding(.top, 24)
+            .padding(.top, 8)
             .padding(.bottom, 120)
         }
         .background(backgroundGradient)
-        .navigationTitle("WalkWorthy")
-        .toolbarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("WalkWorthy")
+                    .font(.newsreaderSemiBoldItalic(fixedSize: 20))
+            }
+        }
         .onAppear {
             Task {
                 await appState.loadMoodStatus()
@@ -64,7 +68,7 @@ struct HomeView: View {
     private var greetingHeader: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(timeBasedGreeting)
-                .font(.largeTitle.bold())
+                .font(.newsreaderSemiBoldItalic(fixedSize: 40))
                 .foregroundStyle(.primary)
 
             Text(motivationalSubtitle)
@@ -72,7 +76,6 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.top, 12)
     }
 
     private var timeBasedGreeting: String {
@@ -122,7 +125,7 @@ struct HomeView: View {
                 // Text
                 VStack(alignment: .leading, spacing: 4) {
                     Text(type.displayName + " Check-in")
-                        .font(.headline)
+                        .font(.newsreaderSemiBoldItalic(fixedSize: 17))
                         .foregroundColor(.primary)
 
                     Text("How are you feeling?")
@@ -152,7 +155,7 @@ struct HomeView: View {
     private var todayProgressCard: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Today's Check-ins")
-                .font(.headline)
+                .font(.newsreaderSemiBoldItalic(fixedSize: 17))
 
             HStack(spacing: 16) {
                 checkInStatusPill(type: .morning, completed: appState.currentMoodStatus?.summary?.morning != nil)

@@ -33,8 +33,8 @@ struct ImpactCategoriesView: View {
                 }
                 Spacer()
             }
-            .padding(.horizontal, 16)
-            .padding(.top, 8)
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
 
             ScrollView {
                 VStack(spacing: 16) {

@@ -12,20 +12,29 @@ import UIKit
 struct MoodSliderView: View {
     @Binding var sliderValue: Double   // 0.0–1.0
     let onNext: () -> Void
+    let onBack: () -> Void
 
     /// Tracks the last snap point for haptic feedback
     @State private var lastSnapIndex: Int = -1
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             MoodWeatherBackground(moodScore: sliderValue)
+
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.title3.weight(.semibold))
+                    .foregroundColor(.white)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
 
             VStack {
                 Spacer()
 
                 // Current mood level label
                 Text(currentMoodLevel.displayName)
-                    .font(.system(size: 32, weight: .bold))
+                    .font(.newsreaderSemiBoldItalic(fixedSize: 36))
                     .foregroundColor(.white)
                     .animation(.easeInOut, value: sliderValue)
                     .padding(.bottom, 16)
@@ -89,5 +98,5 @@ struct MoodSliderView: View {
 }
 
 #Preview {
-    MoodSliderView(sliderValue: .constant(0.5), onNext: {})
+    MoodSliderView(sliderValue: .constant(0.5), onNext: {}, onBack: {})
 }

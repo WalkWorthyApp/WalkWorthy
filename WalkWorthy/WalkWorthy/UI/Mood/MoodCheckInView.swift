@@ -56,9 +56,9 @@ struct MoodCheckInView: View {
     private var stepContent: some View {
         switch step {
         case .slider:
-            MoodSliderView(sliderValue: $sliderValue) {
+            MoodSliderView(sliderValue: $sliderValue, onNext: {
                 step = .emotionTags
-            }
+            }, onBack: onComplete)
 
         case .emotionTags:
             EmotionTagsView(

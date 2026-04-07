@@ -24,6 +24,13 @@ struct JournalTabView: View {
         }
         .listStyle(.insetGrouped)
         .navigationTitle("Journal")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Journal")
+                    .font(.newsreaderSemiBoldItalic(fixedSize: 20))
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
@@ -66,7 +73,7 @@ struct JournalTabView: View {
                 .foregroundColor(.secondary)
 
             Text("No Journal Entries")
-                .font(.title3.weight(.semibold))
+                .font(.newsreaderSemiBoldItalic(fixedSize: 20))
 
             Text("Tap the pencil icon to jot down a thought or Bible study note.")
                 .font(.body)
