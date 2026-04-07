@@ -144,7 +144,7 @@ struct MoodCheckInRequest: Codable {
     let moodSpectrumData: MoodSpectrumData
 }
 
-struct MoodCheckInResponse: Codable {
+struct MoodCheckInResponse: Codable, Equatable {
     let checkInId: String
     let aiResponse: AIEncouragementResponse
     let createdAt: String
