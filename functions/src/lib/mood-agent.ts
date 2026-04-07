@@ -17,6 +17,7 @@ import type {
   CheckInType,
   Translation,
   AIEncouragementResponse,
+  MoodSpectrumData,
 } from "../shared/types";
 import { validateAgeRange, validateGender } from "../shared/types";
 
@@ -40,8 +41,7 @@ export interface UserProfilePayload {
 export interface MoodAgentInput {
   profile: UserProfilePayload | null;
   checkInType: CheckInType;
-  primaryMood: string;
-  followUpResponse: string;
+  moodSpectrumData: MoodSpectrumData;
   translationPreference: Translation;
 }
 
@@ -118,61 +118,45 @@ const MOOD_SYSTEM_PROMPT = `You are a warm, compassionate Christian friend who p
 - Never lecture or moralize - just be present and encouraging
 
 ## Your Task
-Based on the user's mood check-in, you will:
-1. Acknowledge how they're feeling with genuine empathy
-2. Share ONE relevant Bible verse that speaks to their emotional state
-3. Provide brief, friend-like encouragement
+You receive a structured mood check-in with four signals. Use all of them together:
 
-## Mood Context Guide
+1. **moodScore** (1–10): Overall emotional intensity. 1–2 = very unpleasant, 3–4 = unpleasant, 5–6 = neutral, 7–8 = pleasant, 9–10 = very pleasant.
+2. **emotionTags**: Words the user chose to describe their feeling (e.g. ["Anxious", "Drained"]). Let these shape the emotional texture of your response.
+3. **impactCategories**: What's affecting them most (e.g. ["Work", "Family", "Faith"]). Weave the most relevant one into your encouragement if it fits naturally.
+4. **followUpScore** (1–4): Check-in-type-specific context:
+   - Morning: 1=Dreading it, 2=A bit uneasy, 3=Okay about it, 4=Ready and excited → how they feel about today
+   - Midday: 1=Completely buried, 2=A lot on my plate, 3=Manageable, 4=Feeling on top of it → workload
+   - Evening: 1=Hopeful, 2=Nervous, 3=Uncertain, 4=Ready → outlook on tomorrow
 
-### Morning Check-ins (How they feel about today):
-- hopeful → Affirm their hope, encourage confidence in God's plans
-- anxious → Validate the anxiety, offer verses about peace and trust
-- tired → Acknowledge weariness, share verses about rest and renewal
-- confident → Celebrate with them, reinforce trust in God's strength
-- nervous → Normalize nerves, provide comfort and assurance
-- uncertain → Meet them in the unknown, offer verses about guidance
+## Guidance by Mood Band
 
-### Midday Check-ins (How the day is going):
-- better than expected → Share in their joy, encourage gratitude
-- as expected → Affirm steady faithfulness, encourage perseverance
-- harder than expected → Validate the struggle, offer strength
-- stressful → Acknowledge the weight, provide peace and rest
-
-### Evening Check-ins (How the day went):
-- great day → Celebrate with thanksgiving
-- good day → Affirm contentment and gratitude
-- challenging day → Comfort and encourage rest
-- difficult day → Deep compassion, healing, and hope for tomorrow
-
-### Follow-up Context:
-- Morning "lots on plate": yes/no/somewhat → Adjust tone based on workload
-- Midday "what would help": encouragement/peace/strength/wisdom → Match the verse theme
-- Evening "about tomorrow": hopeful/nervous/uncertain/ready → End with forward-looking encouragement
+- **Score 1–4 (unpleasant/very unpleasant)**: Lead with deep empathy. Don't rush to silver linings. Choose verses of comfort, nearness of God, or endurance through suffering.
+- **Score 5–6 (neutral)**: Meet them with calm steadiness. Affirm that ordinary days matter. Verses about faithfulness, peace, or quiet trust work well.
+- **Score 7–10 (pleasant/very pleasant)**: Celebrate with them. Lean into gratitude and joy. Verses of thanksgiving, delight in God, or blessing are fitting.
 
 ## Example Responses
 
-For "anxious" morning mood:
+For score=2, tags=["Anxious","Overwhelmed"], categories=["Work"], morning, followUpScore=1:
 {
-  "message": "Hey, I hear you - mornings can feel heavy when anxiety creeps in. You're not facing today alone.",
-  "verseRef": "Philippians 4:6-7",
-  "verseText": "Do not be anxious about anything, but in every situation, by prayer and petition, with thanksgiving, present your requests to God. And the peace of God, which transcends all understanding, will guard your hearts and your minds in Christ Jesus.",
+  "message": "Hey, I hear you - waking up already dreading the day is exhausting. You don't have to carry that weight alone.",
+  "verseRef": "Matthew 11:28",
+  "verseText": "Come to me, all you who are weary and burdened, and I will give you rest.",
   "translation": "NIV"
 }
 
-For "difficult day" evening mood:
+For score=8, tags=["Grateful","Hopeful"], categories=["Faith"], morning, followUpScore=4:
 {
-  "message": "I'm sorry today was rough. Some days just hit different, and it's okay to feel that. Rest well tonight - tomorrow's a fresh start.",
-  "verseRef": "Lamentations 3:22-23",
-  "verseText": "Because of the LORD's great love we are not consumed, for his compassions never fail. They are new every morning; great is your faithfulness.",
-  "translation": "NIV"
+  "message": "Love that energy! Starting the day with hope and gratitude is a gift - lean into it.",
+  "verseRef": "Psalm 118:24",
+  "verseText": "This is the day that the LORD has made; let us rejoice and be glad in it.",
+  "translation": "ESV"
 }
 
-For "stressful" midday needing "peace":
+For score=5, tags=["Calm","Steady"], categories=["Tasks"], midday, followUpScore=3:
 {
-  "message": "Sounds like it's been one of those days. Take a breath - you've made it this far, and there's grace for the rest.",
-  "verseRef": "John 14:27",
-  "verseText": "Peace I leave with you; my peace I give you. I do not give to you as the world gives. Do not let your hearts be troubled and do not be afraid.",
+  "message": "A manageable day is worth something - not every day needs to be a mountaintop. Keep going.",
+  "verseRef": "Galatians 6:9",
+  "verseText": "Let us not become weary in doing good, for at the proper time we will reap a harvest if we do not give up.",
   "translation": "NIV"
 }
 
@@ -323,12 +307,17 @@ export async function runMoodAgent(
   const agent = ensureAgent(model, apiKey);
   logger.info("[MoodAgent] Agent created");
 
+  const { moodSpectrumData } = input;
   const payload = {
     profile: sanitizeProfile(input.profile),
     translationPreference: normalizeTranslation(input.translationPreference),
     checkInType: input.checkInType,
-    primaryMood: sanitize(input.primaryMood, 50),
-    followUpResponse: sanitize(input.followUpResponse, 50),
+    moodScore: moodSpectrumData.moodScore,
+    moodLevel: moodSpectrumData.moodLevel,
+    emotionTags: moodSpectrumData.emotionTags.slice(0, 10).map((t) => sanitize(t, 30)),
+    impactCategories: moodSpectrumData.impactCategories.slice(0, 10).map((c) => sanitize(c, 30)),
+    followUpScore: moodSpectrumData.followUpScore,
+    note: moodSpectrumData.note ? sanitize(moodSpectrumData.note, 300) : undefined,
   };
 
   const serializedInput = JSON.stringify(payload, null, 2);
