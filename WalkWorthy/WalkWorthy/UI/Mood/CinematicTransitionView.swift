@@ -28,6 +28,9 @@ struct CinematicTransitionView: View {
     @State private var breathOpacity: Double = 1.0  // drives breathing pulse independently
     @State private var showCards: Bool = false
     @State private var panComplete: Bool = false
+    // Set by onChange when response arrives before pan completes.
+    // runAnimation reads this from @State storage (not the captured struct) after the sleep.
+    @State private var responseArrivedEarly: Bool = false
 
     var body: some View {
         GeometryReader { geo in
@@ -97,17 +100,28 @@ struct CinematicTransitionView: View {
             }
         }
         .ignoresSafeArea()
-        // Watch for API response arriving after pan completes
+        // Watch for API response or error arriving.
+        // If pan is already done, show cards immediately.
+        // If pan is still running, set responseArrivedEarly so runAnimation picks it up.
         .onChange(of: response) { _, newValue in
-            guard newValue != nil, panComplete, !showCards else { return }
-            withAnimation(.easeOut(duration: 0.4)) { breathOpacity = 1.0 }
-            withAnimation { showCards = true }
+            guard newValue != nil else { return }
+            if panComplete {
+                guard !showCards else { return }
+                withAnimation(.easeOut(duration: 0.4)) { breathOpacity = 1.0 }
+                withAnimation { showCards = true }
+            } else {
+                responseArrivedEarly = true
+            }
         }
-        // Watch for error arriving after pan completes
         .onChange(of: errorMessage) { _, newValue in
-            guard newValue != nil, panComplete, !showCards else { return }
-            withAnimation(.easeOut(duration: 0.4)) { breathOpacity = 1.0 }
-            withAnimation { showCards = true }
+            guard newValue != nil else { return }
+            if panComplete {
+                guard !showCards else { return }
+                withAnimation(.easeOut(duration: 0.4)) { breathOpacity = 1.0 }
+                withAnimation { showCards = true }
+            } else {
+                responseArrivedEarly = true
+            }
         }
     }
 
@@ -171,10 +185,11 @@ struct CinematicTransitionView: View {
         try? await Task.sleep(for: .milliseconds(1000))
 
         panComplete = true
-        if response != nil || errorMessage != nil {
+        if responseArrivedEarly {
+            // Response arrived while pan was running — show immediately
             withAnimation { showCards = true }
         } else {
-            // Hold at sunlit hillside, breathe until API responds
+            // Still waiting — breathe until onChange fires
             withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
                 breathOpacity = 0.65
             }
