@@ -3,8 +3,7 @@
 //  WalkWorthy
 //
 //  4-step mood check-in wizard coordinator.
-//  Steps: slider → emotion tags → impact categories → follow-up
-//         → cross transition → AI response.
+//  Steps: slider → emotion tags → impact categories → follow-up → cinematic
 //
 
 import SwiftUI
@@ -18,7 +17,7 @@ struct MoodCheckInView: View {
     // MARK: - Step
 
     private enum CheckInStep: Equatable {
-        case slider, emotionTags, impactCategories, followUp, transitioning, response
+        case slider, emotionTags, impactCategories, followUp, cinematic
     }
 
     @State private var step: CheckInStep = .slider
@@ -87,71 +86,24 @@ struct MoodCheckInView: View {
                 onBack: { step = .impactCategories }
             )
 
-        case .transitioning:
-            ZStack {
-                MoodWeatherBackground(moodScore: sliderValue)
-                CrossTransitionView(moodLevel: currentMoodLevel) {
-                    step = .response
-                }
-            }
-            .ignoresSafeArea()
-
-        case .response:
-            responseContent
-        }
-    }
-
-    // MARK: - Response Content
-
-    @ViewBuilder
-    private var responseContent: some View {
-        if let result = submissionResult {
-            MoodResponseView(
-                response: result,
-                onDismiss: onComplete
-            )
-        } else if let error = errorMessage {
-            VStack(spacing: 24) {
-                Spacer()
-
-                Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 48))
-                    .foregroundColor(.orange)
-
-                Text("Something went wrong")
-                    .font(.title2.weight(.semibold))
-
-                Text(error)
-                    .font(.body)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
-
-                Button("Try Again") {
+        case .cinematic:
+            CinematicTransitionView(
+                response: submissionResult,
+                errorMessage: errorMessage,
+                onDone: onComplete,
+                onRetry: {
                     errorMessage = nil
+                    submissionResult = nil
                     step = .followUp
                 }
-                .buttonStyle(.bordered)
-
-                Spacer()
-            }
-        } else {
-            // API still in-flight when animation finished — brief loading
-            VStack {
-                Spacer()
-                ProgressView()
-                    .scaleEffect(1.5)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(.systemBackground))
+            )
         }
     }
 
     // MARK: - Submission
 
     private func submitCheckIn() {
-        step = .transitioning
+        step = .cinematic
 
         let moodScore = Int(sliderValue * 9) + 1
         let noteValue = note.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -175,10 +127,6 @@ struct MoodCheckInView: View {
 
                 await MainActor.run {
                     submissionResult = response
-                    // CrossTransitionView.onComplete sets step = .response
-                    // when the animation finishes; responseContent then shows
-                    // the result. If the animation already completed, step is
-                    // already .response and the @State update re-renders it.
                 }
             } catch is CancellationError {
                 // View was dismissed during submission — no-op
@@ -200,7 +148,6 @@ struct MoodCheckInView: View {
                     #else
                     errorMessage = "Something went wrong. Please try again."
                     #endif
-                    step = .response
                 }
             }
         }
