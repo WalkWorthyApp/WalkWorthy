@@ -43,20 +43,20 @@ struct CinematicTransitionView: View {
                     .clipped()
                     .offset(x: imageOffsetX)
 
-                // Phase 1 — Dawn radial glow from upper-right
+                // Phase 1 — Dawn radial glow from upper-center (sun behind crosses, starts centered)
                 RadialGradient(
                     colors: [
                         Color(red: 0.92, green: 0.76, blue: 0.24).opacity(0.55),
                         Color.clear
                     ],
-                    center: UnitPoint(x: 0.75, y: 0.25),  // upper-right sky
+                    center: UnitPoint(x: 0.6, y: 0.2),  // upper-center-right as pan begins
                     startRadius: 10,
                     endRadius: screenW * 0.9
                 )
                 .ignoresSafeArea()
                 .opacity(dawnOpacity)
 
-                // Phase 3 — Sunlight bloom over cross (left third)
+                // Phase 3 — Sunlight bloom over crosses (settle at ~25% from left)
                 // breathOpacity drives the waiting pulse; settles to 1.0 when cards show.
                 RadialGradient(
                     colors: [
@@ -64,9 +64,9 @@ struct CinematicTransitionView: View {
                         Color(red: 0.92, green: 0.76, blue: 0.24).opacity(0.30),
                         Color.clear
                     ],
-                    center: UnitPoint(x: 0.22, y: 0.42),  // cross position, left third
+                    center: UnitPoint(x: 0.25, y: 0.38),  // cross/sun position after pan settles
                     startRadius: 5,
-                    endRadius: screenW * 0.45
+                    endRadius: screenW * 0.5
                 )
                 .ignoresSafeArea()
                 .opacity(sunBloomOpacity * breathOpacity)
