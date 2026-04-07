@@ -174,6 +174,7 @@ struct MoodHistoryView: View {
                         }
                     }
             )
+            .scrollContentBackground(.hidden)
         }
         .navigationTitle("Mood History")
         .navigationBarTitleDisplayMode(.inline)
