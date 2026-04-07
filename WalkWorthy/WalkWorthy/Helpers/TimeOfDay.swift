@@ -5,9 +5,10 @@
 
 import Foundation
 
-enum TimeOfDay {
+enum TimeOfDay: Sendable {
     case morning, midday, night
 
+    // morning: 5–10, midday: 11–17, night: 18–4
     static var current: TimeOfDay {
         let hour = Calendar.current.component(.hour, from: Date())
         switch hour {
