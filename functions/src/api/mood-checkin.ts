@@ -240,7 +240,9 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       if (existingDoc.exists) {
         const existingData = existingDoc.data() as MoodCheckIn;
         // If same mood score, return existing response (avoid redundant AI call)
-        if (existingData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&
+        // Guard: old check-ins lack moodSpectrumData entirely — treat as needing update
+        if (existingData.moodSpectrumData &&
+            existingData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&
             existingData.moodSpectrumData.followUpScore === input.moodSpectrumData.followUpScore) {
           logger.info('Returning existing check-in (same mood)', {
             userId,
@@ -306,7 +308,8 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         const existingCheckInDoc = await transaction.get(checkInRef);
         if (existingCheckInDoc.exists) {
           const existingCheckInData = existingCheckInDoc.data() as MoodCheckIn;
-          if (existingCheckInData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&
+          if (existingCheckInData.moodSpectrumData &&
+              existingCheckInData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&
               existingCheckInData.moodSpectrumData.followUpScore === input.moodSpectrumData.followUpScore) {
             logger.info('Concurrent request already created identical check-in, skipping write', {
               userId,
