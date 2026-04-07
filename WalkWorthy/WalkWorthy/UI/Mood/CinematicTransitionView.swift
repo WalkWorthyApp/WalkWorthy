@@ -166,25 +166,25 @@ struct CinematicTransitionView: View {
     // MARK: - Animation Sequence
 
     private func runAnimation(screenW: CGFloat) async {
-        // Phase 1: Dawn light builds (0 → 1.5s)
-        withAnimation(.easeOut(duration: 1.5)) {
+        // Phase 1: Dawn light builds (0 → 2.0s)
+        withAnimation(.easeOut(duration: 2.0)) {
             dawnOpacity = 1.0
         }
 
-        // Phase 2: Pan begins at 0.3s, runs for 3.7s (settles at ~4.0s)
-        try? await Task.sleep(for: .milliseconds(300))
-        withAnimation(.timingCurve(0.25, 0.1, 0.05, 1.0, duration: 3.7)) {
+        // Phase 2: Pan begins at 0.4s, runs for 5.0s (settles at ~5.4s)
+        try? await Task.sleep(for: .milliseconds(400))
+        withAnimation(.timingCurve(0.25, 0.1, 0.05, 1.0, duration: 5.0)) {
             imageOffsetX = -screenW * 0.25
         }
 
-        // Phase 3: Sun bloom starts as pan decelerates (3.0s mark)
-        try? await Task.sleep(for: .milliseconds(2700))
-        withAnimation(.easeIn(duration: 1.5)) {
+        // Phase 3: Sun bloom starts as pan decelerates (4.0s mark)
+        try? await Task.sleep(for: .milliseconds(3600))
+        withAnimation(.easeIn(duration: 1.8)) {
             sunBloomOpacity = 1.0
         }
 
-        // Phase 4: Pan settled (4.0s total). Show cards or start breathing.
-        try? await Task.sleep(for: .milliseconds(1000))
+        // Phase 4: Pan settled (~5.4s total). Show cards or start breathing.
+        try? await Task.sleep(for: .milliseconds(1400))
 
         panComplete = true
         if responseArrivedEarly {

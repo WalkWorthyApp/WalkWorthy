@@ -89,14 +89,14 @@ struct MoodResponseContent: View {
                 Text(response.aiResponse.message)
                     .font(.body)
                     .foregroundColor(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(12)
                     .background(
                         RoundedRectangle(cornerRadius: 16)
                             .fill(Color.white.opacity(0.92))
                     )
             }
-
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
