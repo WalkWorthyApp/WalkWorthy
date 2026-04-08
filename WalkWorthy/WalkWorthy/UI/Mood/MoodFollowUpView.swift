@@ -29,7 +29,7 @@ struct MoodFollowUpView: View {
                     }
                     Spacer()
                 }
-                .padding(.horizontal, 20)
+                .padding(.horizontal, 42)
                 .padding(.top, 20)
 
                 ScrollView {

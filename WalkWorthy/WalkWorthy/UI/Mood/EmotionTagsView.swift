@@ -15,38 +15,39 @@ struct EmotionTagsView: View {
     let onBack: () -> Void
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             DynamicBackgroundView()
+
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.title3.weight(.semibold))
+                    .foregroundColor(.white)
+            }
+            .padding(.horizontal, 42)
+            .padding(.top, 20)
+
             VStack(spacing: 0) {
-                // Navigation bar
-                HStack {
-                    Button(action: onBack) {
-                        Image(systemName: "chevron.left")
-                            .font(.title3.weight(.semibold))
-                            .foregroundColor(.primary)
-                    }
-                    Spacer()
+                // Spacer to push content below the back button
+                Color.clear.frame(height: 56)
+
+                // Header — outside ScrollView so shadow/gradient isn't clipped.
+                // .frame(maxWidth: .infinity) ensures the outer VStack stays full-width.
+                VStack(spacing: 12) {
+                    MoodWeatherBackground(moodScore: moodLevelToScore(moodLevel), isCompact: true)
+
+                    Text(moodLevel.displayName)
+                        .font(Font.newsreaderSemiBoldItalic(fixedSize: 26))
+
+                    Text("What best describes this feeling?")
+                        .font(Font.newsreader(fixedSize: 17))
+                        .foregroundColor(.secondary)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 20)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+                .padding(.bottom, 24)
 
                 ScrollView {
                     VStack(spacing: 16) {
-                        // Compact mood orb
-                        MoodWeatherBackground(moodScore: moodLevelToScore(moodLevel), isCompact: true)
-                            .padding(.top, 8)
-
-                        // Mood level name
-                        Text(moodLevel.displayName)
-                            .font(Font.newsreaderSemiBoldItalic(fixedSize: 26))
-
-                        // Prompt
-                        Text("What best describes this feeling?")
-                            .font(Font.newsreader(fixedSize: 17))
-                            .foregroundColor(.secondary)
-                            .padding(.bottom, 8)
-
-                        // Emotion tag chips
                         LazyVGrid(
                             columns: [GridItem(.adaptive(minimum: 100), spacing: 10)],
                             spacing: 10
@@ -61,7 +62,7 @@ struct EmotionTagsView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 16)
+                        .padding(.horizontal, 24)
                     }
                     .padding(.bottom, 24)
                 }

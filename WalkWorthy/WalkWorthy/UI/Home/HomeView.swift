@@ -69,7 +69,7 @@ struct HomeView: View {
     }
 
     private var greetingHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 16) {
             Text(timeBasedGreeting)
                 .font(.newsreaderSemiBoldItalic(fixedSize: 40))
                 .foregroundStyle(.primary)
@@ -79,6 +79,7 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 8)
     }
 
     private var timeBasedGreeting: String {

@@ -85,7 +85,6 @@ struct CinematicTransitionView: View {
                                 .frame(maxWidth: .infinity)
                         }
                         .frame(width: screenW, height: geo.size.height * 0.80)
-                        .background(.ultraThinMaterial.opacity(0.15))
                         .transition(.opacity.animation(.easeIn(duration: 0.7)))
                     } else if let error = errorMessage {
                         errorOverlay(message: error, geo: geo)
