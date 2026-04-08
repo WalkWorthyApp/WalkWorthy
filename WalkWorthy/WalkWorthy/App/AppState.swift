@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import SwiftData
 
 @MainActor
 final class AppState: ObservableObject {
@@ -41,6 +42,8 @@ final class AppState: ObservableObject {
     private let authSession: FirebaseAuthSession
     private var isObservingAuth = false
     private var reflectionFetchTask: Task<Void, Never>?
+    private let modelContainer: ModelContainer
+    private var modelContext: ModelContext { modelContainer.mainContext }
     private static let isoDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
@@ -66,7 +69,8 @@ final class AppState: ObservableObject {
         apiClient: any EncouragementAPI,
         authSession: FirebaseAuthSession,
         notificationScheduler: NotificationScheduler? = nil,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        modelContainer: ModelContainer
     ) {
         let resolvedConfig = config ?? Config.shared
         let resolvedScheduler = notificationScheduler ?? NotificationScheduler.shared
@@ -76,6 +80,7 @@ final class AppState: ObservableObject {
         self.authSession = authSession
         self.notificationScheduler = resolvedScheduler
         self.defaults = defaults
+        self.modelContainer = modelContainer
         self.isAuthenticated = false
         self.selectedTranslation = resolvedConfig.defaultTranslation
         self.authenticatedUserSub = nil

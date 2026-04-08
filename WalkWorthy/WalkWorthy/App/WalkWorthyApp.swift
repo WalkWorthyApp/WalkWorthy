@@ -10,6 +10,7 @@ import SwiftUI
 import UIKit
 import UserNotifications
 import FirebaseCore
+import SwiftData
 
 @main
 struct WalkWorthyApp: App {
@@ -17,10 +18,9 @@ struct WalkWorthyApp: App {
     @StateObject private var appState: AppState
     private let authSession: FirebaseAuthSession
     private let config: Config
+    private let container: ModelContainer
 
     init() {
-        // Initialize Firebase synchronously before creating FirebaseAuthSession
-        // This ensures Firebase is configured before any Firebase APIs are accessed
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
         }
@@ -36,15 +36,24 @@ struct WalkWorthyApp: App {
             fatalError("API_BASE_URL is not configured")
         }
 
+        let container = try! ModelContainer(for: JournalEntry.self)
+
         self.authSession = authSession
         self.config = resolvedConfig
-        _appState = StateObject(wrappedValue: AppState(config: resolvedConfig, apiClient: liveClient, authSession: authSession))
+        self.container = container
+        _appState = StateObject(wrappedValue: AppState(
+            config: resolvedConfig,
+            apiClient: liveClient,
+            authSession: authSession,
+            modelContainer: container
+        ))
     }
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environmentObject(appState)
+                .modelContainer(container)
                 .task {
                     await NotificationScheduler.shared.requestAuthorizationIfNeeded()
                     await appState.startObservingAuthState()
@@ -58,8 +67,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-        // Firebase is already configured in WalkWorthyApp.init
-        // This guard is a safety net in case init hasn't run yet (though it should have)
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
         }
