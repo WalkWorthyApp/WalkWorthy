@@ -403,6 +403,7 @@ final class AppState: ObservableObject {
         journalEntries = (try? modelContext.fetch(descriptor)) ?? [] // silent failure: show empty list on store error
     }
 
+    @discardableResult
     func createJournalEntry(text: String, linkedCheckInId: String? = nil) throws -> JournalEntry {
         let today = Self.isoDateFormatter.string(from: Date())
         let entry = JournalEntry(
