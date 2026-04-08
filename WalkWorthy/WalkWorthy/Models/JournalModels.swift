@@ -2,20 +2,29 @@
 //  JournalModels.swift
 //  WalkWorthy
 //
-//  Models for the journaling feature.
+//  Local SwiftData model for journal entries.
 //
 
 import Foundation
+import SwiftData
 
-// MARK: - Journal Entry
-
-struct JournalEntry: Codable, Identifiable, Equatable {
-    let id: String
+@Model
+class JournalEntry {
+    @Attribute(.unique) var id: String
     var text: String
-    let date: String             // YYYY-MM-DD
-    let linkedCheckInId: String? // optional link to a mood check-in
-    let createdAt: String        // ISO 8601
-    var updatedAt: String        // ISO 8601
+    var date: String             // YYYY-MM-DD
+    var linkedCheckInId: String? // optional link to a mood check-in
+    var createdAt: Date
+    var updatedAt: Date
+
+    init(id: String, text: String, date: String, linkedCheckInId: String?, createdAt: Date, updatedAt: Date) {
+        self.id = id
+        self.text = text
+        self.date = date
+        self.linkedCheckInId = linkedCheckInId
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
 }
 
 extension JournalEntry {
@@ -38,19 +47,4 @@ extension JournalEntry {
         guard let date = JournalEntry.inputFormatter.date(from: self.date) else { return self.date }
         return JournalEntry.displayFormatter.string(from: date)
     }
-}
-
-// MARK: - Journal API Models
-
-struct CreateJournalEntryRequest: Codable {
-    let text: String
-    let linkedCheckInId: String?
-}
-
-struct UpdateJournalEntryRequest: Codable {
-    let text: String
-}
-
-struct JournalListResponse: Codable {
-    let entries: [JournalEntry]
 }
