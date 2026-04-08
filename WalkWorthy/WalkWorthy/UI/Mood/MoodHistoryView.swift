@@ -110,46 +110,71 @@ struct MoodHistoryView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Days selector
-                daysSelector
+        ZStack {
+            DynamicBackgroundView()
 
-                // Error message display
-                if let errorMessage = errorMessage {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("Error Loading History")
-                            .font(.subheadline.bold())
-                            .foregroundStyle(.red)
+            ScrollView {
+                VStack(spacing: 24) {
+                    // Days selector
+                    daysSelector
 
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.red)
-                            .lineLimit(nil)
+                    // Error message display
+                    if let errorMessage = errorMessage {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Error Loading History")
+                                .font(.subheadline.bold())
+                                .foregroundStyle(.red)
+
+                            Text(errorMessage)
+                                .font(.footnote)
+                                .foregroundStyle(.red)
+                                .lineLimit(nil)
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(Color.red.opacity(0.2), lineWidth: 1)
+                        )
                     }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .stroke(Color.red.opacity(0.2), lineWidth: 1)
+
+                    // Week overview - always show so empty periods still display the calendar
+                    weekOverview
+
+                    // Latest encouragement
+                    if let checkIn = appState.currentMoodStatus?.checkIn {
+                        latestEncouragementCard(checkIn)
+                    }
+
+                    SentimentChartView(
+                        summaries: summaries,
+                        daysToDisplay: daysToDisplay
                     )
                 }
-
-                // Week overview - always show so empty periods still display the calendar
-                weekOverview
-
-                // Latest encouragement
-                if let checkIn = appState.currentMoodStatus?.checkIn {
-                    latestEncouragementCard(checkIn)
-                }
-
-                SentimentChartView(
-                    summaries: summaries,
-                    daysToDisplay: daysToDisplay
-                )
+                .padding()
             }
-            .padding()
+            .refreshable {
+                await loadHistoryAsync()
+            }
+            .gesture(
+                DragGesture(minimumDistance: 40, coordinateSpace: .local)
+                    .onEnded { value in
+                        let horizontal = value.translation.width
+                        let vertical = value.translation.height
+                        guard abs(horizontal) > abs(vertical) else { return }  // horizontal swipe only
+                        if horizontal < 0 {
+                            // Swipe left → go back
+                            periodOffset -= 1
+                            loadHistory()
+                        } else if horizontal > 0 && periodOffset < 0 {
+                            // Swipe right → go forward, but not past present
+                            periodOffset += 1
+                            loadHistory()
+                        }
+                    }
+            )
+            .scrollContentBackground(.hidden)
         }
         .navigationTitle("Mood History")
         .navigationBarTitleDisplayMode(.inline)
@@ -163,26 +188,6 @@ struct MoodHistoryView: View {
             loadHistory()
             Task { await appState.loadMoodStatus() }
         }
-        .refreshable {
-            await loadHistoryAsync()
-        }
-        .gesture(
-            DragGesture(minimumDistance: 40, coordinateSpace: .local)
-                .onEnded { value in
-                    let horizontal = value.translation.width
-                    let vertical = value.translation.height
-                    guard abs(horizontal) > abs(vertical) else { return }  // horizontal swipe only
-                    if horizontal < 0 {
-                        // Swipe left → go back
-                        periodOffset -= 1
-                        loadHistory()
-                    } else if horizontal > 0 && periodOffset < 0 {
-                        // Swipe right → go forward, but not past present
-                        periodOffset += 1
-                        loadHistory()
-                    }
-                }
-        )
     }
 
     private var daysSelector: some View {
@@ -321,7 +326,7 @@ struct MoodHistoryView: View {
         .padding(20)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color(.systemBackground))
+                .fill(Color("CardBackground"))
                 .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 4)
         )
         .overlay(
@@ -525,7 +530,7 @@ struct MoodHistoryView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color(.systemBackground))
+                .fill(Color("CardBackground"))
                 .shadow(color: .black.opacity(0.05), radius: 10, y: 5)
         )
     }

@@ -40,7 +40,7 @@ struct DailyReflectionCard: View {
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color(.systemBackground)))
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color("CardBackground")))
         .animation(.easeInOut(duration: 0.4), value: reflection != nil)
     }
 }

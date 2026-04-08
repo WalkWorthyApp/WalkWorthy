@@ -13,39 +13,42 @@ struct HomeView: View {
     @State private var activeCheckInType: CheckInType?
 
     var body: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 24) {
-                // Greeting header
-                greetingHeader
+        ZStack {
+            DynamicBackgroundView()
+            ScrollView(.vertical, showsIndicators: false) {
+                VStack(spacing: 24) {
+                    // Greeting header
+                    greetingHeader
 
-                // Mood check-in card (if available)
-                if let checkInType = appState.currentCheckInType {
-                    checkInCard(for: checkInType)
-                        .transition(.asymmetric(
-                            insertion: .scale(scale: 0.95).combined(with: .opacity),
-                            removal: .opacity
-                        ))
+                    // Mood check-in card (if available)
+                    if let checkInType = appState.currentCheckInType {
+                        checkInCard(for: checkInType)
+                            .transition(.asymmetric(
+                                insertion: .scale(scale: 0.95).combined(with: .opacity),
+                                removal: .opacity
+                            ))
+                    }
+
+                    // Today's check-in progress
+                    todayProgressCard
+
+                    // Daily reflection
+                    if appState.dailyReflection != nil {
+                        DailyReflectionCard(reflection: appState.dailyReflection)
+                    }
+
+                    // Verse of the Day
+                    DailyVerseCard()
+
+                    // Quick actions
+                    quickActions
                 }
-
-                // Today's check-in progress
-                todayProgressCard
-
-                // Daily reflection
-                if appState.dailyReflection != nil {
-                    DailyReflectionCard(reflection: appState.dailyReflection)
-                }
-
-                // Verse of the Day
-                DailyVerseCard()
-
-                // Quick actions
-                quickActions
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .padding(.bottom, 120)
             }
-            .padding(.horizontal, 24)
-            .padding(.top, 8)
-            .padding(.bottom, 120)
+            .scrollContentBackground(.hidden)
         }
-        .background(backgroundGradient)
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("WalkWorthy")
@@ -66,7 +69,7 @@ struct HomeView: View {
     }
 
     private var greetingHeader: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 16) {
             Text(timeBasedGreeting)
                 .font(.newsreaderSemiBoldItalic(fixedSize: 40))
                 .foregroundStyle(.primary)
@@ -76,6 +79,7 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.leading, 8)
     }
 
     private var timeBasedGreeting: String {
@@ -216,14 +220,6 @@ struct HomeView: View {
         }
     }
 
-    private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [Color(.systemBackground), Color(.systemIndigo).opacity(0.08), Color(.systemBackground)],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
-    }
 }
 
 private struct GlassButtonStyle: ButtonStyle {

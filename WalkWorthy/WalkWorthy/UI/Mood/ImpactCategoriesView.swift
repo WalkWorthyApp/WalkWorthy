@@ -23,69 +23,73 @@ struct ImpactCategoriesView: View {
     ]
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Navigation bar
-            HStack {
-                Button(action: onBack) {
-                    Image(systemName: "chevron.left")
-                        .font(.title3.weight(.semibold))
-                        .foregroundColor(.primary)
-                }
-                Spacer()
+        ZStack(alignment: .topLeading) {
+            DynamicBackgroundView()
+
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.title3.weight(.semibold))
+                    .foregroundColor(.white)
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 42)
             .padding(.top, 20)
 
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Compact mood orb
-                    MoodWeatherBackground(moodScore: moodLevelToScore(moodLevel), isCompact: true)
-                        .padding(.top, 8)
+            VStack(spacing: 0) {
+                // Spacer to push content below the back button
+                Color.clear.frame(height: 56)
 
-                    // Mood level name
+                // Header — outside ScrollView so shadow/gradient isn't clipped.
+                // .frame(maxWidth: .infinity) ensures the outer VStack stays full-width.
+                VStack(spacing: 12) {
+                    MoodWeatherBackground(moodScore: moodLevelToScore(moodLevel), isCompact: true)
+
                     Text(moodLevel.displayName)
                         .font(Font.newsreaderSemiBoldItalic(fixedSize: 26))
 
-                    // Prompt
                     Text("What\u{2019}s having the biggest impact on you?")
                         .font(Font.newsreader(fixedSize: 17))
                         .foregroundColor(.secondary)
-                        .padding(.bottom, 8)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
 
-                    // Category chips
-                    LazyVGrid(
-                        columns: [GridItem(.adaptive(minimum: 100), spacing: 10)],
-                        spacing: 10
-                    ) {
-                        ForEach(allCategories, id: \.self) { category in
-                            ChipButton(
-                                label: category,
-                                isSelected: selectedCategories.contains(category),
-                                selectedColor: chipColor(for: moodLevel)
-                            ) {
-                                toggleCategory(category)
+                ScrollView {
+                    VStack(spacing: 16) {
+                        LazyVGrid(
+                            columns: [GridItem(.adaptive(minimum: 100), spacing: 14)],
+                            spacing: 14
+                        ) {
+                            ForEach(allCategories, id: \.self) { category in
+                                ChipButton(
+                                    label: category,
+                                    isSelected: selectedCategories.contains(category),
+                                    selectedColor: chipColor(for: moodLevel)
+                                ) {
+                                    toggleCategory(category)
+                                }
                             }
                         }
+                        .padding(.horizontal, 24)
                     }
-                    .padding(.horizontal, 16)
+                    .padding(.bottom, 24)
                 }
-                .padding(.bottom, 24)
-            }
+                .scrollContentBackground(.hidden)
 
-            // Next button
-            Button(action: onNext) {
-                Text("Next \u{2192}")
-                    .font(.headline)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 14)
-                    .background(chipColor(for: moodLevel))
-                    .cornerRadius(30)
+                // Next button
+                Button(action: onNext) {
+                    Text("Next \u{2192}")
+                        .font(.headline)
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                        .background(chipColor(for: moodLevel))
+                        .cornerRadius(30)
+                }
+                .padding(.horizontal, 24)
+                .padding(.bottom, 40)
             }
-            .padding(.horizontal, 24)
-            .padding(.bottom, 40)
         }
-        .background(Color(.systemBackground))
     }
 
     // MARK: - Helpers

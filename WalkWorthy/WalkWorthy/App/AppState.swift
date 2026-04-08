@@ -8,6 +8,7 @@
 import Foundation
 import SwiftUI
 import Combine
+import SwiftData
 
 @MainActor
 final class AppState: ObservableObject {
@@ -41,6 +42,8 @@ final class AppState: ObservableObject {
     private let authSession: FirebaseAuthSession
     private var isObservingAuth = false
     private var reflectionFetchTask: Task<Void, Never>?
+    private let modelContainer: ModelContainer
+    private var modelContext: ModelContext { modelContainer.mainContext }
     private static let isoDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
@@ -66,7 +69,8 @@ final class AppState: ObservableObject {
         apiClient: any EncouragementAPI,
         authSession: FirebaseAuthSession,
         notificationScheduler: NotificationScheduler? = nil,
-        defaults: UserDefaults = .standard
+        defaults: UserDefaults = .standard,
+        modelContainer: ModelContainer
     ) {
         let resolvedConfig = config ?? Config.shared
         let resolvedScheduler = notificationScheduler ?? NotificationScheduler.shared
@@ -76,6 +80,7 @@ final class AppState: ObservableObject {
         self.authSession = authSession
         self.notificationScheduler = resolvedScheduler
         self.defaults = defaults
+        self.modelContainer = modelContainer
         self.isAuthenticated = false
         self.selectedTranslation = resolvedConfig.defaultTranslation
         self.authenticatedUserSub = nil
@@ -388,39 +393,55 @@ final class AppState: ObservableObject {
 
     // MARK: - Journal
 
-    func loadJournalEntries(date: String? = nil) async {
-        guard isAuthenticated else { return }
-        do {
-            journalEntries = try await apiClient.fetchJournalEntries(date: date, limit: 50)
-        } catch {
-            #if DEBUG
-            print("[AppState] Failed to load journal entries: \(error)")
-            #endif
+    func loadJournalEntries(date: String? = nil) {
+        var descriptor = FetchDescriptor<JournalEntry>(
+            sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
+        )
+        if let date {
+            descriptor.predicate = #Predicate { $0.date == date }
         }
+        journalEntries = (try? modelContext.fetch(descriptor)) ?? [] // silent failure: show empty list on store error
     }
 
-    func createJournalEntry(text: String, linkedCheckInId: String? = nil) async throws -> JournalEntry {
-        guard isAuthenticated else { throw MoodError.notAuthenticated }
-        let entry = try await apiClient.createJournalEntry(text: text, linkedCheckInId: linkedCheckInId)
+    func createJournalEntry(text: String, linkedCheckInId: String? = nil) throws -> JournalEntry {
+        let today = Self.isoDateFormatter.string(from: Date())
+        let entry = JournalEntry(
+            id: UUID().uuidString,
+            text: text,
+            date: today,
+            linkedCheckInId: linkedCheckInId,
+            createdAt: Date(),
+            updatedAt: Date()
+        )
+        modelContext.insert(entry)
+        try modelContext.save()
         journalEntries.insert(entry, at: 0)
         return entry
     }
 
-    func updateJournalEntry(id: String, text: String) async throws {
-        guard isAuthenticated else { throw MoodError.notAuthenticated }
-        let updated = try await apiClient.updateJournalEntry(id: id, text: text)
+    func updateJournalEntry(id: String, text: String) throws {
+        let descriptor = FetchDescriptor<JournalEntry>(predicate: #Predicate { $0.id == id })
+        guard let entry = try modelContext.fetch(descriptor).first else { return }
+        entry.text = text
+        entry.updatedAt = Date()
+        try modelContext.save()
         if let index = journalEntries.firstIndex(where: { $0.id == id }) {
-            journalEntries[index] = updated
+            journalEntries[index] = entry
         }
     }
 
-    func deleteJournalEntry(id: String) async throws {
-        guard isAuthenticated else { throw MoodError.notAuthenticated }
-        try await apiClient.deleteJournalEntry(id: id)
+    func deleteJournalEntry(id: String) throws {
+        let descriptor = FetchDescriptor<JournalEntry>(predicate: #Predicate { $0.id == id })
+        if let entry = try modelContext.fetch(descriptor).first {
+            modelContext.delete(entry)
+            try modelContext.save()
+        }
         journalEntries.removeAll { $0.id == id }
     }
 
     func clearJournalState() {
+        // Clears the in-memory list only — SwiftData store is device-local and persists across sign-outs.
+        // Journal entries are not user-scoped; a fresh loadJournalEntries() after sign-in restores them.
         journalEntries = []
     }
 
