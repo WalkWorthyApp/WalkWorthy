@@ -125,6 +125,13 @@ struct MoodCheckInView: View {
                 let response = try await appState.submitMoodCheckIn(request)
                 try Task.checkCancellation()
 
+                if !noteValue.isEmpty {
+                    try? appState.createJournalEntry(
+                        text: noteValue,
+                        linkedCheckInId: response.checkInId
+                    )
+                }
+
                 await MainActor.run {
                     submissionResult = response
                 }
