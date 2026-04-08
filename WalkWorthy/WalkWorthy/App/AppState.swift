@@ -393,7 +393,7 @@ final class AppState: ObservableObject {
 
     // MARK: - Journal
 
-    func loadJournalEntries(date: String? = nil) async {
+    func loadJournalEntries(date: String? = nil) {
         var descriptor = FetchDescriptor<JournalEntry>(
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
@@ -403,7 +403,7 @@ final class AppState: ObservableObject {
         journalEntries = (try? modelContext.fetch(descriptor)) ?? []
     }
 
-    func createJournalEntry(text: String, linkedCheckInId: String? = nil) async throws -> JournalEntry {
+    func createJournalEntry(text: String, linkedCheckInId: String? = nil) throws -> JournalEntry {
         let today = Self.isoDateFormatter.string(from: Date())
         let entry = JournalEntry(
             id: UUID().uuidString,
@@ -421,7 +421,7 @@ final class AppState: ObservableObject {
 
     func updateJournalEntry(id: String, text: String) async throws {
         let descriptor = FetchDescriptor<JournalEntry>(predicate: #Predicate { $0.id == id })
-        guard let entry = try? modelContext.fetch(descriptor).first else { return }
+        guard let entry = try modelContext.fetch(descriptor).first else { return }
         entry.text = text
         entry.updatedAt = Date()
         try modelContext.save()
@@ -432,7 +432,7 @@ final class AppState: ObservableObject {
 
     func deleteJournalEntry(id: String) async throws {
         let descriptor = FetchDescriptor<JournalEntry>(predicate: #Predicate { $0.id == id })
-        if let entry = try? modelContext.fetch(descriptor).first {
+        if let entry = try modelContext.fetch(descriptor).first {
             modelContext.delete(entry)
             try modelContext.save()
         }
