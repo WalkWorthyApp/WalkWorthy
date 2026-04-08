@@ -63,11 +63,15 @@ struct JournalEntryView: View {
         return todayFormatted
     }
 
-    private var todayFormatted: String {
+    private static let todayFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateStyle = .medium
         f.timeStyle = .none
-        return f.string(from: Date())
+        return f
+    }()
+
+    private var todayFormatted: String {
+        JournalEntryView.todayFormatter.string(from: Date())
     }
 
     private func save() {
@@ -76,15 +80,11 @@ struct JournalEntryView: View {
         if let existing = entry {
             // Only update if text changed
             guard trimmed != existing.text.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
-            Task {
-                try? await appState.updateJournalEntry(id: existing.id, text: trimmed)
-            }
+            try? appState.updateJournalEntry(id: existing.id, text: trimmed)
         } else {
             // Only create if non-empty
             guard !trimmed.isEmpty else { return }
-            Task {
-                _ = try? await appState.createJournalEntry(text: trimmed, linkedCheckInId: nil)
-            }
+            _ = try? appState.createJournalEntry(text: trimmed, linkedCheckInId: nil)
         }
     }
 }

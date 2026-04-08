@@ -53,9 +53,7 @@ struct JournalTabView: View {
             }
         }
         .onAppear {
-            Task {
-                await appState.loadJournalEntries(date: nil)
-            }
+            appState.loadJournalEntries(date: nil)
         }
         .overlay {
             if appState.journalEntries.isEmpty {
@@ -87,10 +85,8 @@ struct JournalTabView: View {
 
     private func deleteEntries(at offsets: IndexSet) {
         let entriesToDelete = offsets.map { appState.journalEntries[$0] }
-        Task {
-            for entry in entriesToDelete {
-                try? await appState.deleteJournalEntry(id: entry.id)
-            }
+        for entry in entriesToDelete {
+            try? appState.deleteJournalEntry(id: entry.id)
         }
     }
 }

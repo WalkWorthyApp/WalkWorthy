@@ -36,7 +36,15 @@ struct WalkWorthyApp: App {
             fatalError("API_BASE_URL is not configured")
         }
 
-        let container = try! ModelContainer(for: JournalEntry.self)
+        let container: ModelContainer
+        do {
+            container = try ModelContainer(for: JournalEntry.self)
+        } catch {
+            #if DEBUG
+            print("[WalkWorthyApp] ModelContainer init failed, using in-memory fallback: \(error)")
+            #endif
+            container = try! ModelContainer(for: JournalEntry.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
+        }
 
         self.authSession = authSession
         self.config = resolvedConfig

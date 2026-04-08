@@ -419,7 +419,7 @@ final class AppState: ObservableObject {
         return entry
     }
 
-    func updateJournalEntry(id: String, text: String) async throws {
+    func updateJournalEntry(id: String, text: String) throws {
         let descriptor = FetchDescriptor<JournalEntry>(predicate: #Predicate { $0.id == id })
         guard let entry = try modelContext.fetch(descriptor).first else { return }
         entry.text = text
@@ -430,7 +430,7 @@ final class AppState: ObservableObject {
         }
     }
 
-    func deleteJournalEntry(id: String) async throws {
+    func deleteJournalEntry(id: String) throws {
         let descriptor = FetchDescriptor<JournalEntry>(predicate: #Predicate { $0.id == id })
         if let entry = try modelContext.fetch(descriptor).first {
             modelContext.delete(entry)
@@ -440,6 +440,8 @@ final class AppState: ObservableObject {
     }
 
     func clearJournalState() {
+        // Clears the in-memory list only — SwiftData store is device-local and persists across sign-outs.
+        // Journal entries are not user-scoped; a fresh loadJournalEntries() after sign-in restores them.
         journalEntries = []
     }
 
