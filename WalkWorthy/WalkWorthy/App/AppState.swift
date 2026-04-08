@@ -400,7 +400,7 @@ final class AppState: ObservableObject {
         if let date {
             descriptor.predicate = #Predicate { $0.date == date }
         }
-        journalEntries = (try? modelContext.fetch(descriptor)) ?? []
+        journalEntries = (try? modelContext.fetch(descriptor)) ?? [] // silent failure: show empty list on store error
     }
 
     func createJournalEntry(text: String, linkedCheckInId: String? = nil) throws -> JournalEntry {
