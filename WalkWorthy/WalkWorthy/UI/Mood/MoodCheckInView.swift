@@ -126,7 +126,7 @@ struct MoodCheckInView: View {
                 try Task.checkCancellation()
 
                 if !noteValue.isEmpty {
-                    try? appState.createJournalEntry(
+                    _ = try? appState.createJournalEntry(
                         text: noteValue,
                         linkedCheckInId: response.checkInId
                     )

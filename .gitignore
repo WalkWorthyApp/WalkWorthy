@@ -26,8 +26,6 @@ DerivedData/
 # Claude
 .claude/*
 
-# Xcode auto-generated asset metadata
-**/Assets.xcassets/**/Contents.json
 
 # Firebase & Secrets
 GoogleService-Info.plist
