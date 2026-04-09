@@ -17,9 +17,9 @@ struct TagChip: View {
         Button(action: trigger) {
             Text(label)
                 .font(.callout.weight(.semibold))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .frame(minWidth: 90)
+                .padding(.horizontal, scaled(16))
+                .padding(.vertical, scaled(10))
+                .frame(minWidth: scaled(90))
                 .background(background)
                 .foregroundColor(foreground)
                 .clipShape(Capsule())

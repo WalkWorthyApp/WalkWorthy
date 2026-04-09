@@ -82,7 +82,7 @@ struct WeatherParticleSystem: View {
         let boltStartX = size.width * 0.45
         let boltStartY = size.height * 0.05
         let segments = 6
-        let segmentHeight = 30.0
+        let segmentHeight = scaled(30.0)
 
         var path = Path()
         path.move(to: CGPoint(x: boltStartX, y: boltStartY))
@@ -93,7 +93,7 @@ struct WeatherParticleSystem: View {
         for seg in 0..<segments {
             // Alternate zig-zag direction using deterministic offset
             let zigDirection: Double = seg.isMultiple(of: 2) ? 1.0 : -1.0
-            let xOffset = zigDirection * Double(15 + (seg * 7) % 20)
+            let xOffset = zigDirection * Double(scaled(15) + scaled(CGFloat((seg * 7) % 20)))
             currentX += xOffset
             currentY += segmentHeight
             path.addLine(to: CGPoint(x: currentX, y: currentY))
@@ -158,7 +158,7 @@ struct WeatherParticleSystem: View {
             // Drift slowly rightward, wrap
             let speed = seed.speed  // ~15–25 pt/sec
             let totalDrift = time * speed + seed.startX * size.width
-            let x = totalDrift.truncatingRemainder(dividingBy: size.width + 120) - 60
+            let x = totalDrift.truncatingRemainder(dividingBy: size.width + scaled(120)) - scaled(60)
 
             let y = seed.yFraction * size.height * 0.4
 
@@ -195,7 +195,7 @@ struct WeatherParticleSystem: View {
             let height = seed.height  // 20–40pt
 
             // Sway with sine wave
-            let swayAmount = 8.0 * intensity
+            let swayAmount = scaled(8.0) * intensity
             let sway = sin(time * 1.5 + seed.phaseOffset) * swayAmount
 
             let tipX = baseX + sway
@@ -254,17 +254,17 @@ struct WeatherParticleSystem: View {
             let hash = Double(((i &* 2654435761) & 0xFFFF))  // simple hash
             let xFrac = Double(i) / 60.0 + (hash / 65535.0) * 0.015
             let yOff = (hash.truncatingRemainder(dividingBy: 100)) / 100.0
-            let speed = 200.0 + (hash.truncatingRemainder(dividingBy: 200))
-            let length = 8.0 + (hash.truncatingRemainder(dividingBy: 7))
+            let speed = scaled(200.0) + (hash.truncatingRemainder(dividingBy: scaled(200)))
+            let length = scaled(8.0) + (hash.truncatingRemainder(dividingBy: scaled(7)))
             seeds.append(RainSeed(xFraction: xFrac, yOffset: yOff, speed: speed, length: length))
         }
         return seeds
     }()
 
     private static let cloudSeeds: [CloudSeed] = [
-        CloudSeed(startX: 0.1, yFraction: 0.15, speed: 15, radius1: 20, radius2: 16, radius3: 14),
-        CloudSeed(startX: 0.5, yFraction: 0.25, speed: 20, radius1: 25, radius2: 18, radius3: 20),
-        CloudSeed(startX: 0.8, yFraction: 0.10, speed: 12, radius1: 18, radius2: 22, radius3: 15),
+        CloudSeed(startX: 0.1, yFraction: 0.15, speed: scaled(15), radius1: scaled(20), radius2: scaled(16), radius3: scaled(14)),
+        CloudSeed(startX: 0.5, yFraction: 0.25, speed: scaled(20), radius1: scaled(25), radius2: scaled(18), radius3: scaled(20)),
+        CloudSeed(startX: 0.8, yFraction: 0.10, speed: scaled(12), radius1: scaled(18), radius2: scaled(22), radius3: scaled(15)),
     ]
 
     private static let grassSeeds: [GrassSeed] = {
@@ -272,7 +272,7 @@ struct WeatherParticleSystem: View {
         for i in 0..<40 {
             let hash = Double(((i &* 2654435761) & 0xFFFF))
             let xFrac = Double(i) / 40.0 + (hash / 65535.0) * 0.02
-            let height = 20.0 + (hash.truncatingRemainder(dividingBy: 20))
+            let height = scaled(20.0) + (hash.truncatingRemainder(dividingBy: scaled(20)))
             let phase = Double(i) * 0.7 + (hash / 65535.0) * 2.0
             let greenVar = (hash.truncatingRemainder(dividingBy: 100)) / 100.0
             seeds.append(GrassSeed(xFraction: xFrac, height: height, phaseOffset: phase, greenVariation: greenVar))

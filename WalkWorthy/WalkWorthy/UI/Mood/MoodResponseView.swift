@@ -26,7 +26,7 @@ struct MoodResponseContent: View {
     @State private var showDoneButton = false
 
     var body: some View {
-        VStack(spacing: 24) {
+        VStack(spacing: scaled(24)) {
             if showMessage {
                 messageBubble
                     .transition(.asymmetric(
@@ -39,20 +39,20 @@ struct MoodResponseContent: View {
                 verseCard
                     .transition(.asymmetric(
                         insertion: .modifier(
-                            active: VerseCardTransitionModifier(scale: 0.92, yOffset: 30, opacity: 0),
+                            active: VerseCardTransitionModifier(scale: 0.92, yOffset: scaled(30), opacity: 0),
                             identity: VerseCardTransitionModifier(scale: 1, yOffset: 0, opacity: 1)
                         ),
                         removal: .opacity
                     ))
             }
 
-            Spacer(minLength: 40)
+            Spacer(minLength: scaled(40))
 
             if showDoneButton {
                 doneButton
                     .transition(.asymmetric(
                         insertion: .modifier(
-                            active: SlideUpTransitionModifier(yOffset: 40, opacity: 0),
+                            active: SlideUpTransitionModifier(yOffset: scaled(40), opacity: 0),
                             identity: SlideUpTransitionModifier(yOffset: 0, opacity: 1)
                         ),
                         removal: .opacity
@@ -66,34 +66,34 @@ struct MoodResponseContent: View {
     // MARK: - Subviews
 
     private var messageBubble: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: scaled(12)) {
             Circle()
                 .fill(LinearGradient(
                     colors: [Color.accentColor, Color.accentColor.opacity(0.7)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ))
-                .frame(width: 40, height: 40)
+                .frame(width: scaled(40), height: scaled(40))
                 .overlay(
                     Image(systemName: "heart.fill")
                         .foregroundColor(.white)
-                        .font(.system(size: 18))
+                        .font(.system(size: scaled(18)))
                         .accessibilityHidden(true)
                 )
                 .accessibilityLabel("WalkWorthy assistant")
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: scaled(4)) {
                 Text("WalkWorthy")
-                    .font(Font.newsreaderSemiBoldItalic(fixedSize: 13))
+                    .font(Font.newsreaderSemiBoldItalic(fixedSize: scaled(13)))
                     .foregroundColor(.accentColor)
 
                 Text(response.aiResponse.message)
                     .font(.body)
                     .foregroundColor(.primary)
                     .fixedSize(horizontal: false, vertical: true)
-                    .padding(12)
+                    .padding(scaled(12))
                     .background(
-                        RoundedRectangle(cornerRadius: 16)
+                        RoundedRectangle(cornerRadius: scaled(16))
                             .fill(Color("CardBackground"))
                     )
             }
@@ -102,10 +102,10 @@ struct MoodResponseContent: View {
     }
 
     private var verseCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: scaled(16)) {
             HStack {
                 Text(response.aiResponse.verseRef)
-                    .font(Font.newsreaderSemiBoldItalic(fixedSize: 17))
+                    .font(Font.newsreaderSemiBoldItalic(fixedSize: scaled(17)))
                     .foregroundColor(.accentColor)
 
                 Spacer()
@@ -114,19 +114,19 @@ struct MoodResponseContent: View {
                     .font(.caption)
                     .fontWeight(.medium)
                     .foregroundColor(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, scaled(8))
+                    .padding(.vertical, scaled(4))
                     .background(Capsule().fill(Color.accentColor))
             }
             .opacity(showVerseReference ? 1 : 0)
-            .offset(y: showVerseReference ? 0 : 8)
+            .offset(y: showVerseReference ? 0 : scaled(8))
 
             Text(response.aiResponse.verseText)
-                .font(Font.newsreader(fixedSize: 17))
+                .font(Font.newsreader(fixedSize: scaled(17)))
                 .foregroundColor(.primary)
-                .lineSpacing(4)
+                .lineSpacing(scaled(4))
                 .opacity(showVerseText ? 1 : 0)
-                .offset(y: showVerseText ? 0 : 12)
+                .offset(y: showVerseText ? 0 : scaled(12))
 
             HStack {
                 Spacer()
@@ -139,15 +139,15 @@ struct MoodResponseContent: View {
                 }
             }
             .opacity(showShareButton ? 1 : 0)
-            .offset(y: showShareButton ? 0 : 6)
+            .offset(y: showShareButton ? 0 : scaled(6))
         }
-        .padding(20)
+        .padding(scaled(20))
         .background(
             ZStack {
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: scaled(20))
                     .fill(Color("CardBackground"))
 
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: scaled(20))
                     .fill(
                         LinearGradient(
                             colors: [
@@ -162,14 +162,14 @@ struct MoodResponseContent: View {
             }
         )
         .background(
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: scaled(20))
                 .fill(Color.accentColor.opacity(verseGlowOpacity * 0.15))
-                .blur(radius: 20)
-                .offset(y: 4)
+                .blur(radius: scaled(20))
+                .offset(y: scaled(4))
         )
-        .shadow(color: .black.opacity(0.08), radius: 10, y: 5)
+        .shadow(color: .black.opacity(0.08), radius: scaled(10), y: scaled(5))
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: scaled(20))
                 .stroke(
                     LinearGradient(
                         colors: [
@@ -189,8 +189,8 @@ struct MoodResponseContent: View {
             Text("Done")
                 .font(.headline)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(RoundedRectangle(cornerRadius: 14).fill(Color.accentColor))
+                .padding(.vertical, scaled(16))
+                .background(RoundedRectangle(cornerRadius: scaled(14)).fill(Color.accentColor))
                 .foregroundColor(.white)
         }
     }

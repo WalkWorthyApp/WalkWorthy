@@ -22,15 +22,15 @@ struct TitleScreenView: View {
                 // MARK: - Top hero: logo + quote (fills remaining space above the card)
                 Spacer()
 
-                VStack(spacing: 16) {
+                VStack(spacing: scaled(16)) {
                     logoImage
                         .resizable()
                         .scaledToFit()
-                        .frame(maxWidth: 180)
-                        .shadow(color: .black.opacity(0.2), radius: 16, x: 0, y: 8)
+                        .frame(maxWidth: scaled(180))
+                        .shadow(color: .black.opacity(0.2), radius: scaled(16), x: 0, y: scaled(8))
 
                     Text("WalkWorthy")
-                        .font(.newsreaderSemiBoldItalic(fixedSize: 34))
+                        .font(.newsreaderSemiBoldItalic(fixedSize: scaled(34)))
                         .foregroundStyle(.white)
 
                     Text("For when life seems like rough waters, WalkWorthy knowing God is with you through the storm.")
@@ -38,14 +38,14 @@ struct TitleScreenView: View {
                         .italic()
                         .foregroundStyle(.white.opacity(0.85))
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 32)
+                        .padding(.horizontal, scaled(32))
 
                     if let notice = appState.authenticationNotice {
                         Text(notice)
                             .font(.footnote.weight(.semibold))
                             .foregroundStyle(Color.red)
                             .multilineTextAlignment(.center)
-                            .padding(.horizontal, 24)
+                            .padding(.horizontal, scaled(24))
                     }
                 }
 
@@ -54,17 +54,17 @@ struct TitleScreenView: View {
                 // MARK: - Bottom card: content-sized white panel, anchored to bottom
                 if let viewModel = authViewModel {
                     SignInFormView(viewModel: viewModel)
-                        .padding(.top, 16)
-                        .padding(.bottom, 8)
+                        .padding(.top, scaled(16))
+                        .padding(.bottom, scaled(8))
                         .background(
                             Color(.systemBackground)
                                 .clipShape(
                                     UnevenRoundedRectangle(
                                         cornerRadii: .init(
-                                            topLeading: 28,
+                                            topLeading: scaled(28),
                                             bottomLeading: 0,
                                             bottomTrailing: 0,
-                                            topTrailing: 28
+                                            topTrailing: scaled(28)
                                         ),
                                         style: .continuous
                                     )

@@ -20,7 +20,7 @@ struct DynamicBackgroundView: View {
             Image(timeOfDay.imageName)
                 .resizable()
                 .scaledToFill()
-                .frame(height: 280)
+                .frame(height: scaled(280))
                 .clipped()
                 .overlay(
                     LinearGradient(

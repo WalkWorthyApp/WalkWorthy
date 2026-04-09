@@ -53,7 +53,7 @@ struct CinematicTransitionView: View {
                         Color.clear
                     ],
                     center: UnitPoint(x: 0.6, y: 0.2),  // upper-center-right as pan begins
-                    startRadius: 10,
+                    startRadius: scaled(10),
                     endRadius: screenW * 0.9
                 )
                 .ignoresSafeArea()
@@ -68,7 +68,7 @@ struct CinematicTransitionView: View {
                         Color.clear
                     ],
                     center: UnitPoint(x: 0.35, y: 0.38),  // cross/sun position after pan settles
-                    startRadius: 5,
+                    startRadius: scaled(5),
                     endRadius: screenW * 0.5
                 )
                 .ignoresSafeArea()
@@ -79,9 +79,9 @@ struct CinematicTransitionView: View {
                     if let result = response {
                         ScrollView {
                             MoodResponseContent(response: result, onDismiss: onDone)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 16)
-                                .padding(.bottom, 40)
+                                .padding(.horizontal, scaled(16))
+                                .padding(.top, scaled(16))
+                                .padding(.bottom, scaled(40))
                                 .frame(maxWidth: .infinity)
                         }
                         .frame(width: screenW, height: geo.size.height * 0.80)
@@ -130,33 +130,33 @@ struct CinematicTransitionView: View {
     // MARK: - Error Overlay
 
     private func errorOverlay(message: String, geo: GeometryProxy) -> some View {
-        VStack(spacing: 24) {
+        VStack(spacing: scaled(24)) {
             Spacer()
 
-            VStack(spacing: 16) {
+            VStack(spacing: scaled(16)) {
                 Image(systemName: "exclamationmark.triangle")
-                    .font(.system(size: 44))
+                    .font(.system(size: scaled(44)))
                     .foregroundColor(.orange)
 
                 Text("Something went wrong")
-                    .font(Font.newsreaderSemiBoldItalic(fixedSize: 20))
+                    .font(Font.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
                     .foregroundColor(.primary)
 
                 Text(message)
                     .font(.body)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, scaled(24))
 
                 Button("Try Again", action: onRetry)
                     .buttonStyle(.bordered)
             }
-            .padding(28)
+            .padding(scaled(28))
             .background(
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: scaled(20))
                     .fill(Color.white.opacity(0.92))
             )
-            .padding(.horizontal, 24)
+            .padding(.horizontal, scaled(24))
 
             Spacer()
         }

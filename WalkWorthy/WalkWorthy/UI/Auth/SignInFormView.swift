@@ -17,10 +17,10 @@ struct SignInFormView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: scaled(20)) {
             // Mode toggle
             modeToggle
-                .padding(.bottom, 8)
+                .padding(.bottom, scaled(8))
 
             // Email field
             emailSection
@@ -39,8 +39,8 @@ struct SignInFormView: View {
             // Mode switch link
             modeSwitchLink
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 16)
+        .padding(.horizontal, scaled(24))
+        .padding(.vertical, scaled(16))
         .onAppear {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                 focusedField = .email
@@ -73,7 +73,7 @@ struct SignInFormView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(viewModel.mode == .signIn ? .primary : .secondary)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, scaled(10))
             }
 
             Button(action: {
@@ -87,19 +87,19 @@ struct SignInFormView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(viewModel.mode == .createAccount ? .primary : .secondary)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
+                    .padding(.vertical, scaled(10))
             }
         }
-        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: scaled(12), style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: scaled(12), style: .continuous)
                 .stroke(Color(.systemGray4), lineWidth: 1)
         )
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: scaled(12), style: .continuous))
     }
 
     private var emailSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: scaled(8)) {
             Text("Email")
                 .font(.subheadline.bold())
                 .foregroundStyle(.primary)
@@ -110,17 +110,17 @@ struct SignInFormView: View {
                 .autocorrectionDisabled(true)
                 .keyboardType(.emailAddress)
                 .focused($focusedField, equals: .email)
-                .padding(12)
-                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .padding(scaled(12))
+                .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: scaled(14), style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    RoundedRectangle(cornerRadius: scaled(14), style: .continuous)
                         .strokeBorder(Color(.systemGray4), lineWidth: 1)
                 )
         }
     }
 
     private var passwordSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: scaled(8)) {
             Text("Password")
                 .font(.subheadline.bold())
                 .foregroundStyle(.primary)
@@ -145,13 +145,13 @@ struct SignInFormView: View {
                     NSLocalizedString("Hide password", comment: "Password visibility toggle - hide action") :
                     NSLocalizedString("Show password", comment: "Password visibility toggle - show action"))
                 .accessibilityHint(NSLocalizedString("Double tap to toggle password visibility", comment: "Password visibility toggle hint"))
-                .padding(.trailing, 12)
+                .padding(.trailing, scaled(12))
             }
-            .padding(.leading, 12)
-            .padding(.vertical, 12)
-            .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .padding(.leading, scaled(12))
+            .padding(.vertical, scaled(12))
+            .background(Color(.systemGray6), in: RoundedRectangle(cornerRadius: scaled(14), style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                RoundedRectangle(cornerRadius: scaled(14), style: .continuous)
                     .strokeBorder(Color(.systemGray4), lineWidth: 1)
             )
 
@@ -164,7 +164,7 @@ struct SignInFormView: View {
     }
 
     private func errorCard(_ error: AuthErrorDetails) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: scaled(6)) {
             Text(error.title)
                 .font(.subheadline.bold())
                 .foregroundStyle(.red)
@@ -174,11 +174,11 @@ struct SignInFormView: View {
                 .foregroundStyle(.red)
                 .lineLimit(nil)
         }
-        .padding(12)
+        .padding(scaled(12))
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: scaled(12), style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: scaled(12), style: .continuous)
                 .stroke(Color.red.opacity(0.2), lineWidth: 1)
         )
         .transition(.opacity.combined(with: .move(edge: .top)))
@@ -205,14 +205,14 @@ struct SignInFormView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .padding(14)
+            .padding(scaled(14))
             .background(
                 LinearGradient(
                     colors: [Color.accentColor.opacity(0.85), Color.accentColor],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 ),
-                in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+                in: RoundedRectangle(cornerRadius: scaled(16), style: .continuous)
             )
             .foregroundStyle(.white)
         }
@@ -221,7 +221,7 @@ struct SignInFormView: View {
     }
 
     private var modeSwitchLink: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: scaled(4)) {
             Text(viewModel.mode == .signIn ? "Don't have an account?" : "Already have an account?")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -234,6 +234,6 @@ struct SignInFormView: View {
             .buttonStyle(.plain)
         }
         .frame(maxWidth: .infinity, alignment: .center)
-        .padding(.top, 8)
+        .padding(.top, scaled(8))
     }
 }
