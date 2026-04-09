@@ -57,7 +57,7 @@ function ensureAgent(apiKey: string): Agent<object, typeof reflectionOutputSchem
   cachedAgent = new Agent<object, typeof reflectionOutputSchema>({
     name: "WalkWorthyReflectionAgent",
     instructions: REFLECTION_SYSTEM_PROMPT,
-    model: "gpt-4o-mini",
+    model: "gpt-4.1-nano",
     modelSettings: { temperature: 0.6, topP: 1 },
     outputType: reflectionOutputSchema,
   });

@@ -299,7 +299,7 @@ const MAX_RETRIES = 2;
 export async function runMoodAgent(
   input: MoodAgentInput,
   apiKey: string,
-  model = "gpt-4o-mini",
+  model = "gpt-4.1-nano",
 ): Promise<AIEncouragementResponse> {
   logger.info("[MoodAgent] Starting with model:", model);
 
