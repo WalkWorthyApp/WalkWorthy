@@ -26,17 +26,17 @@ struct JournalEntryView: View {
             Text(displayDate)
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 8)
+                .padding(.horizontal, scaled(16))
+                .padding(.top, scaled(16))
+                .padding(.bottom, scaled(8))
 
             // Linked check-in badge
             if entry?.linkedCheckInId != nil {
                 Label("Linked to check-in", systemImage: "link")
                     .font(.caption)
                     .foregroundColor(.accentColor)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 8)
+                    .padding(.horizontal, scaled(16))
+                    .padding(.bottom, scaled(8))
             }
 
             Divider()
@@ -44,8 +44,8 @@ struct JournalEntryView: View {
             // Main text editor
             TextEditor(text: $text)
                 .font(.body)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.horizontal, scaled(12))
+                .padding(.vertical, scaled(8))
         }
         .navigationTitle(entry == nil ? "New Entry" : "")
         .navigationBarTitleDisplayMode(.inline)

@@ -26,23 +26,23 @@ struct MoodSliderView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundColor(.white)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
+            .padding(.horizontal, scaled(20))
+            .padding(.top, scaled(20))
 
             VStack {
                 Spacer()
 
                 // Current mood level label
                 Text(currentMoodLevel.displayName)
-                    .font(.newsreaderSemiBoldItalic(fixedSize: 36))
+                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(36)))
                     .foregroundColor(.white)
                     .animation(.easeInOut, value: sliderValue)
-                    .padding(.bottom, 16)
+                    .padding(.bottom, scaled(16))
 
                 // Mood slider
                 Slider(value: $sliderValue, in: 0...1)
                     .accentColor(.white)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, scaled(24))
                     .onChange(of: sliderValue) {
                         checkHapticSnap()
                     }
@@ -55,8 +55,8 @@ struct MoodSliderView: View {
                 }
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.8))
-                .padding(.horizontal, 24)
-                .padding(.top, 4)
+                .padding(.horizontal, scaled(24))
+                .padding(.top, scaled(4))
 
                 // Next button
                 Button(action: onNext) {
@@ -64,13 +64,13 @@ struct MoodSliderView: View {
                         .font(.headline)
                         .foregroundColor(.black.opacity(0.85))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
+                        .padding(.vertical, scaled(14))
                         .background(Color.white)
-                        .cornerRadius(30)
+                        .cornerRadius(scaled(30))
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 24)
-                .padding(.bottom, 40)
+                .padding(.horizontal, scaled(24))
+                .padding(.top, scaled(24))
+                .padding(.bottom, scaled(40))
             }
         }
     }

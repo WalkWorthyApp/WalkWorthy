@@ -28,7 +28,7 @@ struct JournalTabView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("Journal")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: 20))
+                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
             }
         }
         .toolbar {
@@ -65,19 +65,19 @@ struct JournalTabView: View {
     // MARK: - Empty State
 
     private var emptyState: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: scaled(16)) {
             Image(systemName: "book.closed")
-                .font(.system(size: 48))
+                .font(.system(size: scaled(48)))
                 .foregroundColor(.secondary)
 
             Text("No Journal Entries")
-                .font(.newsreaderSemiBoldItalic(fixedSize: 20))
+                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
 
             Text("Tap the pencil icon to jot down a thought or Bible study note.")
                 .font(.body)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
+                .padding(.horizontal, scaled(40))
         }
     }
 
@@ -97,7 +97,7 @@ private struct JournalRowView: View {
     let entry: JournalEntry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: scaled(4)) {
             Text(entry.displayDate)
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -107,7 +107,7 @@ private struct JournalRowView: View {
                 .lineLimit(2)
                 .foregroundColor(.primary)
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, scaled(4))
     }
 
     private var previewText: String {

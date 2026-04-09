@@ -114,13 +114,13 @@ struct MoodHistoryView: View {
             DynamicBackgroundView()
 
             ScrollView {
-                VStack(spacing: 24) {
+                VStack(spacing: scaled(24)) {
                     // Days selector
                     daysSelector
 
                     // Error message display
                     if let errorMessage = errorMessage {
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: scaled(6)) {
                             Text("Error Loading History")
                                 .font(.subheadline.bold())
                                 .foregroundStyle(.red)
@@ -130,11 +130,11 @@ struct MoodHistoryView: View {
                                 .foregroundStyle(.red)
                                 .lineLimit(nil)
                         }
-                        .padding(12)
+                        .padding(scaled(12))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .background(Color.red.opacity(0.1), in: RoundedRectangle(cornerRadius: scaled(12), style: .continuous))
                         .overlay(
-                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            RoundedRectangle(cornerRadius: scaled(12), style: .continuous)
                                 .stroke(Color.red.opacity(0.2), lineWidth: 1)
                         )
                     }
@@ -181,7 +181,7 @@ struct MoodHistoryView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("Mood History")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: 20))
+                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
             }
         }
         .onAppear {
@@ -191,7 +191,7 @@ struct MoodHistoryView: View {
     }
 
     private var daysSelector: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: scaled(12)) {
             // 7 days button
             Button(action: {
                 selectedRange = .days(7)
@@ -202,8 +202,8 @@ struct MoodHistoryView: View {
                     .font(.subheadline)
                     .fontWeight(selectedRange == .days(7) ? .semibold : .regular)
                     .foregroundColor(selectedRange == .days(7) ? .white : .primary)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, scaled(16))
+                    .padding(.vertical, scaled(8))
                     .background(
                         Capsule()
                             .fill(selectedRange == .days(7) ? Color.accentColor : Color(.systemGray6))
@@ -220,8 +220,8 @@ struct MoodHistoryView: View {
                     .font(.subheadline)
                     .fontWeight(selectedRange == .days(14) ? .semibold : .regular)
                     .foregroundColor(selectedRange == .days(14) ? .white : .primary)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, scaled(16))
+                    .padding(.vertical, scaled(8))
                     .background(
                         Capsule()
                             .fill(selectedRange == .days(14) ? Color.accentColor : Color(.systemGray6))
@@ -238,8 +238,8 @@ struct MoodHistoryView: View {
                     .font(.subheadline)
                     .fontWeight(selectedRange == .thisMonth ? .semibold : .regular)
                     .foregroundColor(selectedRange == .thisMonth ? .white : .primary)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
+                    .padding(.horizontal, scaled(16))
+                    .padding(.vertical, scaled(8))
                     .background(
                         Capsule()
                             .fill(selectedRange == .thisMonth ? Color.accentColor : Color(.systemGray6))
@@ -249,7 +249,7 @@ struct MoodHistoryView: View {
     }
 
     private var weekOverview: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: scaled(20)) {
             // Header with navigation
             HStack {
                 // Previous button
@@ -263,9 +263,9 @@ struct MoodHistoryView: View {
 
                 Spacer()
 
-                VStack(alignment: .center, spacing: 4) {
+                VStack(alignment: .center, spacing: scaled(4)) {
                     Text(overviewTitle)
-                        .font(.newsreaderSemiBoldItalic(fixedSize: 19))
+                        .font(.newsreaderSemiBoldItalic(fixedSize: scaled(19)))
 
                     Text(dateRangeString)
                         .font(.caption)
@@ -289,7 +289,7 @@ struct MoodHistoryView: View {
             // Streak or completion indicator
             if !summaries.isEmpty {
                 let completedDays = summaries.filter { $0.completedCount > 0 }.count
-                HStack(spacing: 4) {
+                HStack(spacing: scaled(4)) {
                     Image(systemName: "flame.fill")
                         .foregroundColor(.orange)
                     Text("\(completedDays) days")
@@ -297,8 +297,8 @@ struct MoodHistoryView: View {
                         .fontWeight(.medium)
                         .foregroundColor(.secondary)
                 }
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
+                .padding(.horizontal, scaled(10))
+                .padding(.vertical, scaled(6))
                 .background(
                     Capsule()
                         .fill(Color.orange.opacity(0.12))
@@ -316,21 +316,21 @@ struct MoodHistoryView: View {
                 }
             } else {
                 // Grid layout for 14 days or This Month
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 7), spacing: 12) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: scaled(4)), count: 7), spacing: scaled(12)) {
                     ForEach(daysToDisplay, id: \.self) { date in
                         dayIndicator(for: date, compact: selectedRange == .thisMonth)
                     }
                 }
             }
         }
-        .padding(20)
+        .padding(scaled(20))
         .background(
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: scaled(20))
                 .fill(Color("CardBackground"))
-                .shadow(color: .black.opacity(0.06), radius: 12, x: 0, y: 4)
+                .shadow(color: .black.opacity(0.06), radius: scaled(12), x: 0, y: scaled(4))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 20)
+            RoundedRectangle(cornerRadius: scaled(20))
                 .stroke(Color(.separator).opacity(0.15), lineWidth: 1)
         )
     }
@@ -400,18 +400,18 @@ struct MoodHistoryView: View {
         let sentimentColor = sentimentColor(for: summary)
 
         // Sizes based on compact mode
-        let circleSize: CGFloat = compact ? 32 : 40
-        let fontSize: CGFloat = compact ? 12 : 15
-        let ringSize: CGFloat = compact ? 36 : 44
-        let ringWidth: CGFloat = compact ? 2 : 2.5
-        let dotSize: CGFloat = compact ? 4 : 5
+        let circleSize: CGFloat = compact ? scaled(32) : scaled(40)
+        let fontSize: CGFloat = compact ? scaled(12) : scaled(15)
+        let ringSize: CGFloat = compact ? scaled(36) : scaled(44)
+        let ringWidth: CGFloat = compact ? scaled(2) : scaled(2.5)
+        let dotSize: CGFloat = compact ? scaled(4) : scaled(5)
 
         return Button(action: {}) {
-            VStack(spacing: compact ? 4 : 8) {
+            VStack(spacing: compact ? scaled(4) : scaled(8)) {
                 // Day of week label - hide in compact mode except for first row
                 if !compact {
                     Text(dayOfWeek)
-                        .font(.system(size: 11, weight: .medium))
+                        .font(.system(size: scaled(11), weight: .medium))
                         .foregroundColor(isToday ? .accentColor : .secondary)
                         .textCase(.uppercase)
                 }
@@ -431,7 +431,7 @@ struct MoodHistoryView: View {
                                     endPoint: .bottomTrailing
                                 )
                             )
-                            .shadow(color: sentimentColor.opacity(0.35), radius: compact ? 2 : 4, x: 0, y: compact ? 1 : 2)
+                            .shadow(color: sentimentColor.opacity(0.35), radius: compact ? scaled(2) : scaled(4), x: 0, y: compact ? scaled(1) : scaled(2))
                     } else {
                         Circle()
                             .fill(Color(.systemGray6))
@@ -456,7 +456,7 @@ struct MoodHistoryView: View {
                 )
 
                 // Check-in completion dots
-                HStack(spacing: compact ? 2 : 3) {
+                HStack(spacing: compact ? scaled(2) : scaled(3)) {
                     ForEach(0..<3) { index in
                         Circle()
                             .fill(checkInDotColor(for: summary, index: index))
@@ -503,35 +503,35 @@ struct MoodHistoryView: View {
     }
 
     private func latestEncouragementCard(_ checkIn: MoodCheckIn) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: scaled(16)) {
             HStack {
                 Text("Latest Encouragement")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: 17))
+                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(17)))
 
                 Spacer()
 
                 Text(checkIn.aiResponse.verseRef)
-                    .font(.newsreaderSemiBoldItalic(fixedSize: 13))
+                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(13)))
                     .foregroundColor(.accentColor)
             }
 
             Text(checkIn.aiResponse.message)
-                .font(.newsreader(fixedSize: 15))
+                .font(.newsreader(fixedSize: scaled(15)))
                 .foregroundColor(.secondary)
 
             Divider()
 
             Text(checkIn.aiResponse.verseText)
-                .font(.newsreader(fixedSize: 15))
-                .lineSpacing(3)
+                .font(.newsreader(fixedSize: scaled(15)))
+                .lineSpacing(scaled(3))
                 .foregroundColor(.primary)
         }
-        .padding(20)
+        .padding(scaled(20))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: scaled(20), style: .continuous)
                 .fill(Color("CardBackground"))
-                .shadow(color: .black.opacity(0.05), radius: 10, y: 5)
+                .shadow(color: .black.opacity(0.05), radius: scaled(10), y: scaled(5))
         )
     }
 

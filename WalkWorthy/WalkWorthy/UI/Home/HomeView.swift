@@ -16,7 +16,7 @@ struct HomeView: View {
         ZStack {
             DynamicBackgroundView()
             ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 24) {
+                VStack(spacing: scaled(24)) {
                     // Greeting header
                     greetingHeader
 
@@ -43,16 +43,16 @@ struct HomeView: View {
                     // Quick actions
                     quickActions
                 }
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
-                .padding(.bottom, 120)
+                .padding(.horizontal, scaled(24))
+                .padding(.top, scaled(8))
+                .padding(.bottom, scaled(120))
             }
             .scrollContentBackground(.hidden)
         }
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("WalkWorthy")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: 20))
+                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
             }
         }
         .onAppear {
@@ -69,9 +69,9 @@ struct HomeView: View {
     }
 
     private var greetingHeader: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: scaled(16)) {
             Text(timeBasedGreeting)
-                .font(.newsreaderSemiBoldItalic(fixedSize: 40))
+                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(40)))
                 .foregroundStyle(.primary)
 
             Text(motivationalSubtitle)
@@ -79,7 +79,7 @@ struct HomeView: View {
                 .foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.leading, 8)
+        .padding(.leading, scaled(8))
     }
 
     private var timeBasedGreeting: String {
@@ -114,22 +114,22 @@ struct HomeView: View {
         Button {
             activeCheckInType = type
         } label: {
-            HStack(spacing: 16) {
+            HStack(spacing: scaled(16)) {
                 // Icon
                 ZStack {
                     Circle()
                         .fill(type.color.opacity(0.2))
-                        .frame(width: 56, height: 56)
+                        .frame(width: scaled(56), height: scaled(56))
 
                     Image(systemName: type.iconName)
-                        .font(.system(size: 24))
+                        .font(.system(size: scaled(24)))
                         .foregroundColor(type.color)
                 }
 
                 // Text
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: scaled(4)) {
                     Text(type.displayName + " Check-in")
-                        .font(.newsreaderSemiBoldItalic(fixedSize: 17))
+                        .font(.newsreaderSemiBoldItalic(fixedSize: scaled(17)))
                         .foregroundColor(.primary)
 
                     Text("How are you feeling?")
@@ -142,14 +142,14 @@ struct HomeView: View {
                 Image(systemName: "chevron.right")
                     .foregroundColor(.secondary)
             }
-            .padding(20)
+            .padding(scaled(20))
             .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: scaled(20), style: .continuous)
                     .fill(Color(.systemBackground))
-                    .shadow(color: type.color.opacity(0.15), radius: 10, y: 5)
+                    .shadow(color: type.color.opacity(0.15), radius: scaled(10), y: scaled(5))
             )
             .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                RoundedRectangle(cornerRadius: scaled(20), style: .continuous)
                     .stroke(type.color.opacity(0.3), lineWidth: 1)
             )
         }
@@ -157,38 +157,38 @@ struct HomeView: View {
     }
 
     private var todayProgressCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: scaled(16)) {
             Text("Today's Check-ins")
-                .font(.newsreaderSemiBoldItalic(fixedSize: 17))
+                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(17)))
 
-            HStack(spacing: 16) {
+            HStack(spacing: scaled(16)) {
                 checkInStatusPill(type: .morning, completed: appState.currentMoodStatus?.summary?.morning != nil)
                 checkInStatusPill(type: .midday, completed: appState.currentMoodStatus?.summary?.midday != nil)
                 checkInStatusPill(type: .evening, completed: appState.currentMoodStatus?.summary?.evening != nil)
             }
         }
-        .padding(20)
+        .padding(scaled(20))
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
+            RoundedRectangle(cornerRadius: scaled(20), style: .continuous)
                 .fill(.ultraThinMaterial)
         )
     }
 
     private func checkInStatusPill(type: CheckInType, completed: Bool) -> some View {
-        VStack(spacing: 8) {
+        VStack(spacing: scaled(8)) {
             ZStack {
                 Circle()
                     .fill(completed ? type.color : Color(.systemGray5))
-                    .frame(width: 44, height: 44)
+                    .frame(width: scaled(44), height: scaled(44))
 
                 if completed {
                     Image(systemName: "checkmark")
-                        .font(.system(size: 18, weight: .semibold))
+                        .font(.system(size: scaled(18), weight: .semibold))
                         .foregroundColor(.white)
                 } else {
                     Image(systemName: type.iconName)
-                        .font(.system(size: 16))
+                        .font(.system(size: scaled(16)))
                         .foregroundColor(.secondary)
                 }
             }
@@ -208,7 +208,7 @@ struct HomeView: View {
     }
 
     private var quickActions: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: scaled(12)) {
             Button {
                 selectedTab = 1
             } label: {
@@ -226,9 +226,9 @@ private struct GlassButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .padding()
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: scaled(18), style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: scaled(18), style: .continuous)
                     .stroke(Color.white.opacity(configuration.isPressed ? 0.3 : 0.15), lineWidth: 1)
             )
             .foregroundStyle(.primary)

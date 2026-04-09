@@ -23,34 +23,34 @@ struct EmotionTagsView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundColor(.white)
             }
-            .padding(.horizontal, 42)
-            .padding(.top, 20)
+            .padding(.horizontal, scaled(42))
+            .padding(.top, scaled(20))
 
             VStack(spacing: 0) {
                 // Spacer to push content below the back button
-                Color.clear.frame(height: 56)
+                Color.clear.frame(height: scaled(56))
 
                 // Header — outside ScrollView so shadow/gradient isn't clipped.
                 // .frame(maxWidth: .infinity) ensures the outer VStack stays full-width.
-                VStack(spacing: 12) {
+                VStack(spacing: scaled(12)) {
                     MoodWeatherBackground(moodScore: moodLevelToScore(moodLevel), isCompact: true)
 
                     Text(moodLevel.displayName)
-                        .font(Font.newsreaderSemiBoldItalic(fixedSize: 26))
+                        .font(Font.newsreaderSemiBoldItalic(fixedSize: scaled(26)))
 
                     Text("What best describes this feeling?")
-                        .font(Font.newsreader(fixedSize: 17))
+                        .font(Font.newsreader(fixedSize: scaled(17)))
                         .foregroundColor(.secondary)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.top, 8)
-                .padding(.bottom, 24)
+                .padding(.top, scaled(8))
+                .padding(.bottom, scaled(24))
 
                 ScrollView {
-                    VStack(spacing: 16) {
+                    VStack(spacing: scaled(16)) {
                         LazyVGrid(
-                            columns: [GridItem(.adaptive(minimum: 100), spacing: 10)],
-                            spacing: 10
+                            columns: [GridItem(.adaptive(minimum: scaled(100)), spacing: scaled(10))],
+                            spacing: scaled(10)
                         ) {
                             ForEach(emotionTags(for: moodLevel), id: \.self) { tag in
                                 ChipButton(
@@ -62,9 +62,9 @@ struct EmotionTagsView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 24)
+                        .padding(.horizontal, scaled(24))
                     }
-                    .padding(.bottom, 24)
+                    .padding(.bottom, scaled(24))
                 }
                 .scrollContentBackground(.hidden)
 
@@ -74,12 +74,12 @@ struct EmotionTagsView: View {
                         .font(.headline)
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
+                        .padding(.vertical, scaled(14))
                         .background(chipColor(for: moodLevel))
-                        .cornerRadius(30)
+                        .cornerRadius(scaled(30))
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 40)
+                .padding(.horizontal, scaled(24))
+                .padding(.bottom, scaled(40))
             }
         }
     }
@@ -155,8 +155,8 @@ struct ChipButton: View {
             Text(label)
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
+                .padding(.horizontal, scaled(14))
+                .padding(.vertical, scaled(8))
                 .frame(minWidth: 0)
                 .foregroundColor(isSelected ? .white : .primary)
                 .background(

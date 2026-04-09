@@ -47,8 +47,8 @@ struct MoodWeatherBackground: View {
                 )
             )
             .overlay(Circle().stroke(Color.white.opacity(0.3), lineWidth: 1))
-            .shadow(color: colors.bottom.opacity(0.6), radius: 20)
-            .frame(width: 100, height: 100)
+            .shadow(color: colors.bottom.opacity(0.6), radius: scaled(20))
+            .frame(width: scaled(100), height: scaled(100))
             .animation(.easeInOut(duration: 0.5), value: moodScore)
     }
 
@@ -96,24 +96,24 @@ struct MoodWeatherBackground: View {
             let h = geo.size.height
             ZStack {
                 // Dark jagged clouds
-                RoundedRectangle(cornerRadius: 25)
+                RoundedRectangle(cornerRadius: scaled(25))
                     .fill(Color(hex: 0x2D1B4E).opacity(0.9))
-                    .frame(width: w * 0.5, height: 50)
+                    .frame(width: w * 0.5, height: scaled(50))
                     .offset(x: -w * 0.1, y: h * 0.08)
 
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: scaled(20))
                     .fill(Color(hex: 0x3D1C5A).opacity(0.85))
-                    .frame(width: w * 0.4, height: 40)
+                    .frame(width: w * 0.4, height: scaled(40))
                     .offset(x: w * 0.15, y: h * 0.05)
 
-                RoundedRectangle(cornerRadius: 17)
+                RoundedRectangle(cornerRadius: scaled(17))
                     .fill(Color(hex: 0x1A0A2E).opacity(0.8))
-                    .frame(width: w * 0.35, height: 35)
+                    .frame(width: w * 0.35, height: scaled(35))
                     .offset(x: -w * 0.2, y: h * 0.12)
 
-                RoundedRectangle(cornerRadius: 22)
+                RoundedRectangle(cornerRadius: scaled(22))
                     .fill(Color(hex: 0x2D1B4E).opacity(0.75))
-                    .frame(width: w * 0.45, height: 45)
+                    .frame(width: w * 0.45, height: scaled(45))
                     .offset(x: w * 0.25, y: h * 0.1)
 
                 // Rain streaks (static decorative hints — particle system handles animated rain)
@@ -123,8 +123,8 @@ struct MoodWeatherBackground: View {
                         .fill(Color.white.opacity(0.3))
                         .frame(width: 1, height: seedHeight)
                         .offset(
-                            x: CGFloat(i) * (w / 12) - w / 2 + 20,
-                            y: h * 0.3 + CGFloat(i % 3) * 20
+                            x: CGFloat(i) * (w / 12) - w / 2 + scaled(20),
+                            y: h * 0.3 + CGFloat(i % 3) * scaled(20)
                         )
                 }
             }
@@ -140,19 +140,19 @@ struct MoodWeatherBackground: View {
             let h = geo.size.height
             ZStack {
                 // Heavy grey cloud layers
-                RoundedRectangle(cornerRadius: 27)
+                RoundedRectangle(cornerRadius: scaled(27))
                     .fill(Color(hex: 0x4A5568).opacity(0.85))
-                    .frame(width: w * 0.6, height: 55)
+                    .frame(width: w * 0.6, height: scaled(55))
                     .offset(x: -w * 0.05, y: h * 0.06)
 
-                RoundedRectangle(cornerRadius: 25)
+                RoundedRectangle(cornerRadius: scaled(25))
                     .fill(Color(hex: 0x718096).opacity(0.75))
-                    .frame(width: w * 0.55, height: 50)
+                    .frame(width: w * 0.55, height: scaled(50))
                     .offset(x: w * 0.1, y: h * 0.1)
 
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: scaled(20))
                     .fill(Color(hex: 0x4A5568).opacity(0.7))
-                    .frame(width: w * 0.45, height: 40)
+                    .frame(width: w * 0.45, height: scaled(40))
                     .offset(x: -w * 0.15, y: h * 0.14)
 
                 // Lighter drizzle hints
@@ -162,8 +162,8 @@ struct MoodWeatherBackground: View {
                         .fill(Color.white.opacity(0.2))
                         .frame(width: 1, height: seedHeight)
                         .offset(
-                            x: CGFloat(i) * (w / 8) - w / 2 + 30,
-                            y: h * 0.35 + CGFloat(i % 4) * 15
+                            x: CGFloat(i) * (w / 8) - w / 2 + scaled(30),
+                            y: h * 0.35 + CGFloat(i % 4) * scaled(15)
                         )
                 }
             }
@@ -196,12 +196,12 @@ struct MoodWeatherBackground: View {
                 // Gentle wave hint
                 Ellipse()
                     .fill(Color(hex: 0x2980B9).opacity(0.3))
-                    .frame(width: w * 1.2, height: 30)
+                    .frame(width: w * 1.2, height: scaled(30))
                     .offset(y: h * 0.18)
 
                 Ellipse()
                     .fill(Color(hex: 0x3498DB).opacity(0.2))
-                    .frame(width: w * 1.1, height: 25)
+                    .frame(width: w * 1.1, height: scaled(25))
                     .offset(y: h * 0.22)
 
                 // Soft sun near horizon
@@ -213,11 +213,11 @@ struct MoodWeatherBackground: View {
                                 Color(hex: 0xF6D365).opacity(0.0),
                             ],
                             center: .center,
-                            startRadius: 15,
-                            endRadius: 60
+                            startRadius: scaled(15),
+                            endRadius: scaled(60)
                         )
                     )
-                    .frame(width: 120, height: 120)
+                    .frame(width: scaled(120), height: scaled(120))
                     .offset(x: w * 0.15, y: h * 0.08)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -240,27 +240,27 @@ struct MoodWeatherBackground: View {
                                 Color(hex: 0xF6A623).opacity(0.0),
                             ],
                             center: .center,
-                            startRadius: 20,
-                            endRadius: 80
+                            startRadius: scaled(20),
+                            endRadius: scaled(80)
                         )
                     )
-                    .frame(width: 160, height: 160)
+                    .frame(width: scaled(160), height: scaled(160))
                     .offset(x: w * 0.25, y: -h * 0.25)
 
                 Circle()
                     .fill(Color(hex: 0xFDB813).opacity(0.95))
-                    .frame(width: 50, height: 50)
+                    .frame(width: scaled(50), height: scaled(50))
                     .offset(x: w * 0.25, y: -h * 0.25)
 
                 // Light cloud puffs
                 Ellipse()
                     .fill(Color.white.opacity(0.5))
-                    .frame(width: 80, height: 30)
+                    .frame(width: scaled(80), height: scaled(30))
                     .offset(x: -w * 0.2, y: -h * 0.15)
 
                 Ellipse()
                     .fill(Color.white.opacity(0.4))
-                    .frame(width: 60, height: 25)
+                    .frame(width: scaled(60), height: scaled(25))
                     .offset(x: w * 0.1, y: -h * 0.1)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -284,16 +284,16 @@ struct MoodWeatherBackground: View {
                                 Color(hex: 0xFDB813).opacity(0.0),
                             ],
                             center: .center,
-                            startRadius: 15,
-                            endRadius: 100
+                            startRadius: scaled(15),
+                            endRadius: scaled(100)
                         )
                     )
-                    .frame(width: 200, height: 200)
+                    .frame(width: scaled(200), height: scaled(200))
                     .offset(x: w * 0.1, y: -h * 0.3)
 
                 Circle()
                     .fill(Color(hex: 0xFDB813))
-                    .frame(width: 60, height: 60)
+                    .frame(width: scaled(60), height: scaled(60))
                     .offset(x: w * 0.1, y: -h * 0.3)
 
                 // Rolling green hill silhouette

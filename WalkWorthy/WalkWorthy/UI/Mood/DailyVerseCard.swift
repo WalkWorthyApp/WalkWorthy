@@ -46,27 +46,27 @@ struct DailyVerseCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: scaled(10)) {
+            HStack(spacing: scaled(8)) {
                 Image(systemName: "book.closed.fill")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("Verse of the Day")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: 15))
+                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(15)))
             }
 
             Text(todaysVerse.text)
-                .font(.newsreader(fixedSize: 17))
+                .font(.newsreader(fixedSize: scaled(17)))
                 .foregroundStyle(.primary)
-                .lineSpacing(4)
+                .lineSpacing(scaled(4))
                 .fixedSize(horizontal: false, vertical: true)
 
             Text("— \(todaysVerse.ref)")
-                .font(.newsreaderSemiBoldItalic(fixedSize: 13))
+                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(13)))
                 .foregroundStyle(.secondary)
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color("CardBackground")))
+        .background(RoundedRectangle(cornerRadius: scaled(16)).fill(Color("CardBackground")))
     }
 }

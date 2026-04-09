@@ -43,7 +43,7 @@ struct OnboardingForm: View {
 
     private var formContent: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: scaled(24)) {
                 header
                 ageSection
                 contextSection
@@ -53,8 +53,8 @@ struct OnboardingForm: View {
                 privacyCopy
                 primaryButton
             }
-            .padding(.vertical, 32)
-            .padding(.horizontal, 24)
+            .padding(.vertical, scaled(32))
+            .padding(.horizontal, scaled(24))
         }
         .background(gradient)
         .onAppear(perform: loadProfile)
@@ -75,7 +75,7 @@ struct OnboardingForm: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: scaled(12)) {
             Text("Welcome to WalkWorthy")
                 .font(.largeTitle.bold())
             Text("Help us tailor encouragements to your rhythms. Your information stays private and secure.")
@@ -85,7 +85,7 @@ struct OnboardingForm: View {
     }
 
     private var ageSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: scaled(8)) {
             Text("Age")
                 .font(.headline)
             TextField("18", text: $ageText)
@@ -104,8 +104,8 @@ struct OnboardingForm: View {
     }
 
     private var contextSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: scaled(16)) {
+            VStack(alignment: .leading, spacing: scaled(8)) {
                 Text("What do you do?")
                     .font(.headline)
                 Text("Fill in whichever applies to you, or both.")
@@ -114,7 +114,7 @@ struct OnboardingForm: View {
             }
 
             // Occupation field
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: scaled(6)) {
                 Label("Occupation", systemImage: "briefcase")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -127,7 +127,7 @@ struct OnboardingForm: View {
             }
 
             // Major field
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: scaled(6)) {
                 Label("Major / Field of Study", systemImage: "graduationcap")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -148,7 +148,7 @@ struct OnboardingForm: View {
     }
 
     private var genderSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: scaled(8)) {
             Text("Gender")
                 .font(.headline)
             Picker("Gender", selection: $gender) {
@@ -162,13 +162,13 @@ struct OnboardingForm: View {
 
     @ViewBuilder
     private var hobbiesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: scaled(12)) {
             Text("Hobbies")
                 .font(.headline)
             Text("Pick a few that spark joy, or add your own.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 12)], spacing: 12) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: scaled(110)), spacing: scaled(12))], spacing: scaled(12)) {
                 ForEach(Hobby.allCases, id: \.rawValue) { hobby in
                     TagChip(label: hobby.label, isSelected: selectedHobbies.contains(hobby.label)) {
                         toggleHobby(hobby.label)
@@ -180,11 +180,11 @@ struct OnboardingForm: View {
                     }
                 }
             }
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: scaled(8)) {
                 Text("Don't see yours? Add it below.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
-                HStack(spacing: 12) {
+                HStack(spacing: scaled(12)) {
                     TextField("Add another hobby", text: $customHobby)
                         .textInputAutocapitalization(.words)
                         .disableAutocorrection(true)
@@ -206,7 +206,7 @@ struct OnboardingForm: View {
 
     private var optInSection: some View {
         Toggle(isOn: $optIn) {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: scaled(4)) {
                 Text("Receive encouragement nudges")
                     .font(.headline)
                 Text("We'll keep them gentle and focused on Scripture.")
@@ -215,18 +215,18 @@ struct OnboardingForm: View {
             }
         }
         .toggleStyle(.switch)
-        .padding(.top, 12)
+        .padding(.top, scaled(12))
     }
 
     private var privacyCopy: some View {
         Text("Your data is encrypted and never shared. We use it only to personalize your encouragement experience.")
             .font(.footnote)
             .foregroundStyle(.secondary)
-            .padding(.top, 8)
+            .padding(.top, scaled(8))
     }
 
     private var primaryButton: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: scaled(12)) {
             if shouldShowIncompleteHint {
                 Text("Tell us a little about you to continue.")
                     .font(.subheadline)
@@ -238,13 +238,13 @@ struct OnboardingForm: View {
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding()
-                    .background(LinearGradient(colors: [Color.accentColor.opacity(0.85), Color.accentColor], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .background(LinearGradient(colors: [Color.accentColor.opacity(0.85), Color.accentColor], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: scaled(16), style: .continuous))
                     .foregroundStyle(Color.white)
             }
             .buttonStyle(.plain)
             .accessibilityHint("Saves your preferences locally and continues to the app.")
         }
-        .padding(.top, 16)
+        .padding(.top, scaled(16))
     }
 
     private var gradient: some View {
