@@ -17,39 +17,40 @@ struct MoodFollowUpView: View {
     let onBack: () -> Void
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .topLeading) {
             DynamicBackgroundView()
+
+            Button(action: onBack) {
+                Image(systemName: "chevron.left")
+                    .font(.title3.weight(.semibold))
+                    .foregroundColor(.white)
+            }
+            .padding(.horizontal, 42)
+            .padding(.top, 20)
+
             VStack(spacing: 0) {
-                // Navigation bar
-                HStack {
-                    Button(action: onBack) {
-                        Image(systemName: "chevron.left")
-                            .font(.title3.weight(.semibold))
-                            .foregroundColor(.primary)
-                    }
-                    Spacer()
+                // Spacer to push content below the back button
+                Color.clear.frame(height: 56)
+
+                // Header — outside ScrollView so shadow/gradient isn't clipped.
+                VStack(spacing: 12) {
+                    MoodWeatherBackground(moodScore: moodLevelToScore(moodLevel), isCompact: true)
+
+                    Text(moodLevel.displayName)
+                        .font(Font.newsreaderSemiBoldItalic(fixedSize: 26))
+
+                    Text(checkInType.followUpQuestion)
+                        .font(Font.newsreader(fixedSize: 17))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 16)
                 }
-                .padding(.horizontal, 42)
-                .padding(.top, 20)
+                .frame(maxWidth: .infinity)
+                .padding(.top, 8)
+                .padding(.bottom, 8)
 
                 ScrollView {
                     VStack(spacing: 16) {
-                        // Compact mood orb
-                        MoodWeatherBackground(moodScore: moodLevelToScore(moodLevel), isCompact: true)
-                            .padding(.top, 8)
-
-                        // Mood level name
-                        Text(moodLevel.displayName)
-                            .font(Font.newsreaderSemiBoldItalic(fixedSize: 26))
-
-                        // Follow-up question
-                        Text(checkInType.followUpQuestion)
-                            .font(Font.newsreader(fixedSize: 17))
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 16)
-                            .padding(.bottom, 8)
-
                         // Follow-up options (vertical stack)
                         VStack(spacing: 10) {
                             ForEach(Array(checkInType.followUpOptions.enumerated()), id: \.offset) { index, option in
