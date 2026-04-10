@@ -12,31 +12,47 @@ struct JournalTabView: View {
     @EnvironmentObject private var appState: AppState
     @State private var isShowingNewEntry = false
     @State private var errorMessage: String?
+    @State private var selectedTab: JournalViewMode = .journal
+
+    private enum JournalViewMode: String, CaseIterable {
+        case journal = "Journal"
+        case insights = "Insights"
+    }
 
     var body: some View {
-        List {
-            ForEach(appState.journalEntries) { entry in
-                NavigationLink(destination: JournalEntryView(entry: entry)) {
-                    JournalRowView(entry: entry)
+        VStack(spacing: 0) {
+            // Segmented picker
+            Picker("View", selection: $selectedTab) {
+                ForEach(JournalViewMode.allCases, id: \.self) { mode in
+                    Text(mode.rawValue).tag(mode)
                 }
             }
-            .onDelete(perform: deleteEntries)
+            .pickerStyle(.segmented)
+            .padding(.horizontal, scaled(16))
+            .padding(.vertical, scaled(8))
+
+            // Content
+            switch selectedTab {
+            case .journal:
+                journalListView
+            case .insights:
+                InsightsGraphView()
+            }
         }
-        .listStyle(.insetGrouped)
         .navigationTitle("Journal")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                Text("Journal")
+                Text(selectedTab.rawValue)
                     .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
             }
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isShowingNewEntry = true
-                } label: {
-                    Image(systemName: "square.and.pencil")
+            if selectedTab == .journal {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isShowingNewEntry = true
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                    }
                 }
             }
         }
@@ -52,6 +68,20 @@ struct JournalTabView: View {
                     }
             }
         }
+    }
+
+    // MARK: - Journal List
+
+    private var journalListView: some View {
+        List {
+            ForEach(appState.journalEntries) { entry in
+                NavigationLink(destination: JournalEntryView(entry: entry)) {
+                    JournalRowView(entry: entry)
+                }
+            }
+            .onDelete(perform: deleteEntries)
+        }
+        .listStyle(.insetGrouped)
         .onAppear {
             appState.loadJournalEntries(date: nil)
         }

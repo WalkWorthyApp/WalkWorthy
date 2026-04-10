@@ -16,6 +16,8 @@ protocol EncouragementAPI {
     func fetchMoodHistory(days: Int, startDate: String?, endDate: String?) async throws -> MoodHistoryResponse
     func fetchDailyReflection() async throws -> DailyReflection
 
+    // Insights
+    func fetchInsights(days: Int) async throws -> InsightsResponse
 }
 
 struct RemoteUserProfileRequest: Codable {
