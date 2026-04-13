@@ -132,19 +132,6 @@ final class LiveAPIClient: EncouragementAPI {
         return try await send(request, decode: DailyReflection.self)
     }
 
-    func fetchInsights(days: Int = 90) async throws -> InsightsResponse {
-        let queryItems = [
-            URLQueryItem(name: "insights", value: "true"),
-            URLQueryItem(name: "days", value: String(days)),
-        ]
-        let request = try await makeRequest(
-            path: "moodCheckIn",
-            method: "GET",
-            queryItems: queryItems
-        )
-        return try await send(request, decode: InsightsResponse.self)
-    }
-
     private static let isoDateFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
