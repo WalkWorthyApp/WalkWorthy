@@ -417,12 +417,6 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
     const profile = await getUserProfileOnce(userId);
     const timezone = profile?.timezone || 'America/New_York';
 
-    // Check for insights query (returns full check-in data for graph visualization)
-    if (req.query.insights === 'true') {
-      const insightsDays = req.query.days ? parseInt(req.query.days as string, 10) : 90;
-      return handleGetInsights(userId, Math.min(insightsDays, 90), db, timezone, res);
-    }
-
     // Check for history query
     const historyDays = req.query.history ? parseInt(req.query.history as string, 10) : undefined;
     const startDateParam = req.query.startDate as string | undefined;
@@ -565,73 +559,5 @@ async function handleGetHistory(userId: string, days: number, db: FirebaseFirest
     });
 
     return errorResponse(res, 500, 'Failed to retrieve mood history.');
-  }
-}
-
-/**
- * GET /moodCheckIn?insights=true&days=90
- * Returns full check-in data (minus AI response) for graph visualization.
- */
-async function handleGetInsights(
-  userId: string,
-  days: number,
-  db: FirebaseFirestore.Firestore,
-  timezone: string,
-  res: Response,
-): Promise<void> {
-  try {
-    const now = new Date();
-    const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-    const startDateString = getDateStringInTimezone(startDate, timezone);
-
-    const checkInsQuery = await db
-      .collection(COLLECTIONS.users)
-      .doc(userId)
-      .collection('moodCheckIns')
-      .where('date', '>=', startDateString)
-      .orderBy('date', 'desc')
-      .get();
-
-    const checkIns = checkInsQuery.docs
-      .reduce<Array<{
-        id: string;
-        checkInType: CheckInType;
-        date: string;
-        timestamp: string;
-        moodScore: number;
-        moodLevel: MoodLevel;
-        emotionTags: string[];
-        impactCategories: string[];
-      }>>((acc, doc) => {
-        const data = doc.data() as MoodCheckIn;
-        if (data.moodSpectrumData) {
-          acc.push({
-            id: data.id,
-            checkInType: data.checkInType,
-            date: data.date,
-            timestamp: data.timestamp,
-            moodScore: data.moodSpectrumData.moodScore,
-            moodLevel: data.moodSpectrumData.moodLevel,
-            emotionTags: data.moodSpectrumData.emotionTags,
-            impactCategories: data.moodSpectrumData.impactCategories,
-          });
-        }
-        return acc;
-      }, []);
-
-    logger.info('Insights data retrieved', {
-      userId,
-      days,
-      count: checkIns.length,
-    });
-
-    return successResponse(res, { checkIns });
-  } catch (error) {
-    logger.error('Get insights failed', {
-      userId,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
-
-    return errorResponse(res, 500, 'Failed to retrieve insights data.');
   }
 }

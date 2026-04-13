@@ -35,10 +35,6 @@ final class AppState: ObservableObject {
     // MARK: - Journal State
     @Published var journalEntries: [JournalEntry] = []
 
-    // MARK: - Insights State
-    @Published var insightsNodes: [InsightsNode] = []
-    @Published var insightsLoading = false
-
     private let apiClient: any EncouragementAPI
     private let notificationScheduler: NotificationScheduler
     private let defaults: UserDefaults
@@ -448,22 +444,6 @@ final class AppState: ObservableObject {
         // Clears the in-memory list only — SwiftData store is device-local and persists across sign-outs.
         // Journal entries are not user-scoped; a fresh loadJournalEntries() after sign-in restores them.
         journalEntries = []
-    }
-
-    // MARK: - Insights
-
-    func loadInsightsData(days: Int = 90) async {
-        guard isAuthenticated, !insightsLoading else { return }
-        insightsLoading = true
-        defer { insightsLoading = false }
-        do {
-            let response = try await apiClient.fetchInsights(days: days)
-            insightsNodes = response.checkIns.map { InsightsNode(from: $0) }
-        } catch {
-            #if DEBUG
-            print("[AppState] Insights fetch failed: \(error)")
-            #endif
-        }
     }
 
     private func dailyReflectionCacheKey(for date: String) -> String {
