@@ -13,6 +13,7 @@ import { logger } from 'firebase-functions/v2';
 import type { Request, Response } from 'express';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
 import { requireAuth, errorResponse, successResponse } from '../shared/auth';
+import { checkRateLimit, getClientIp, STANDARD_USER_LIMIT, STANDARD_IP_LIMIT } from '../shared/rate-limiter';
 import { JournalEntry } from '../shared/types';
 import { randomUUID } from 'crypto';
 
@@ -39,6 +40,26 @@ export const journal = onRequest(httpsOptions, async (req, res) => {
     path: req.path,
     hasAuthHeader: !!req.headers.authorization,
   });
+
+  // IP-based rate limiting
+  const db = getDb();
+  const clientIp = getClientIp(req);
+  const ipResult = await checkRateLimit(db, `ip:${clientIp}:journal`, STANDARD_IP_LIMIT);
+  if (!ipResult.allowed) {
+    res.set('Retry-After', String(ipResult.retryAfterSeconds));
+    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+  }
+
+  // Authenticate and apply user rate limit
+  const authReq = await requireAuth(req, res);
+  if (!authReq) return;
+  const { userId } = authReq;
+
+  const userRateResult = await checkRateLimit(db, `user:${userId}:journal`, STANDARD_USER_LIMIT);
+  if (!userRateResult.allowed) {
+    res.set('Retry-After', String(userRateResult.retryAfterSeconds));
+    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+  }
 
   // Determine if this is a sub-resource request (PATCH/DELETE /journal/:id)
   const pathSegment = req.path.replace(/^\/+/, '').replace(/\/+$/, '');

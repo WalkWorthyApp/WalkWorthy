@@ -6,6 +6,7 @@ import { validateUserProfileInput, validateAgeRange, validateGender, validateChe
 import type { UserProfile } from '../shared/profile';
 import { clearUserProfileCache } from '../shared/profile';
 import { FieldValue } from 'firebase-admin/firestore';
+import { checkRateLimit, getClientIp, STANDARD_USER_LIMIT, STANDARD_IP_LIMIT } from '../shared/rate-limiter';
 
 // Initialize Firebase on module load
 initializeFirebase();
@@ -25,12 +26,27 @@ const httpsOptions: HttpsOptions = {
  * DELETE /user-profile - Delete user's profile
  */
 export const userProfile = onRequest(httpsOptions, async (req, res) => {
+  // IP-based rate limiting
+  const db = getDb();
+  const clientIp = getClientIp(req);
+  const ipResult = await checkRateLimit(db, `ip:${clientIp}:userProfile`, STANDARD_IP_LIMIT);
+  if (!ipResult.allowed) {
+    res.set('Retry-After', String(ipResult.retryAfterSeconds));
+    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+  }
+
   // Authenticate request
   const authReq = await requireAuth(req, res);
   if (!authReq) return;
 
   const { userId } = authReq;
-  const db = getDb();
+
+  // User-based rate limiting
+  const userRateResult = await checkRateLimit(db, `user:${userId}:userProfile`, STANDARD_USER_LIMIT);
+  if (!userRateResult.allowed) {
+    res.set('Retry-After', String(userRateResult.retryAfterSeconds));
+    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+  }
   const profileRef = db.collection(COLLECTIONS.users).doc(userId).collection('profile').doc('data');
 
   try {

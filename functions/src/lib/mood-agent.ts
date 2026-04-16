@@ -283,6 +283,7 @@ function ensureAgent(
     modelSettings: {
       temperature: 0.4,
       topP: 1,
+      maxTokens: 512,
     },
     outputType: encouragementOutputSchema,
     outputGuardrails: [piiGuardrail],
