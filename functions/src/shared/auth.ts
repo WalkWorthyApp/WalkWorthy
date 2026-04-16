@@ -1,7 +1,7 @@
 import { Request, Response } from "express";
 import { logger } from "firebase-functions/v2";
 import http from "http";
-import { getAuthInstance } from "./firebase";
+import { getAuthInstance, getAppCheckInstance } from "./firebase";
 import { DecodedIdToken } from "firebase-admin/auth";
 
 /**
@@ -73,6 +73,36 @@ export async function requireAuth(
   authReq.userId = decodedToken.uid;
 
   return authReq;
+}
+
+/**
+ * Verify Firebase App Check token from X-Firebase-AppCheck header.
+ *
+ * @param req - Express request object
+ * @param res - Express response object
+ * @returns true if valid, false if rejected (response already sent)
+ */
+export async function verifyAppCheck(
+  req: Request,
+  res: Response
+): Promise<boolean> {
+  const token = req.headers['x-firebase-appcheck'];
+  if (!token || typeof token !== 'string') {
+    errorResponse(res, 401, 'Missing App Check token');
+    return false;
+  }
+
+  try {
+    const appCheck = getAppCheckInstance();
+    await appCheck.verifyToken(token);
+    return true;
+  } catch (error) {
+    logger.warn('App Check verification failed', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+    errorResponse(res, 401, 'Invalid App Check token');
+    return false;
+  }
 }
 
 /**

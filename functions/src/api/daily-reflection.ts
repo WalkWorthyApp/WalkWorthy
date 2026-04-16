@@ -10,7 +10,7 @@ import { defineSecret } from "firebase-functions/params";
 import { logger } from "firebase-functions/v2";
 import type { Request, Response } from "express";
 import { getDb, COLLECTIONS, initializeFirebase } from "../shared/firebase";
-import { requireAuth, errorResponse, successResponse } from "../shared/auth";
+import { requireAuth, verifyAppCheck, errorResponse, successResponse } from "../shared/auth";
 import { runReflectionAgent } from "../lib/reflection-agent";
 import type { DailyMoodSummary } from "../shared/types";
 import { checkRateLimit, checkDailyAiBudget, getClientIp, DAILY_REFLECTION_USER_LIMIT, DAILY_REFLECTION_IP_LIMIT, REFLECTION_DAILY_AI_BUDGET } from '../shared/rate-limiter';
@@ -58,6 +58,10 @@ export const dailyReflection = onRequest(httpsOptions, async (req, res) => {
     res.setHeader("Allow", "GET");
     return errorResponse(res, 405, "Method not allowed");
   }
+
+  // App Check verification
+  const appCheckValid = await verifyAppCheck(req, res);
+  if (!appCheckValid) return;
 
   // IP-based rate limiting
   const db = getDb();

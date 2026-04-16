@@ -12,7 +12,7 @@ import { defineSecret } from 'firebase-functions/params';
 import { logger } from 'firebase-functions/v2';
 import type { Request, Response } from 'express';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
-import { requireAuth, errorResponse, successResponse } from '../shared/auth';
+import { requireAuth, verifyAppCheck, errorResponse, successResponse } from '../shared/auth';
 import { getUserProfileOnce } from '../shared/profile';
 import { runMoodAgent, UserProfilePayload, MoodAgentInput } from '../lib/mood-agent';
 import {
@@ -178,6 +178,10 @@ export const moodCheckIn = onRequest(httpsOptions, async (req, res) => {
     path: req.path,
     hasAuthHeader: !!req.headers.authorization,
   });
+
+  // App Check verification
+  const appCheckValid = await verifyAppCheck(req, res);
+  if (!appCheckValid) return;
 
   // IP-based rate limiting (before auth to protect against brute force)
   const db = getDb();

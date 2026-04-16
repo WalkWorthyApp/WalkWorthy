@@ -1,10 +1,12 @@
 import { initializeApp, getApps, App } from 'firebase-admin/app';
 import { getFirestore, Firestore } from 'firebase-admin/firestore';
 import { getAuth, Auth } from 'firebase-admin/auth';
+import { getAppCheck, AppCheck } from 'firebase-admin/app-check';
 
 let app: App | undefined;
 let firestoreInstance: Firestore | undefined;
 let authInstance: Auth | undefined;
+let appCheckInstance: AppCheck | undefined;
 
 /**
  * Initialize Firebase Admin SDK.
@@ -43,6 +45,17 @@ export function getAuthInstance(): Auth {
   initializeFirebase();
   authInstance = getAuth();
   return authInstance;
+}
+
+/**
+ * Get Firebase App Check instance.
+ * Automatically initializes Firebase if needed.
+ */
+export function getAppCheckInstance(): AppCheck {
+  if (appCheckInstance) return appCheckInstance;
+  initializeFirebase();
+  appCheckInstance = getAppCheck();
+  return appCheckInstance;
 }
 
 /**

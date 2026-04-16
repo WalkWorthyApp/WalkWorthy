@@ -10,16 +10,18 @@ import Foundation
 final class LiveAPIClient: EncouragementAPI {
     private let baseURL: URL
     private let tokenProvider: BearerTokenProviding
+    private let appCheckProvider: AppCheckTokenProviding
     private let urlSession: URLSession
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init?(config: Config, tokenProvider: BearerTokenProviding, urlSession: URLSession = .shared) {
+    init?(config: Config, tokenProvider: BearerTokenProviding, appCheckProvider: AppCheckTokenProviding, urlSession: URLSession = .shared) {
         guard let baseURL = config.apiBaseURL else {
             return nil
         }
         self.baseURL = baseURL
         self.tokenProvider = tokenProvider
+        self.appCheckProvider = appCheckProvider
         self.urlSession = urlSession
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
@@ -180,6 +182,15 @@ final class LiveAPIClient: EncouragementAPI {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         } catch {
             throw APIError.notAuthenticated
+        }
+
+        do {
+            let appCheckToken = try await appCheckProvider.validAppCheckToken()
+            request.setValue(appCheckToken, forHTTPHeaderField: "X-Firebase-AppCheck")
+        } catch {
+            #if DEBUG
+            print("[LiveAPIClient] App Check token fetch failed: \(error)")
+            #endif
         }
 
         return request
