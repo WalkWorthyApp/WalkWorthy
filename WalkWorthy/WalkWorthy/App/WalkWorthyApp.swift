@@ -10,6 +10,7 @@ import SwiftUI
 import UIKit
 import UserNotifications
 import FirebaseCore
+import FirebaseAppCheck
 import SwiftData
 
 @main
@@ -21,6 +22,12 @@ struct WalkWorthyApp: App {
     private let container: ModelContainer
 
     init() {
+        #if DEBUG
+        AppCheck.setAppCheckProviderFactory(AppCheckDebugProviderFactory())
+        #else
+        AppCheck.setAppCheckProviderFactory(AppAttestProviderFactory())
+        #endif
+
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
         }
@@ -32,7 +39,7 @@ struct WalkWorthyApp: App {
         #endif
 
         let authSession = FirebaseAuthSession()
-        guard let liveClient = LiveAPIClient(config: resolvedConfig, tokenProvider: authSession) else {
+        guard let liveClient = LiveAPIClient(config: resolvedConfig, tokenProvider: authSession, appCheckProvider: authSession) else {
             fatalError("API_BASE_URL is not configured")
         }
 

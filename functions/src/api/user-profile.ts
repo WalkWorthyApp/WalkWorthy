@@ -1,7 +1,7 @@
 import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
-import { requireAuth, errorResponse, successResponse } from '../shared/auth';
+import { requireAuth, verifyAppCheck, errorResponse, successResponse } from '../shared/auth';
 import { validateUserProfileInput, validateAgeRange, validateGender, validateCheckInTimes } from '../shared/types';
 import type { UserProfile } from '../shared/profile';
 import { clearUserProfileCache } from '../shared/profile';
@@ -26,6 +26,10 @@ const httpsOptions: HttpsOptions = {
  * DELETE /user-profile - Delete user's profile
  */
 export const userProfile = onRequest(httpsOptions, async (req, res) => {
+  // App Check verification
+  const appCheckValid = await verifyAppCheck(req, res);
+  if (!appCheckValid) return;
+
   // IP-based rate limiting
   const db = getDb();
   const clientIp = getClientIp(req);

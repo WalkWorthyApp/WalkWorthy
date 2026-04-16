@@ -12,7 +12,7 @@ import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 import type { Request, Response } from 'express';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
-import { requireAuth, errorResponse, successResponse } from '../shared/auth';
+import { requireAuth, verifyAppCheck, errorResponse, successResponse } from '../shared/auth';
 import { checkRateLimit, getClientIp, STANDARD_USER_LIMIT, STANDARD_IP_LIMIT } from '../shared/rate-limiter';
 import { JournalEntry } from '../shared/types';
 import { randomUUID } from 'crypto';
@@ -40,6 +40,10 @@ export const journal = onRequest(httpsOptions, async (req, res) => {
     path: req.path,
     hasAuthHeader: !!req.headers.authorization,
   });
+
+  // App Check verification
+  const appCheckValid = await verifyAppCheck(req, res);
+  if (!appCheckValid) return;
 
   // IP-based rate limiting
   const db = getDb();

@@ -1,7 +1,7 @@
 import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
-import { requireAuth, errorResponse, successResponse } from '../shared/auth';
+import { requireAuth, verifyAppCheck, errorResponse, successResponse } from '../shared/auth';
 import {
   checkRateLimit,
   getClientIp,
@@ -41,6 +41,10 @@ export const encouragementNext = onRequest(httpsOptions, async (req, res) => {
     res.setHeader('Allow', 'GET');
     return errorResponse(res, 405, `Method ${req.method} not allowed`);
   }
+
+  // App Check verification
+  const appCheckValid = await verifyAppCheck(req, res);
+  if (!appCheckValid) return;
 
   // IP-based rate limiting
   const db = getDb();
@@ -141,6 +145,10 @@ export const encouragementHistory = onRequest(httpsOptions, async (req, res) => 
     res.setHeader('Allow', 'GET');
     return errorResponse(res, 405, `Method ${req.method} not allowed`);
   }
+
+  // App Check verification
+  const appCheckValid = await verifyAppCheck(req, res);
+  if (!appCheckValid) return;
 
   // IP-based rate limiting
   const db = getDb();

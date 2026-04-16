@@ -7,8 +7,9 @@
 
 import Foundation
 import FirebaseAuth
+import FirebaseAppCheck
 
-actor FirebaseAuthSession: BearerTokenProviding {
+actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
     enum AuthError: LocalizedError, Sendable {
         case notAuthenticated
         case tokenFetchFailed(String)
@@ -45,6 +46,13 @@ actor FirebaseAuthSession: BearerTokenProviding {
         } catch {
             throw AuthError.tokenFetchFailed(error.localizedDescription)
         }
+    }
+
+    // MARK: - AppCheckTokenProviding
+
+    func validAppCheckToken() async throws -> String {
+        let result = try await AppCheck.appCheck().token(forcingRefresh: false)
+        return result.token
     }
 
     // MARK: - Public Methods

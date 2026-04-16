@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		2FCA27BD2F01E38F002FFC6A /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 2FCA27BC2F01E38F002FFC6A /* FirebaseAuth */; };
+		2FCA27BF2F01E38F002FFC6A /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = 2FCA27BE2F01E38F002FFC6A /* FirebaseAppCheck */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +42,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				2FCA27BD2F01E38F002FFC6A /* FirebaseAuth in Frameworks */,
+				2FCA27BF2F01E38F002FFC6A /* FirebaseAppCheck in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -92,6 +94,7 @@
 			name = WalkWorthy;
 			packageProductDependencies = (
 				2FCA27BC2F01E38F002FFC6A /* FirebaseAuth */,
+				2FCA27BE2F01E38F002FFC6A /* FirebaseAppCheck */,
 			);
 			productName = WalkWorthy;
 			productReference = 2F5AB6162E90FD8F00333B8C /* WalkWorthy.app */;
@@ -386,6 +389,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2F3DAE502F01D37B00B35947 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAuth;
+		};
+		2FCA27BE2F01E38F002FFC6A /* FirebaseAppCheck */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2F3DAE502F01D37B00B35947 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAppCheck;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
