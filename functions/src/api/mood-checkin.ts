@@ -29,6 +29,15 @@ import {
   PendingCheckIn,
 } from '../shared/types';
 import { randomUUID } from 'crypto';
+import {
+  checkRateLimit,
+  checkDailyAiBudget,
+  getClientIp,
+  MOOD_CHECKIN_USER_LIMIT,
+  MOOD_CHECKIN_IP_LIMIT,
+  MOOD_DAILY_AI_BUDGET,
+  STANDARD_USER_LIMIT,
+} from '../shared/rate-limiter';
 
 // Initialize Firebase on module load
 initializeFirebase();
@@ -38,7 +47,7 @@ const openaiApiKey = defineSecret('openai-api-key');
 
 const httpsOptions: HttpsOptions = {
   // CORS removed - not needed for mobile-only API (mobile apps don't enforce CORS)
-  maxInstances: 10,
+  maxInstances: 5,
   timeoutSeconds: 60, // AI calls may take time
   invoker: 'public',
   secrets: [openaiApiKey], // Bind OpenAI API key secret
@@ -170,6 +179,15 @@ export const moodCheckIn = onRequest(httpsOptions, async (req, res) => {
     hasAuthHeader: !!req.headers.authorization,
   });
 
+  // IP-based rate limiting (before auth to protect against brute force)
+  const db = getDb();
+  const clientIp = getClientIp(req);
+  const ipResult = await checkRateLimit(db, `ip:${clientIp}:moodCheckIn`, MOOD_CHECKIN_IP_LIMIT);
+  if (!ipResult.allowed) {
+    res.set('Retry-After', String(ipResult.retryAfterSeconds));
+    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+  }
+
   // Route based on method
   switch (req.method) {
     case 'POST':
@@ -193,7 +211,14 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
   const db = getDb();
 
   try {
-    // Validate input
+    // User-based rate limiting
+    const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn`, MOOD_CHECKIN_USER_LIMIT);
+    if (!userRateResult.allowed) {
+      res.set('Retry-After', String(userRateResult.retryAfterSeconds));
+      return errorResponse(res, 429, 'Too many requests. Please try again later.');
+    }
+
+    // Validate input before consuming daily AI budget
     const checkInType = validateCheckInType(req.body?.checkInType);
     if (!checkInType) {
       return errorResponse(res, 400, 'Invalid check-in data. Please provide a valid checkInType.');
@@ -267,6 +292,12 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         expiresAt: transactionResult.data.expiresAt,
         isExisting: true,
       });
+    }
+
+    // Check daily AI budget before calling OpenAI
+    const budgetResult = await checkDailyAiBudget(db, userId, MOOD_DAILY_AI_BUDGET);
+    if (!budgetResult.allowed) {
+      return errorResponse(res, 429, 'Daily AI usage limit reached. Please try again tomorrow.');
     }
 
     // Step 2: Generate AI response (outside transaction - may take time)
@@ -411,6 +442,13 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
 
   const { userId } = authReq;
   const db = getDb();
+
+  // User-based rate limiting for GET
+  const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn`, STANDARD_USER_LIMIT);
+  if (!userRateResult.allowed) {
+    res.set('Retry-After', String(userRateResult.retryAfterSeconds));
+    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+  }
 
   try {
     // Get user profile for timezone (needed for both history and current check-in)

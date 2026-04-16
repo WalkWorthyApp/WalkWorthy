@@ -58,7 +58,7 @@ function ensureAgent(apiKey: string): Agent<object, typeof reflectionOutputSchem
     name: "WalkWorthyReflectionAgent",
     instructions: REFLECTION_SYSTEM_PROMPT,
     model: "gpt-4.1-nano",
-    modelSettings: { temperature: 0.6, topP: 1 },
+    modelSettings: { temperature: 0.6, topP: 1, maxTokens: 256 },
     outputType: reflectionOutputSchema,
   });
 

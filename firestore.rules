@@ -180,6 +180,14 @@ service cloud.firestore {
       allow write: if false; // Only Cloud Functions can write
     }
 
+    // Internal rate-limiting and budget tracking (Cloud Functions only via Admin SDK)
+    match /_rateLimits/{document=**} {
+      allow read, write: if false;
+    }
+    match /_dailyBudgets/{document=**} {
+      allow read, write: if false;
+    }
+
     // Block everything else
     match /{document=**} {
       allow read, write: if false;

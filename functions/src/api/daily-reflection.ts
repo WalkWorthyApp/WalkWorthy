@@ -13,13 +13,14 @@ import { getDb, COLLECTIONS, initializeFirebase } from "../shared/firebase";
 import { requireAuth, errorResponse, successResponse } from "../shared/auth";
 import { runReflectionAgent } from "../lib/reflection-agent";
 import type { DailyMoodSummary } from "../shared/types";
+import { checkRateLimit, checkDailyAiBudget, getClientIp, DAILY_REFLECTION_USER_LIMIT, DAILY_REFLECTION_IP_LIMIT, REFLECTION_DAILY_AI_BUDGET } from '../shared/rate-limiter';
 
 initializeFirebase();
 
 const openaiApiKey = defineSecret("openai-api-key");
 
 const httpsOptions: HttpsOptions = {
-  maxInstances: 10,
+  maxInstances: 3,
   timeoutSeconds: 60,
   invoker: "public",
   secrets: [openaiApiKey],
@@ -58,6 +59,15 @@ export const dailyReflection = onRequest(httpsOptions, async (req, res) => {
     return errorResponse(res, 405, "Method not allowed");
   }
 
+  // IP-based rate limiting
+  const db = getDb();
+  const clientIp = getClientIp(req);
+  const ipResult = await checkRateLimit(db, `ip:${clientIp}:dailyReflection`, DAILY_REFLECTION_IP_LIMIT);
+  if (!ipResult.allowed) {
+    res.set('Retry-After', String(ipResult.retryAfterSeconds));
+    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+  }
+
   return handleGet(req, res);
 });
 
@@ -68,6 +78,13 @@ async function handleGet(req: Request, res: Response): Promise<void> {
   const { userId } = authReq;
   const db = getDb();
   const today = resolveDate(req.query.date as string | undefined);
+
+  // User-based rate limiting
+  const userRateResult = await checkRateLimit(db, `user:${userId}:dailyReflection`, DAILY_REFLECTION_USER_LIMIT);
+  if (!userRateResult.allowed) {
+    res.set('Retry-After', String(userRateResult.retryAfterSeconds));
+    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+  }
 
   try {
     // Check Firestore cache first
@@ -91,6 +108,12 @@ async function handleGet(req: Request, res: Response): Promise<void> {
     const summaries: DailyMoodSummary[] = summariesSnap.docs.map(
       (d) => d.data() as DailyMoodSummary,
     );
+
+    // Check daily AI budget before calling OpenAI
+    const budgetResult = await checkDailyAiBudget(db, userId, REFLECTION_DAILY_AI_BUDGET);
+    if (!budgetResult.allowed) {
+      return errorResponse(res, 429, 'Daily reflection limit reached. Please try again tomorrow.');
+    }
 
     // Generate reflection
     const reflection = await runReflectionAgent(summaries, openaiApiKey.value());

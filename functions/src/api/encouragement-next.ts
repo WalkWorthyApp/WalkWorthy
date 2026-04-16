@@ -2,6 +2,12 @@ import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
 import { requireAuth, errorResponse, successResponse } from '../shared/auth';
+import {
+  checkRateLimit,
+  getClientIp,
+  STANDARD_USER_LIMIT,
+  STANDARD_IP_LIMIT,
+} from '../shared/rate-limiter';
 
 // Initialize Firebase on module load
 initializeFirebase();
@@ -36,12 +42,27 @@ export const encouragementNext = onRequest(httpsOptions, async (req, res) => {
     return errorResponse(res, 405, `Method ${req.method} not allowed`);
   }
 
+  // IP-based rate limiting
+  const db = getDb();
+  const clientIp = getClientIp(req);
+  const ipResult = await checkRateLimit(db, `ip:${clientIp}:encouragement`, STANDARD_IP_LIMIT);
+  if (!ipResult.allowed) {
+    res.set('Retry-After', String(ipResult.retryAfterSeconds));
+    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+  }
+
   // Authenticate request
   const authReq = await requireAuth(req, res);
   if (!authReq) return;
 
   const { userId } = authReq;
-  const db = getDb();
+
+  // User-based rate limiting
+  const userRateResult = await checkRateLimit(db, `user:${userId}:encouragement`, STANDARD_USER_LIMIT);
+  if (!userRateResult.allowed) {
+    res.set('Retry-After', String(userRateResult.retryAfterSeconds));
+    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+  }
 
   try {
     const now = new Date().toISOString();
@@ -121,12 +142,27 @@ export const encouragementHistory = onRequest(httpsOptions, async (req, res) => 
     return errorResponse(res, 405, `Method ${req.method} not allowed`);
   }
 
+  // IP-based rate limiting
+  const db = getDb();
+  const clientIp = getClientIp(req);
+  const ipResult = await checkRateLimit(db, `ip:${clientIp}:encouragement`, STANDARD_IP_LIMIT);
+  if (!ipResult.allowed) {
+    res.set('Retry-After', String(ipResult.retryAfterSeconds));
+    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+  }
+
   // Authenticate request
   const authReq = await requireAuth(req, res);
   if (!authReq) return;
 
   const { userId } = authReq;
-  const db = getDb();
+
+  // User-based rate limiting
+  const userRateResult = await checkRateLimit(db, `user:${userId}:encouragement`, STANDARD_USER_LIMIT);
+  if (!userRateResult.allowed) {
+    res.set('Retry-After', String(userRateResult.retryAfterSeconds));
+    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+  }
 
   try {
     // Parse limit from query params
