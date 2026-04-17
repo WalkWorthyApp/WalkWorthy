@@ -19,6 +19,8 @@ export interface DailyBudgetResult {
 
 export type RateLimitScope = 'user' | 'ip' | 'dailyBudget';
 
+export const RATE_LIMIT_SCHEMA_VERSION = 1 as const;
+
 export interface RateLimitErrorResponse {
   error: string;
   code: 'RATE_LIMITED';
