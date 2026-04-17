@@ -89,3 +89,12 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         return true
     }
 }
+
+/// Custom App Check provider factory that uses Apple's App Attest service.
+/// Firebase doesn't ship a built-in App Attest factory, so we implement
+/// `AppCheckProviderFactory` ourselves and return an `AppAttestProvider`.
+final class AppAttestProviderFactory: NSObject, AppCheckProviderFactory {
+    func createProvider(with app: FirebaseApp) -> AppCheckProvider? {
+        return AppAttestProvider(app: app)
+    }
+}
