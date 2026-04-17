@@ -147,13 +147,13 @@ struct MoodCheckInView: View {
                         case .network(let err):
                             errorMessage = "Network: \(err.localizedDescription)"
                         default:
-                            errorMessage = error.localizedDescription
+                            errorMessage = apiError.errorDescription
                         }
                     } else {
                         errorMessage = error.localizedDescription
                     }
                     #else
-                    errorMessage = "Something went wrong. Please try again."
+                    errorMessage = (error as? APIError)?.errorDescription ?? error.localizedDescription
                     #endif
                 }
             }

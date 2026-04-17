@@ -13,7 +13,7 @@ import { getDb, COLLECTIONS, initializeFirebase } from "../shared/firebase";
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from "../shared/auth";
 import { runReflectionAgent } from "../lib/reflection-agent";
 import type { DailyMoodSummary } from "../shared/types";
-import { checkRateLimit, checkDailyAiBudget, getClientIp, DAILY_REFLECTION_USER_LIMIT, DAILY_REFLECTION_IP_LIMIT, REFLECTION_DAILY_AI_BUDGET } from '../shared/rate-limiter';
+import { checkRateLimit, checkDailyAiBudget, getClientIp, sendRateLimitResponse, DAILY_REFLECTION_USER_LIMIT, DAILY_REFLECTION_IP_LIMIT, REFLECTION_DAILY_AI_BUDGET } from '../shared/rate-limiter';
 
 initializeFirebase();
 
@@ -68,8 +68,8 @@ export const dailyReflection = onRequest(httpsOptions, async (req, res) => {
   const clientIp = getClientIp(req);
   const ipResult = await checkRateLimit(db, `ip:${clientIp}:dailyReflection`, DAILY_REFLECTION_IP_LIMIT);
   if (!ipResult.allowed) {
-    res.set('Retry-After', String(ipResult.retryAfterSeconds));
-    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+    sendRateLimitResponse(res, 'ip', ipResult.retryAfterSeconds, { endpoint: 'dailyReflection' });
+    return;
   }
 
   return handleGet(req, res);
@@ -86,8 +86,8 @@ async function handleGet(req: Request, res: Response): Promise<void> {
   // User-based rate limiting
   const userRateResult = await checkRateLimit(db, `user:${userId}:dailyReflection`, DAILY_REFLECTION_USER_LIMIT);
   if (!userRateResult.allowed) {
-    res.set('Retry-After', String(userRateResult.retryAfterSeconds));
-    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+    sendRateLimitResponse(res, 'user', userRateResult.retryAfterSeconds, { userId, endpoint: 'dailyReflection' });
+    return;
   }
 
   try {
@@ -116,7 +116,8 @@ async function handleGet(req: Request, res: Response): Promise<void> {
     // Check daily AI budget before calling OpenAI
     const budgetResult = await checkDailyAiBudget(db, userId, REFLECTION_DAILY_AI_BUDGET);
     if (!budgetResult.allowed) {
-      return errorResponse(res, 429, 'Daily reflection limit reached. Please try again tomorrow.');
+      sendRateLimitResponse(res, 'dailyBudget', 0, { userId, endpoint: 'dailyReflection' });
+      return;
     }
 
     // Generate reflection

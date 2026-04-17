@@ -33,6 +33,7 @@ import {
   checkRateLimit,
   checkDailyAiBudget,
   getClientIp,
+  sendRateLimitResponse,
   MOOD_CHECKIN_USER_LIMIT,
   MOOD_CHECKIN_IP_LIMIT,
   MOOD_DAILY_AI_BUDGET,
@@ -188,8 +189,8 @@ export const moodCheckIn = onRequest(httpsOptions, async (req, res) => {
   const clientIp = getClientIp(req);
   const ipResult = await checkRateLimit(db, `ip:${clientIp}:moodCheckIn`, MOOD_CHECKIN_IP_LIMIT);
   if (!ipResult.allowed) {
-    res.set('Retry-After', String(ipResult.retryAfterSeconds));
-    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+    sendRateLimitResponse(res, 'ip', ipResult.retryAfterSeconds, { endpoint: 'moodCheckIn' });
+    return;
   }
 
   // Route based on method
@@ -218,8 +219,8 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     // User-based rate limiting
     const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn`, MOOD_CHECKIN_USER_LIMIT);
     if (!userRateResult.allowed) {
-      res.set('Retry-After', String(userRateResult.retryAfterSeconds));
-      return errorResponse(res, 429, 'Too many requests. Please try again later.');
+      sendRateLimitResponse(res, 'user', userRateResult.retryAfterSeconds, { userId, endpoint: 'moodCheckIn' });
+      return;
     }
 
     // Validate input before consuming daily AI budget
@@ -301,7 +302,8 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     // Check daily AI budget before calling OpenAI
     const budgetResult = await checkDailyAiBudget(db, userId, MOOD_DAILY_AI_BUDGET);
     if (!budgetResult.allowed) {
-      return errorResponse(res, 429, 'Daily AI usage limit reached. Please try again tomorrow.');
+      sendRateLimitResponse(res, 'dailyBudget', 0, { userId, endpoint: 'moodCheckIn' });
+      return;
     }
 
     // Step 2: Generate AI response (outside transaction - may take time)
@@ -450,8 +452,8 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
   // User-based rate limiting for GET
   const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn`, STANDARD_USER_LIMIT);
   if (!userRateResult.allowed) {
-    res.set('Retry-After', String(userRateResult.retryAfterSeconds));
-    return errorResponse(res, 429, 'Too many requests. Please try again later.');
+    sendRateLimitResponse(res, 'user', userRateResult.retryAfterSeconds, { userId, endpoint: 'moodCheckIn' });
+    return;
   }
 
   try {

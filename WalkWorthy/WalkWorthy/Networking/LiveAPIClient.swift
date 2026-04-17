@@ -241,9 +241,46 @@ final class LiveAPIClient: EncouragementAPI {
             throw APIError.unauthorized
         case 409:
             throw APIError.conflict(message: parseErrorMessage(from: data))
+        case 429:
+            throw parseRateLimitError(data: data, response: http)
         default:
             throw APIError.server(statusCode: http.statusCode, message: parseErrorMessage(from: data))
         }
+    }
+
+    private func parseRateLimitError(data: Data, response: HTTPURLResponse) -> APIError {
+        let body = try? JSONDecoder().decode(RateLimitErrorBody.self, from: data)
+
+        let scope: RateLimitScope
+        if let rawScope = body?.scope {
+            scope = RateLimitScope(rawValue: rawScope) ?? .unknown
+        } else {
+            scope = .unknown
+        }
+
+        let retryAfterSeconds: Int? = body?.retryAfterSeconds ?? parseRetryAfterHeader(response.value(forHTTPHeaderField: "Retry-After"))
+
+        #if DEBUG
+        print("[LiveAPIClient] Rate limited — scope: \(scope.rawValue), retryAfterSeconds: \(retryAfterSeconds.map(String.init) ?? "nil")")
+        #endif
+
+        return .rateLimited(retryAfterSeconds: retryAfterSeconds, scope: scope)
+    }
+
+    private func parseRetryAfterHeader(_ value: String?) -> Int? {
+        guard let value else { return nil }
+        if let seconds = Int(value) {
+            return seconds
+        }
+        // HTTP-date fallback
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        if let date = formatter.date(from: value) {
+            let diff = Int(date.timeIntervalSinceNow)
+            return diff > 0 ? diff : nil
+        }
+        return nil
     }
 
     private func encodeBody<T: Encodable>(_ value: T) throws -> Data {
@@ -268,4 +305,10 @@ final class LiveAPIClient: EncouragementAPI {
 
 private struct EmptyPayload: Codable {
     init() {}
+}
+
+private struct RateLimitErrorBody: Decodable {
+    let code: String?
+    let scope: String?
+    let retryAfterSeconds: Int?
 }
