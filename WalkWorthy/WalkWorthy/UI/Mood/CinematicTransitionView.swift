@@ -16,6 +16,7 @@ import SwiftUI
 
 struct CinematicTransitionView: View {
     let response: MoodCheckInResponse?
+    let errorTitle: String?
     let errorMessage: String?
     let onDone: () -> Void
     let onRetry: () -> Void   // resets to .followUp in MoodCheckInView
@@ -138,29 +139,31 @@ struct CinematicTransitionView: View {
                     .font(.system(size: scaled(44)))
                     .foregroundColor(.orange)
 
-                Text("Something went wrong")
+                Text(errorTitle ?? "Something went wrong")
                     .font(Font.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
                     .foregroundColor(.primary)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Text(message)
                     .font(.body)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, scaled(24))
+                    .fixedSize(horizontal: false, vertical: true)
 
                 Button("Try Again", action: onRetry)
                     .buttonStyle(.bordered)
             }
             .padding(scaled(28))
+            .frame(maxWidth: geo.size.width - scaled(48))
             .background(
                 RoundedRectangle(cornerRadius: scaled(20))
                     .fill(Color.white.opacity(0.92))
             )
-            .padding(.horizontal, scaled(24))
 
             Spacer()
         }
-        .frame(height: geo.size.height * 0.80)
+        .frame(width: geo.size.width, height: geo.size.height * 0.80)
     }
 
     // MARK: - Animation Sequence
@@ -215,6 +218,7 @@ struct CinematicTransitionView: View {
             expiresAt: "",
             isExisting: false
         ),
+        errorTitle: nil,
         errorMessage: nil,
         onDone: {},
         onRetry: {}
@@ -224,7 +228,18 @@ struct CinematicTransitionView: View {
 #Preview("Cinematic - Waiting") {
     CinematicTransitionView(
         response: nil,
+        errorTitle: nil,
         errorMessage: nil,
+        onDone: {},
+        onRetry: {}
+    )
+}
+
+#Preview("Cinematic - Rate Limited") {
+    CinematicTransitionView(
+        response: nil,
+        errorTitle: "Usage limit reached",
+        errorMessage: "You've reached the usage limit for this feature. Try again in ~60 minutes.",
         onDone: {},
         onRetry: {}
     )

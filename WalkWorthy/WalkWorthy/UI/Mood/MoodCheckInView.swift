@@ -33,6 +33,7 @@ struct MoodCheckInView: View {
     // MARK: - Submission
 
     @State private var submissionResult: MoodCheckInResponse?
+    @State private var errorTitle: String?
     @State private var errorMessage: String?
     @State private var submissionTask: Task<Void, Never>?
 
@@ -89,9 +90,11 @@ struct MoodCheckInView: View {
         case .cinematic:
             CinematicTransitionView(
                 response: submissionResult,
+                errorTitle: errorTitle,
                 errorMessage: errorMessage,
                 onDone: onComplete,
                 onRetry: {
+                    errorTitle = nil
                     errorMessage = nil
                     submissionResult = nil
                     step = .followUp
@@ -139,8 +142,10 @@ struct MoodCheckInView: View {
                 // View was dismissed during submission — no-op
             } catch {
                 await MainActor.run {
+                    let apiError = error as? APIError
+                    errorTitle = apiError?.errorTitle
                     #if DEBUG
-                    if let apiError = error as? APIError {
+                    if let apiError {
                         switch apiError {
                         case .server(let code, let msg):
                             errorMessage = "Server error \(code): \(msg ?? "no message")"
@@ -153,7 +158,7 @@ struct MoodCheckInView: View {
                         errorMessage = error.localizedDescription
                     }
                     #else
-                    errorMessage = (error as? APIError)?.errorDescription ?? error.localizedDescription
+                    errorMessage = apiError?.errorDescription ?? error.localizedDescription
                     #endif
                 }
             }
