@@ -49,6 +49,15 @@ enum APIError: LocalizedError {
         }
     }
 
+    var errorTitle: String? {
+        switch self {
+        case .rateLimited:
+            return "Usage limit reached"
+        default:
+            return nil
+        }
+    }
+
     private func rateLimitedDescription(retryAfterSeconds: Int?, scope: RateLimitScope) -> String {
         let minutesText: String? = retryAfterSeconds.map { seconds in
             let minutes = Int(ceil(Double(seconds) / 60.0))
