@@ -1,5 +1,5 @@
 import type { Firestore } from 'firebase-admin/firestore';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { logger } from 'firebase-functions/v2';
 
 export interface RateLimitConfig {
@@ -15,6 +15,43 @@ export interface RateLimitResult {
 export interface DailyBudgetResult {
   allowed: boolean;
   remaining: number;
+}
+
+export type RateLimitScope = 'user' | 'ip' | 'dailyBudget';
+
+export interface RateLimitErrorResponse {
+  error: string;
+  code: 'RATE_LIMITED';
+  scope: RateLimitScope;
+  retryAfterSeconds: number;
+}
+
+/**
+ * Sends a structured 429 response and logs the rate-limit event.
+ */
+export function sendRateLimitResponse(
+  res: Response,
+  scope: RateLimitScope,
+  retryAfterSeconds: number,
+  context: { userId?: string; endpoint: string }
+): void {
+  logger.warn('Rate limit exceeded', {
+    userId: context.userId,
+    endpoint: context.endpoint,
+    scope,
+    retryAfterSeconds,
+  });
+
+  res.set('Retry-After', String(retryAfterSeconds));
+
+  const body: RateLimitErrorResponse = {
+    error: 'Too many requests. Please try again later.',
+    code: 'RATE_LIMITED',
+    scope,
+    retryAfterSeconds,
+  };
+
+  res.status(429).json(body);
 }
 
 interface RateLimitDoc {
