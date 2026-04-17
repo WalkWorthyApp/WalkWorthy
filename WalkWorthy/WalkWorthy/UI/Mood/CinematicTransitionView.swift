@@ -163,7 +163,7 @@ struct CinematicTransitionView: View {
 
             Spacer()
         }
-        .frame(width: geo.size.width, height: geo.size.height * 0.80)
+        .frame(width: geo.size.width, height: geo.size.height)
     }
 
     // MARK: - Animation Sequence
