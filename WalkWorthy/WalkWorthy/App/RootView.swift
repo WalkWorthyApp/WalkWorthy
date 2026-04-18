@@ -54,7 +54,7 @@ private struct MainTabView: View {
             .tag(1)
 
             NavigationStack {
-                JournalTabView()
+                JournalListView()
             }
             .tabItem {
                 Label("Journal", systemImage: "book.closed.fill")

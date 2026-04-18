@@ -404,7 +404,13 @@ final class AppState: ObservableObject {
     }
 
     @discardableResult
-    func createJournalEntry(text: String, linkedCheckInId: String? = nil) throws -> JournalEntry {
+    func createJournalEntry(
+        text: String,
+        linkedCheckInId: String? = nil,
+        moodLevelRaw: String? = nil,
+        moodScore: Int? = nil,
+        emotionTags: [String] = []
+    ) throws -> JournalEntry {
         let today = Self.isoDateFormatter.string(from: Date())
         let entry = JournalEntry(
             id: UUID().uuidString,
@@ -412,7 +418,11 @@ final class AppState: ObservableObject {
             date: today,
             linkedCheckInId: linkedCheckInId,
             createdAt: Date(),
-            updatedAt: Date()
+            updatedAt: Date(),
+            isPinned: false,
+            moodLevelRaw: moodLevelRaw,
+            moodScore: moodScore,
+            emotionTags: emotionTags
         )
         modelContext.insert(entry)
         try modelContext.save()
@@ -438,6 +448,17 @@ final class AppState: ObservableObject {
             try modelContext.save()
         }
         journalEntries.removeAll { $0.id == id }
+    }
+
+    func togglePin(_ entry: JournalEntry) {
+        entry.isPinned.toggle()
+        entry.updatedAt = Date()
+        do {
+            try modelContext.save()
+        } catch {
+            // Non-blocking: revert on failure so UI state matches persisted state
+            entry.isPinned.toggle()
+        }
     }
 
     func clearJournalState() {

@@ -131,7 +131,10 @@ struct MoodCheckInView: View {
                 if !noteValue.isEmpty {
                     _ = try? appState.createJournalEntry(
                         text: noteValue,
-                        linkedCheckInId: response.checkInId
+                        linkedCheckInId: response.checkInId,
+                        moodLevelRaw: spectrumData.moodLevel,
+                        moodScore: spectrumData.moodScore,
+                        emotionTags: spectrumData.emotionTags
                     )
                 }
 
