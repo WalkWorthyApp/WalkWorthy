@@ -11,7 +11,6 @@ import SwiftUI
 
 struct MoodSummaryCard: View {
     let moodLevelRaw: String
-    let moodScore: Int?
     let emotionTags: [String]
     @Binding var isExpanded: Bool
 

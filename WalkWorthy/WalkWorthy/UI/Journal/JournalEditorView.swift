@@ -60,7 +60,6 @@ struct JournalEditorView: View {
                        let moodLevelRaw = existing?.moodLevelRaw {
                         MoodSummaryCard(
                             moodLevelRaw: moodLevelRaw,
-                            moodScore: existing?.moodScore,
                             emotionTags: existing?.emotionTags ?? [],
                             isExpanded: $isMoodCardExpanded
                         )
@@ -87,7 +86,13 @@ struct JournalEditorView: View {
             }
         .scrollContentBackground(.hidden)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationTitle("")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                if focus != nil {
+                    Button("Done") { focus = nil }
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     if existing?.moodLevelRaw != nil {
@@ -122,6 +127,7 @@ struct JournalEditorView: View {
                 } label: {
                     Image(systemName: JournalIcons.overflowMenu)
                 }
+                .accessibilityLabel("More options")
             }
         }
         .confirmationDialog("Delete this note?",

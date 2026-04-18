@@ -14,6 +14,7 @@ struct JournalListView: View {
     @Query(sort: \JournalEntry.createdAt, order: .reverse) private var allEntries: [JournalEntry]
     @State private var searchText: String = ""
     @State private var isComposingNew: Bool = false
+    @State private var entryPendingDelete: JournalEntry?
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -67,7 +68,24 @@ struct JournalListView: View {
             .padding(.bottom, scaled(24))
             .accessibilityLabel("New note")
         }
-        .onAppear { appState.loadJournalEntries(date: nil) }
+        .confirmationDialog(
+            "Delete this note?",
+            isPresented: Binding(
+                get: { entryPendingDelete != nil },
+                set: { if !$0 { entryPendingDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let entry = entryPendingDelete {
+                    try? appState.deleteJournalEntry(id: entry.id)
+                }
+                entryPendingDelete = nil
+            }
+            Button("Cancel", role: .cancel) {
+                entryPendingDelete = nil
+            }
+        }
     }
 
     // MARK: - Sections
@@ -104,7 +122,7 @@ struct JournalListView: View {
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
-                try? appState.deleteJournalEntry(id: entry.id)
+                entryPendingDelete = entry
             } label: {
                 Label("Delete", systemImage: JournalIcons.trash)
             }
