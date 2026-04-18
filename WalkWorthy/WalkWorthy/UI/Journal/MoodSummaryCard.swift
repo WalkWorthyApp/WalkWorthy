@@ -25,11 +25,6 @@ struct MoodSummaryCard: View {
                         .foregroundStyle(.tint)
                     Text(Self.displayName(for: moodLevelRaw))
                         .font(.system(size: scaled(15), weight: .semibold))
-                    if let score = moodScore {
-                        Text("· \(score)")
-                            .font(.system(size: scaled(15)))
-                            .foregroundStyle(.secondary)
-                    }
                     Spacer()
                     Image(systemName: isExpanded ? JournalIcons.chevronUp : JournalIcons.chevronDown)
                         .font(.system(size: scaled(12)))
