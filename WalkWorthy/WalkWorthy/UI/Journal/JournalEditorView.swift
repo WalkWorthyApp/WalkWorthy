@@ -78,9 +78,12 @@ struct JournalEditorView: View {
                             .font(.system(size: 17))
                             .focused($focus, equals: .body)
                             .frame(minHeight: 300)
+                            .scrollContentBackground(.hidden)
                     }
                 }
-                .padding(16)
+                .padding(.horizontal, 16)
+                .padding(.top, 24)
+                .padding(.bottom, 16)
             }
         .scrollContentBackground(.hidden)
         .navigationBarTitleDisplayMode(.inline)
