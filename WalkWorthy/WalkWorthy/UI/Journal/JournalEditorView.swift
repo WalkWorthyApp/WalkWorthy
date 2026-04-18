@@ -45,7 +45,7 @@ struct JournalEditorView: View {
             DynamicBackgroundView()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: scaled(12)) {
+                VStack(alignment: .leading, spacing: scaled(16)) {
                     TextField("Title", text: titleBinding)
                         .font(.system(size: scaled(26), weight: .bold))
                         .focused($focus, equals: .title)
@@ -54,6 +54,7 @@ struct JournalEditorView: View {
                             ensureNewlineBetweenTitleAndBody()
                             focus = .body
                         }
+                        .padding(.horizontal, scaled(4))
 
                     if showMoodCard,
                        let moodLevelRaw = existing?.moodLevelRaw {
@@ -80,7 +81,7 @@ struct JournalEditorView: View {
                             .scrollContentBackground(.hidden)
                     }
                 }
-                .padding(.horizontal, scaled(24))
+                .padding(.horizontal, scaled(32))
                 .padding(.top, scaled(8))
                 .padding(.bottom, scaled(16))
             }
