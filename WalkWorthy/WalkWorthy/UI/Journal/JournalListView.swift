@@ -17,6 +17,9 @@ struct JournalListView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
+            DynamicBackgroundView()
+                .ignoresSafeArea()
+
             List {
                 if searchText.isEmpty {
                     pinnedSection
@@ -41,6 +44,7 @@ struct JournalListView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
             .navigationTitle("Journal")
             .navigationBarTitleDisplayMode(.large)
             .searchable(text: $searchText,

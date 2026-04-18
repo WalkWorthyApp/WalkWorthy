@@ -41,43 +41,48 @@ struct JournalEditorView: View {
     private enum Field { case title, body }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                TextField("Title", text: titleBinding)
-                    .font(.system(size: 26, weight: .bold))
-                    .focused($focus, equals: .title)
-                    .submitLabel(.next)
-                    .onSubmit {
-                        ensureNewlineBetweenTitleAndBody()
-                        focus = .body
+        ZStack {
+            DynamicBackgroundView()
+                .ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    TextField("Title", text: titleBinding)
+                        .font(.system(size: 26, weight: .bold))
+                        .focused($focus, equals: .title)
+                        .submitLabel(.next)
+                        .onSubmit {
+                            ensureNewlineBetweenTitleAndBody()
+                            focus = .body
+                        }
+
+                    if showMoodCard,
+                       let moodLevelRaw = existing?.moodLevelRaw {
+                        MoodSummaryCard(
+                            moodLevelRaw: moodLevelRaw,
+                            moodScore: existing?.moodScore,
+                            emotionTags: existing?.emotionTags ?? [],
+                            isExpanded: $isMoodCardExpanded
+                        )
                     }
 
-                if showMoodCard,
-                   let moodLevelRaw = existing?.moodLevelRaw {
-                    MoodSummaryCard(
-                        moodLevelRaw: moodLevelRaw,
-                        moodScore: existing?.moodScore,
-                        emotionTags: existing?.emotionTags ?? [],
-                        isExpanded: $isMoodCardExpanded
-                    )
-                }
-
-                ZStack(alignment: .topLeading) {
-                    if bodyBinding.wrappedValue.isEmpty {
-                        Text("Start writing…")
+                    ZStack(alignment: .topLeading) {
+                        if bodyBinding.wrappedValue.isEmpty {
+                            Text("Start writing…")
+                                .font(.system(size: 17))
+                                .foregroundStyle(.tertiary)
+                                .padding(.top, 8)
+                                .padding(.leading, 5)
+                        }
+                        TextEditor(text: bodyBinding)
                             .font(.system(size: 17))
-                            .foregroundStyle(.tertiary)
-                            .padding(.top, 8)
-                            .padding(.leading, 5)
+                            .focused($focus, equals: .body)
+                            .frame(minHeight: 300)
                     }
-                    TextEditor(text: bodyBinding)
-                        .font(.system(size: 17))
-                        .focused($focus, equals: .body)
-                        .frame(minHeight: 300)
                 }
+                .padding(16)
             }
-            .padding(16)
-        }
+        .scrollContentBackground(.hidden)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -140,6 +145,7 @@ struct JournalEditorView: View {
             if case .new = mode { focus = .title }
         }
         .onDisappear { save() }
+        }  // close ZStack
     }
 
     // MARK: - Bindings
