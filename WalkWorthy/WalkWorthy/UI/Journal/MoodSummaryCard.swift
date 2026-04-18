@@ -16,23 +16,23 @@ struct MoodSummaryCard: View {
     @Binding var isExpanded: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: scaled(10)) {
             Button {
                 withAnimation(.easeInOut(duration: 0.2)) { isExpanded.toggle() }
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: scaled(8)) {
                     Image(systemName: JournalIcons.moodGlyph(for: moodLevelRaw))
                         .foregroundStyle(.tint)
                     Text(Self.displayName(for: moodLevelRaw))
-                        .font(.system(size: 15, weight: .semibold))
+                        .font(.system(size: scaled(15), weight: .semibold))
                     if let score = moodScore {
                         Text("· \(score)")
-                            .font(.system(size: 15))
+                            .font(.system(size: scaled(15)))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()
                     Image(systemName: isExpanded ? JournalIcons.chevronUp : JournalIcons.chevronDown)
-                        .font(.caption)
+                        .font(.system(size: scaled(12)))
                         .foregroundStyle(.secondary)
                 }
                 .contentShape(Rectangle())
@@ -41,12 +41,12 @@ struct MoodSummaryCard: View {
 
             if isExpanded && !emotionTags.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: scaled(8)) {
                         ForEach(emotionTags, id: \.self) { tag in
                             Text(tag)
-                                .font(.system(size: 13))
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 5)
+                                .font(.system(size: scaled(13)))
+                                .padding(.horizontal, scaled(10))
+                                .padding(.vertical, scaled(5))
                                 .background(
                                     Capsule().fill(Color.secondary.opacity(0.15))
                                 )
@@ -55,10 +55,10 @@ struct MoodSummaryCard: View {
                 }
             }
         }
-        .padding(12)
+        .padding(scaled(12))
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.quaternary)
+            RoundedRectangle(cornerRadius: scaled(20), style: .continuous)
+                .fill(Color("CardBackground"))
         )
     }
 

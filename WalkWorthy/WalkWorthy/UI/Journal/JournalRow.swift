@@ -14,45 +14,45 @@ struct JournalRow: View {
     var body: some View {
         let slice = JournalTextSlicing.titleAndPreview(from: entry.text)
 
-        HStack(alignment: .top, spacing: 8) {
+        HStack(alignment: .top, spacing: scaled(8)) {
             if entry.isPinned {
                 Image(systemName: JournalIcons.pinFilled)
-                    .font(.caption)
+                    .font(.system(size: scaled(12)))
                     .foregroundStyle(.tint)
-                    .padding(.top, 2)
+                    .padding(.top, scaled(2))
             }
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
+            VStack(alignment: .leading, spacing: scaled(4)) {
+                HStack(spacing: scaled(6)) {
                     Text(slice.title.isEmpty ? "New Note" : slice.title)
-                        .font(.system(size: 17, weight: .semibold))
+                        .font(.system(size: scaled(17), weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(1)
 
                     if entry.moodLevelRaw != nil {
                         Image(systemName: JournalIcons.moodLinkedIndicator)
-                            .font(.caption2)
+                            .font(.system(size: scaled(11)))
                             .foregroundStyle(.secondary)
                     }
 
                     Spacer(minLength: 0)
                 }
 
-                HStack(spacing: 6) {
+                HStack(spacing: scaled(6)) {
                     Text(slice.preview.isEmpty ? " " : slice.preview)
-                        .font(.system(size: 15))
+                        .font(.system(size: scaled(15)))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
 
                     Spacer(minLength: 0)
 
                     Text(Self.timestamp(for: entry.createdAt, now: now))
-                        .font(.system(size: 13))
+                        .font(.system(size: scaled(13)))
                         .foregroundStyle(.tertiary)
                 }
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, scaled(4))
     }
 
     private static let timeFormatter: DateFormatter = {

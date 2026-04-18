@@ -18,7 +18,6 @@ struct JournalListView: View {
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
             DynamicBackgroundView()
-                .ignoresSafeArea()
 
             List {
                 if searchText.isEmpty {
@@ -58,14 +57,14 @@ struct JournalListView: View {
                 isComposingNew = true
             } label: {
                 Image(systemName: JournalIcons.compose)
-                    .font(.title2.weight(.semibold))
+                    .font(.system(size: scaled(22), weight: .semibold))
                     .foregroundStyle(.white)
-                    .padding(18)
+                    .padding(scaled(18))
                     .background(Circle().fill(Color.accentColor))
-                    .shadow(radius: 4, y: 2)
+                    .shadow(radius: scaled(4), y: scaled(2))
             }
-            .padding(.trailing, 20)
-            .padding(.bottom, 24)
+            .padding(.trailing, scaled(20))
+            .padding(.bottom, scaled(24))
             .accessibilityLabel("New note")
         }
         .onAppear { appState.loadJournalEntries(date: nil) }

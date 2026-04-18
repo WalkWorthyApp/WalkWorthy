@@ -43,12 +43,11 @@ struct JournalEditorView: View {
     var body: some View {
         ZStack {
             DynamicBackgroundView()
-                .ignoresSafeArea()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: scaled(12)) {
                     TextField("Title", text: titleBinding)
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.system(size: scaled(26), weight: .bold))
                         .focused($focus, equals: .title)
                         .submitLabel(.next)
                         .onSubmit {
@@ -69,21 +68,21 @@ struct JournalEditorView: View {
                     ZStack(alignment: .topLeading) {
                         if bodyBinding.wrappedValue.isEmpty {
                             Text("Start writing…")
-                                .font(.system(size: 17))
+                                .font(.system(size: scaled(17)))
                                 .foregroundStyle(.tertiary)
-                                .padding(.top, 8)
-                                .padding(.leading, 5)
+                                .padding(.top, scaled(8))
+                                .padding(.leading, scaled(5))
                         }
                         TextEditor(text: bodyBinding)
-                            .font(.system(size: 17))
+                            .font(.system(size: scaled(17)))
                             .focused($focus, equals: .body)
-                            .frame(minHeight: 300)
+                            .frame(minHeight: scaled(300))
                             .scrollContentBackground(.hidden)
                     }
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 24)
-                .padding(.bottom, 16)
+                .padding(.horizontal, scaled(24))
+                .padding(.top, scaled(8))
+                .padding(.bottom, scaled(16))
             }
         .scrollContentBackground(.hidden)
         .navigationBarTitleDisplayMode(.inline)
