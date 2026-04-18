@@ -87,10 +87,12 @@ struct JournalEditorView: View {
         .scrollContentBackground(.hidden)
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle("")
+        .animation(nil, value: focus)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 if focus != nil {
                     Button("Done") { focus = nil }
+                        .transaction { $0.animation = nil }
                 }
             }
             ToolbarItem(placement: .primaryAction) {
