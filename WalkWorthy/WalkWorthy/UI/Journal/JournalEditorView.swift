@@ -45,7 +45,7 @@ struct JournalEditorView: View {
             DynamicBackgroundView()
 
             ScrollView {
-                VStack(alignment: .leading, spacing: scaled(16)) {
+                VStack(alignment: .leading, spacing: scaled(24)) {
                     TextField("Title", text: titleBinding)
                         .font(.system(size: scaled(26), weight: .bold))
                         .focused($focus, equals: .title)
@@ -82,7 +82,7 @@ struct JournalEditorView: View {
                     }
                 }
                 .padding(.horizontal, scaled(32))
-                .padding(.top, scaled(8))
+                .padding(.top, scaled(24))
                 .padding(.bottom, scaled(16))
             }
         .scrollContentBackground(.hidden)
@@ -122,12 +122,6 @@ struct JournalEditorView: View {
                 } label: {
                     Image(systemName: JournalIcons.overflowMenu)
                 }
-            }
-            ToolbarItem(placement: .keyboard) {
-                Spacer()
-            }
-            ToolbarItem(placement: .keyboard) {
-                Button("Done") { focus = nil }
             }
         }
         .confirmationDialog("Delete this note?",
