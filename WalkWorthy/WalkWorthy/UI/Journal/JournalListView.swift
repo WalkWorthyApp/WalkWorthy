@@ -8,6 +8,7 @@
 
 import SwiftUI
 import SwiftData
+import UIKit
 
 struct JournalListView: View {
     @EnvironmentObject private var appState: AppState
@@ -47,6 +48,14 @@ struct JournalListView: View {
             .scrollContentBackground(.hidden)
             .navigationTitle("Journal")
             .navigationBarTitleDisplayMode(.large)
+            .background(
+                NavigationBarTitleFontConfigurator(
+                    largeTitleFontName: "Newsreader-SemiBoldItalic",
+                    largeTitleSize: 34,
+                    inlineTitleFontName: "Newsreader-SemiBoldItalic",
+                    inlineTitleSize: 17
+                )
+            )
             .searchable(text: $searchText,
                         placement: .navigationBarDrawer(displayMode: .automatic))
             .overlay { if allEntries.isEmpty { emptyState } }
@@ -111,6 +120,7 @@ struct JournalListView: View {
         NavigationLink(destination: JournalEditorView(mode: .existing(entry))) {
             JournalRow(entry: entry, now: Date())
         }
+        .listRowBackground(Color("CardBackground"))
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 appState.togglePin(entry)
@@ -153,5 +163,45 @@ struct JournalListView: View {
                 .font(.system(size: 15))
                 .foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Applies a custom font to the enclosing UINavigationController's
+/// nav bar title attributes. Scoped to the current navigation stack,
+/// so sibling tabs retain the system font.
+private struct NavigationBarTitleFontConfigurator: UIViewControllerRepresentable {
+    let largeTitleFontName: String
+    let largeTitleSize: CGFloat
+    let inlineTitleFontName: String
+    let inlineTitleSize: CGFloat
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        UIViewController()
+    }
+
+    func updateUIViewController(_ vc: UIViewController, context: Context) {
+        DispatchQueue.main.async {
+            guard let navBar = vc.navigationController?.navigationBar else { return }
+            apply(to: navBar)
+        }
+    }
+
+    private func apply(to navBar: UINavigationBar) {
+        let appearance = UINavigationBarAppearance(barAppearance: navBar.standardAppearance)
+
+        if let font = UIFont(name: largeTitleFontName, size: largeTitleSize) {
+            var attrs = appearance.largeTitleTextAttributes
+            attrs[.font] = font
+            appearance.largeTitleTextAttributes = attrs
+        }
+        if let font = UIFont(name: inlineTitleFontName, size: inlineTitleSize) {
+            var attrs = appearance.titleTextAttributes
+            attrs[.font] = font
+            appearance.titleTextAttributes = attrs
+        }
+
+        navBar.standardAppearance = appearance
+        navBar.scrollEdgeAppearance = appearance
+        navBar.compactAppearance = appearance
     }
 }
