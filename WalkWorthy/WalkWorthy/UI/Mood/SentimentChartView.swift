@@ -91,6 +91,6 @@ struct SentimentChartView: View {
             }
         }
         .padding()
-        .background(RoundedRectangle(cornerRadius: 16).fill(Color("CardBackground")))
+        .background(RoundedRectangle(cornerRadius: 16).fill(Color.wwCardBackground))
     }
 }
