@@ -14,67 +14,81 @@ struct SettingsView: View {
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section("Personalization") {
-                    NavigationLink {
-                        OnboardingForm()
-                    } label: {
-                        Label("Edit personal details", systemImage: "person.crop.circle")
-                    }
+            ZStack {
+                TimeOfDayTheme.current.backdrop
+                    .ignoresSafeArea()
 
-                    Toggle(isOn: Binding(
-                        get: { appState.useProfilePersonalization },
-                        set: { appState.setUseProfilePersonalization($0) }
-                    )) {
-                        Text("Use profile for encouragements")
-                    }
-
-                    Picker("Bible translation", selection: Binding(
-                        get: { appState.selectedTranslation },
-                        set: { appState.setTranslation($0) }
-                    )) {
-                        ForEach(Translation.allCases) { translation in
-                            Text(translation.displayName).tag(translation)
+                Form {
+                    Section("Personalization") {
+                        NavigationLink {
+                            OnboardingForm()
+                        } label: {
+                            Label("Edit personal details", systemImage: "person.crop.circle")
                         }
+                        .listRowBackground(Color.wwCardBackground)
+
+                        Toggle(isOn: Binding(
+                            get: { appState.useProfilePersonalization },
+                            set: { appState.setUseProfilePersonalization($0) }
+                        )) {
+                            Text("Use profile for encouragements")
+                        }
+                        .listRowBackground(Color.wwCardBackground)
+
+                        Picker("Bible translation", selection: Binding(
+                            get: { appState.selectedTranslation },
+                            set: { appState.setTranslation($0) }
+                        )) {
+                            ForEach(Translation.allCases) { translation in
+                                Text(translation.displayName).tag(translation)
+                            }
+                        }
+                        .listRowBackground(Color.wwCardBackground)
+                    }
+
+                    Section("Notifications") {
+                        NavigationLink {
+                            NotificationSettingsView()
+                        } label: {
+                            Label("Check-in reminders", systemImage: "bell.badge")
+                        }
+                        .listRowBackground(Color.wwCardBackground)
+
+                        Button {
+                            appState.scheduleTestNotification()
+                        } label: {
+                            Label("Send test notification", systemImage: "bell")
+                        }
+                        .listRowBackground(Color.wwCardBackground)
+                    }
+
+                    Section("Data") {
+                        NavigationLink {
+                            MoodHistoryView()
+                        } label: {
+                            Label("Mood history", systemImage: "chart.line.uptrend.xyaxis")
+                        }
+                        .listRowBackground(Color.wwCardBackground)
+                    }
+
+                    Section("Account") {
+                        Button(role: .destructive) {
+                            appState.signOut()
+                        } label: {
+                            Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
+                        }
+                        .disabled(!appState.isAuthenticated)
+                        .listRowBackground(Color.wwCardBackground)
+                    }
+
+                    Section("About") {
+                        LabeledContent("Build", value: Bundle.main.versionString)
+                            .listRowBackground(Color.wwCardBackground)
                     }
                 }
-
-                Section("Notifications") {
-                    NavigationLink {
-                        NotificationSettingsView()
-                    } label: {
-                        Label("Check-in reminders", systemImage: "bell.badge")
-                    }
-
-                    Button {
-                        appState.scheduleTestNotification()
-                    } label: {
-                        Label("Send test notification", systemImage: "bell")
-                    }
-                }
-
-                Section("Data") {
-                    NavigationLink {
-                        MoodHistoryView()
-                    } label: {
-                        Label("Mood history", systemImage: "chart.line.uptrend.xyaxis")
-                    }
-                }
-
-                Section("Account") {
-                    Button(role: .destructive) {
-                        appState.signOut()
-                    } label: {
-                        Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
-                    }
-                    .disabled(!appState.isAuthenticated)
-                }
-
-                Section("About") {
-                    LabeledContent("Build", value: Bundle.main.versionString)
-                }
+                .scrollContentBackground(.hidden)
+                .navigationTitle("Settings")
             }
-            .navigationTitle("Settings")
         }
     }
 }
@@ -98,51 +112,64 @@ struct NotificationSettingsView: View {
     private let defaults = UserDefaults.standard
 
     var body: some View {
-        Form {
-            Section {
-                Text("Choose when you'd like to receive check-in reminders. We'll send a gentle nudge at each time you enable.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+        ZStack {
+            TimeOfDayTheme.current.backdrop
+                .ignoresSafeArea()
 
-            Section("Morning") {
-                Toggle("Enable morning reminder", isOn: Binding(
-                    get: { morningEnabled },
-                    set: { handleMorningToggle(newValue: $0) }
-                ))
-                if morningEnabled {
-                    DatePicker("Time", selection: $morningTime, displayedComponents: .hourAndMinute)
+            Form {
+                Section {
+                    Text("Choose when you'd like to receive check-in reminders. We'll send a gentle nudge at each time you enable.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .listRowBackground(Color.wwCardBackground)
+                }
+
+                Section("Morning") {
+                    Toggle("Enable morning reminder", isOn: Binding(
+                        get: { morningEnabled },
+                        set: { handleMorningToggle(newValue: $0) }
+                    ))
+                    .listRowBackground(Color.wwCardBackground)
+                    if morningEnabled {
+                        DatePicker("Time", selection: $morningTime, displayedComponents: .hourAndMinute)
+                            .listRowBackground(Color.wwCardBackground)
+                    }
+                }
+
+                Section("Midday") {
+                    Toggle("Enable midday reminder", isOn: Binding(
+                        get: { middayEnabled },
+                        set: { handleMiddayToggle(newValue: $0) }
+                    ))
+                    .listRowBackground(Color.wwCardBackground)
+                    if middayEnabled {
+                        DatePicker("Time", selection: $middayTime, displayedComponents: .hourAndMinute)
+                            .listRowBackground(Color.wwCardBackground)
+                    }
+                }
+
+                Section("Evening") {
+                    Toggle("Enable evening reminder", isOn: Binding(
+                        get: { eveningEnabled },
+                        set: { handleEveningToggle(newValue: $0) }
+                    ))
+                    .listRowBackground(Color.wwCardBackground)
+                    if eveningEnabled {
+                        DatePicker("Time", selection: $eveningTime, displayedComponents: .hourAndMinute)
+                            .listRowBackground(Color.wwCardBackground)
+                    }
+                }
+
+                Section {
+                    Text("Notification times are stored on your device. Actual reminder delivery depends on your notification permissions.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .listRowBackground(Color.wwCardBackground)
                 }
             }
-
-            Section("Midday") {
-                Toggle("Enable midday reminder", isOn: Binding(
-                    get: { middayEnabled },
-                    set: { handleMiddayToggle(newValue: $0) }
-                ))
-                if middayEnabled {
-                    DatePicker("Time", selection: $middayTime, displayedComponents: .hourAndMinute)
-                }
-            }
-
-            Section("Evening") {
-                Toggle("Enable evening reminder", isOn: Binding(
-                    get: { eveningEnabled },
-                    set: { handleEveningToggle(newValue: $0) }
-                ))
-                if eveningEnabled {
-                    DatePicker("Time", selection: $eveningTime, displayedComponents: .hourAndMinute)
-                }
-            }
-
-            Section {
-                Text("Notification times are stored on your device. Actual reminder delivery depends on your notification permissions.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .navigationTitle("Check-in Reminders")
-        .navigationBarTitleDisplayMode(.inline)
+            .scrollContentBackground(.hidden)
+            .navigationTitle("Check-in Reminders")
+            .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             loadSavedSettings()
         }
@@ -162,6 +189,7 @@ struct NotificationSettingsView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Check-in reminders require notification permissions. Please enable notifications in Settings to receive reminders.")
+        }
         }
     }
 
