@@ -307,8 +307,15 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     }
 
     // Step 2: Generate AI response (outside transaction - may take time)
+    // Respect the user's "Use profile for encouragements" toggle: default to
+    // personalization ON when the flag is undefined (matches iOS onboarding
+    // default), strip the profile only when explicitly opted out.
+    const useProfile = profile?.optInTailored !== false;
+    if (!useProfile) {
+      logger.info('personalization.optedOut', { userId, endpoint: 'moodCheckIn' });
+    }
     const agentInput: MoodAgentInput = {
-      profile: profile as UserProfilePayload | null,
+      profile: useProfile ? (profile as UserProfilePayload | null) : null,
       checkInType: input.checkInType,
       moodSpectrumData: input.moodSpectrumData,
       translationPreference: translation,

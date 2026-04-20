@@ -141,13 +141,13 @@ struct CinematicTransitionView: View {
 
                 Text(errorTitle ?? "Something went wrong")
                     .font(Font.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
-                    .foregroundColor(.primary)
+                    .foregroundColor(.black)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
                 Text(message)
                     .font(.body)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(.black.opacity(0.7))
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 

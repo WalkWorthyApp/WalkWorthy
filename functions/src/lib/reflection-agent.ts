@@ -10,6 +10,10 @@ import { setDefaultOpenAIKey, setOpenAIAPI } from "@openai/agents-openai";
 import { z } from "zod";
 import { logger } from "firebase-functions/v2";
 import type { DailyMoodSummary } from "../shared/types";
+import {
+  sanitizeProfile,
+  type UserProfilePayload,
+} from "./profile-sanitize";
 
 // ============================================================================
 // Output Schema
@@ -35,6 +39,20 @@ Given a summary of the student's mood check-ins over the past week, write a shor
 - Conversational and warm — like a trusted friend, not a pastor or therapist
 - Scripture-adjacent in spirit without quoting specific verses (encouragements elsewhere in the app handle that)
 - Specific enough to feel personal, not generic enough to feel like a form letter
+
+## Using the User Profile (SUBTLE CONTEXT ONLY)
+You may receive a "profile" object with optional fields: ageRange, occupation, major, gender, hobbies. Treat this as SILENT CONTEXT that shapes TONE and IMAGERY — never as material to name or list back.
+
+**DO:**
+- Let ageRange, occupation/major, and hobbies inform your word choice and the season-of-life texture of your reflection (e.g., "a week of long study hours" vs. "a week of meeting after meeting").
+- Choose resonant imagery without announcing it.
+
+**DON'T:**
+- Name-drop hobbies, major, occupation, gender, or age.
+- List the user's profile back to them.
+- Refer to the user by an identity label ("Hey engineer,", "As a student…").
+
+If the profile is null or empty, fall back to neutral, universally-applicable warmth.
 
 ## Output
 Return a single JSON object: { "reflection": "your 2-3 sentence reflection here" }
@@ -69,20 +87,26 @@ function ensureAgent(apiKey: string): Agent<object, typeof reflectionOutputSchem
 // Input Builder
 // ============================================================================
 
-function buildPrompt(summaries: DailyMoodSummary[]): string {
-  if (summaries.length === 0) {
-    return JSON.stringify({ weekSummary: "No check-ins recorded this week." });
-  }
+function buildPrompt(
+  summaries: DailyMoodSummary[],
+  profile: UserProfilePayload | null,
+): string {
+  const weekSummary =
+    summaries.length === 0
+      ? "No check-ins recorded this week."
+      : summaries.map((s) => ({
+          date: s.date,
+          sentiment: s.overallSentiment ?? "unknown",
+          morning: s.morning?.moodLevel ?? null,
+          midday: s.midday?.moodLevel ?? null,
+          evening: s.evening?.moodLevel ?? null,
+        }));
 
-  const entries = summaries.map((s) => ({
-    date: s.date,
-    sentiment: s.overallSentiment ?? "unknown",
-    morning: s.morning?.moodLevel ?? null,
-    midday: s.midday?.moodLevel ?? null,
-    evening: s.evening?.moodLevel ?? null,
-  }));
-
-  return JSON.stringify({ weekSummary: entries }, null, 2);
+  return JSON.stringify(
+    { profile: sanitizeProfile(profile), weekSummary },
+    null,
+    2,
+  );
 }
 
 // ============================================================================
@@ -92,13 +116,15 @@ function buildPrompt(summaries: DailyMoodSummary[]): string {
 export async function runReflectionAgent(
   summaries: DailyMoodSummary[],
   apiKey: string,
+  profile: UserProfilePayload | null = null,
 ): Promise<string> {
   logger.info("[ReflectionAgent] Generating daily reflection", {
     summaryCount: summaries.length,
+    hasProfile: profile !== null,
   });
 
   const agent = ensureAgent(apiKey);
-  const input = buildPrompt(summaries);
+  const input = buildPrompt(summaries, profile);
 
   let lastError: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
