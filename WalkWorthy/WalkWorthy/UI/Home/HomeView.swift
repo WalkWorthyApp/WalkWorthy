@@ -171,7 +171,7 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: scaled(20), style: .continuous)
-                .fill(.ultraThinMaterial)
+                .fill(Color("RecessedBackground"))
         )
     }
 

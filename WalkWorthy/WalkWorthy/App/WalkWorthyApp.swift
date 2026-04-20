@@ -69,6 +69,7 @@ struct WalkWorthyApp: App {
             RootView()
                 .environmentObject(appState)
                 .modelContainer(container)
+                .preferredColorScheme(.dark)
                 .task {
                     await NotificationScheduler.shared.requestAuthorizationIfNeeded()
                     await appState.startObservingAuthState()
