@@ -145,7 +145,11 @@ struct HomeView: View {
             .padding(scaled(20))
             .background(
                 RoundedRectangle(cornerRadius: scaled(20), style: .continuous)
-                    .fill(Color(.systemBackground))
+                    .fill(.ultraThinMaterial)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: scaled(20), style: .continuous)
+                            .fill(Color.black.opacity(0.30))
+                    )
                     .shadow(color: type.color.opacity(0.15), radius: scaled(10), y: scaled(5))
             )
             .overlay(
@@ -171,7 +175,7 @@ struct HomeView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: scaled(20), style: .continuous)
-                .fill(Color("RecessedBackground"))
+                .fill(Color.wwRecessedBackground)
         )
     }
 

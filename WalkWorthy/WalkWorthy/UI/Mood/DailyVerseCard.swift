@@ -67,6 +67,6 @@ struct DailyVerseCard: View {
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: scaled(16)).fill(Color("CardBackground")))
+        .background(RoundedRectangle(cornerRadius: scaled(16)).fill(Color.wwCardBackground))
     }
 }

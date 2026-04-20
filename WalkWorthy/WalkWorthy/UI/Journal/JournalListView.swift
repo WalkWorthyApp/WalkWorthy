@@ -120,7 +120,7 @@ struct JournalListView: View {
         NavigationLink(destination: JournalEditorView(mode: .existing(entry))) {
             JournalRow(entry: entry, now: Date())
         }
-        .listRowBackground(Color("CardBackground"))
+        .listRowBackground(Color.wwCardBackground)
         .swipeActions(edge: .leading, allowsFullSwipe: true) {
             Button {
                 appState.togglePin(entry)

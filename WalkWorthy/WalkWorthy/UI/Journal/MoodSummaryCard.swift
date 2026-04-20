@@ -52,7 +52,7 @@ struct MoodSummaryCard: View {
         .padding(scaled(12))
         .background(
             RoundedRectangle(cornerRadius: scaled(20), style: .continuous)
-                .fill(Color("CardBackground"))
+                .fill(Color.wwCardBackground)
         )
     }
 

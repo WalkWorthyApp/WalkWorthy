@@ -326,7 +326,7 @@ struct MoodHistoryView: View {
         .padding(scaled(20))
         .background(
             RoundedRectangle(cornerRadius: scaled(20))
-                .fill(Color("CardBackground"))
+                .fill(Color.wwCardBackground)
                 .shadow(color: .black.opacity(0.06), radius: scaled(12), x: 0, y: scaled(4))
         )
         .overlay(
@@ -530,7 +530,7 @@ struct MoodHistoryView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: scaled(20), style: .continuous)
-                .fill(Color("CardBackground"))
+                .fill(Color.wwCardBackground)
                 .shadow(color: .black.opacity(0.05), radius: scaled(10), y: scaled(5))
         )
     }
