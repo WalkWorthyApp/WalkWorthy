@@ -85,7 +85,7 @@ struct OnboardingForm: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: scaled(12)) {
             Text("Welcome to WalkWorthy")
-                .font(.largeTitle.bold())
+                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(32)))
             Text("Help us tailor encouragements to your rhythms. Your information stays private and secure.")
                 .font(.body)
                 .foregroundStyle(.secondary)
@@ -96,7 +96,7 @@ struct OnboardingForm: View {
         VStack(alignment: .leading, spacing: scaled(8)) {
             HStack(spacing: scaled(6)) {
                 Text("First name")
-                    .font(.headline)
+                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
                 Text("(optional)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -118,7 +118,7 @@ struct OnboardingForm: View {
     private var ageSection: some View {
         VStack(alignment: .leading, spacing: scaled(8)) {
             Text("Age")
-                .font(.headline)
+                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
             TextField("18", text: $ageText)
                 .keyboardType(.numberPad)
                 .textContentType(.oneTimeCode)
@@ -138,7 +138,7 @@ struct OnboardingForm: View {
         VStack(alignment: .leading, spacing: scaled(16)) {
             VStack(alignment: .leading, spacing: scaled(8)) {
                 Text("What do you do?")
-                    .font(.headline)
+                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
                 Text("Fill in whichever applies to you, or both.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -181,7 +181,7 @@ struct OnboardingForm: View {
     private var genderSection: some View {
         VStack(alignment: .leading, spacing: scaled(8)) {
             Text("Gender")
-                .font(.headline)
+                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
             Picker("Gender", selection: $gender) {
                 ForEach(Gender.allCases) { option in
                     Text(option.rawValue).tag(option)
@@ -195,7 +195,7 @@ struct OnboardingForm: View {
     private var hobbiesSection: some View {
         VStack(alignment: .leading, spacing: scaled(12)) {
             Text("Hobbies")
-                .font(.headline)
+                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
             Text("Pick a few that spark joy, or add your own.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
@@ -239,7 +239,7 @@ struct OnboardingForm: View {
         Toggle(isOn: $optIn) {
             VStack(alignment: .leading, spacing: scaled(4)) {
                 Text("Receive encouragement nudges")
-                    .font(.headline)
+                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
                 Text("We'll keep them gentle and focused on Scripture.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
