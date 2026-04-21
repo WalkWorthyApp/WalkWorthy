@@ -169,12 +169,6 @@ final class AppState: ObservableObject {
         defaults.set(isDismissed, forKey: storageKey(StorageKey.dismissedNameBackfill))
     }
 
-    func setTranslation(_ translation: Translation) {
-        selectedTranslation = translation
-        defaults.set(translation.rawValue, forKey: storageKey(StorageKey.translation))
-        syncStoredProfile()
-    }
-
     func startObservingAuthState() async {
         guard !isObservingAuth else { return }
         isObservingAuth = true
@@ -321,14 +315,6 @@ final class AppState: ObservableObject {
     private func syncProfile(firstName: String, age: Int?, occupation: String, major: String, gender: Gender, hobbies: Set<String>, optIn: Bool) {
         guard isAuthenticated else { return }
         let profile = OnboardingProfile(firstName: firstName, age: age, occupation: occupation, major: major, gender: gender, hobbies: hobbies, optIn: optIn)
-        Task {
-            await sendProfileUpdate(profile)
-        }
-    }
-
-    private func syncStoredProfile() {
-        guard isAuthenticated else { return }
-        let profile = loadProfile()
         Task {
             await sendProfileUpdate(profile)
         }
