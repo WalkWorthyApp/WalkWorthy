@@ -175,10 +175,6 @@ final class AppState: ObservableObject {
         syncStoredProfile()
     }
 
-    func scheduleTestNotification() {
-        notificationScheduler.scheduleTestNotification()
-    }
-
     func startObservingAuthState() async {
         guard !isObservingAuth else { return }
         isObservingAuth = true

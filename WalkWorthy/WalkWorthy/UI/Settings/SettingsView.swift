@@ -53,13 +53,6 @@ struct SettingsView: View {
                             Label("Check-in reminders", systemImage: "bell.badge")
                         }
                         .listRowBackground(Color.wwCardBackground)
-
-                        Button {
-                            appState.scheduleTestNotification()
-                        } label: {
-                            Label("Send test notification", systemImage: "bell")
-                        }
-                        .listRowBackground(Color.wwCardBackground)
                     }
 
                     Section("Data") {
