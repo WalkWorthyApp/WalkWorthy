@@ -13,9 +13,10 @@ import { getDb, COLLECTIONS, initializeFirebase } from "../shared/firebase";
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from "../shared/auth";
 import { runReflectionAgent } from "../lib/reflection-agent";
 import { getUserProfileOnce } from "../shared/profile";
+import { getLogicalDateString, shiftLogicalDate } from "../shared/time";
 import type { UserProfilePayload } from "../lib/profile-sanitize";
 import type { DailyMoodSummary } from "../shared/types";
-import { checkRateLimit, checkDailyAiBudget, getClientIp, sendRateLimitResponse, DAILY_REFLECTION_USER_LIMIT, DAILY_REFLECTION_IP_LIMIT, REFLECTION_DAILY_AI_BUDGET } from '../shared/rate-limiter';
+import { checkRateLimit, checkDailyAiBudget, refundDailyAiBudget, getTodayUtcDateString, getClientIp, sendRateLimitResponse, DAILY_REFLECTION_USER_LIMIT, DAILY_REFLECTION_IP_LIMIT, REFLECTION_DAILY_AI_BUDGET } from '../shared/rate-limiter';
 
 initializeFirebase();
 
@@ -28,29 +29,22 @@ const httpsOptions: HttpsOptions = {
   secrets: [openaiApiKey],
 };
 
-function getServerUTCDateString(): string {
-  return new Date().toISOString().split("T")[0];
-}
-
-/** Validates a client-supplied date string and returns it if within ±1 day of server UTC. */
-function resolveDate(clientDate: string | undefined): string {
-  const serverToday = getServerUTCDateString();
+/**
+ * Validates a client-supplied date string and returns it if within ±1 day of
+ * the user's logical "today". Falls back to the user's logical today when the
+ * client value is missing, malformed, or out of range.
+ */
+function resolveDate(clientDate: string | undefined, userToday: string): string {
   if (!clientDate || !/^\d{4}-\d{2}-\d{2}$/.test(clientDate)) {
-    return serverToday;
+    return userToday;
   }
-  const serverMs = new Date(serverToday).getTime();
-  const clientMs = new Date(clientDate).getTime();
+  const userMs = new Date(`${userToday}T00:00:00Z`).getTime();
+  const clientMs = new Date(`${clientDate}T00:00:00Z`).getTime();
   const oneDayMs = 24 * 60 * 60 * 1000;
-  if (Math.abs(clientMs - serverMs) <= oneDayMs) {
+  if (Math.abs(clientMs - userMs) <= oneDayMs) {
     return clientDate;
   }
-  return serverToday;
-}
-
-function getSevenDaysAgoString(today: string): string {
-  const d = new Date(today);
-  d.setDate(d.getDate() - 6);
-  return d.toISOString().split("T")[0];
+  return userToday;
 }
 
 export const dailyReflection = onRequest(httpsOptions, async (req, res) => {
@@ -83,7 +77,6 @@ async function handleGet(req: Request, res: Response): Promise<void> {
 
   const { userId } = authReq;
   const db = getDb();
-  const today = resolveDate(req.query.date as string | undefined);
 
   // User-based rate limiting
   const userRateResult = await checkRateLimit(db, `user:${userId}:dailyReflection`, DAILY_REFLECTION_USER_LIMIT);
@@ -93,6 +86,12 @@ async function handleGet(req: Request, res: Response): Promise<void> {
   }
 
   try {
+    // Load profile up-front for timezone (cache key alignment) and personalization.
+    const profile = await getUserProfileOnce(userId);
+    const timezone = profile?.timezone || 'America/New_York';
+    const userToday = getLogicalDateString(timezone);
+    const today = resolveDate(req.query.date as string | undefined, userToday);
+
     // Check Firestore cache first
     const cacheRef = db.doc(`${COLLECTIONS.dailyReflections(userId)}/${today}`);
     const cached = await cacheRef.get();
@@ -102,10 +101,12 @@ async function handleGet(req: Request, res: Response): Promise<void> {
       return successResponse(res, cached.data());
     }
 
-    // Fetch past 7 days of mood summaries
+    // Window end is the anchor day; start is 6 days before (7-day inclusive window).
+    // Use logical-date shifts so bucketing matches mood-checkin writes.
+    const windowStart = shiftLogicalDate(today, -6);
     const summariesSnap = await db
       .collection(COLLECTIONS.moodSummaries(userId))
-      .where("date", ">=", getSevenDaysAgoString(today))
+      .where("date", ">=", windowStart)
       .where("date", "<=", today)
       .orderBy("date", "desc")
       .limit(7)
@@ -115,33 +116,47 @@ async function handleGet(req: Request, res: Response): Promise<void> {
       (d) => d.data() as DailyMoodSummary,
     );
 
-    // Check daily AI budget before calling OpenAI
+    // Reserve an AI-budget slot BEFORE calling OpenAI. Refund on downstream
+    // failure so server-side errors don't consume the user's daily quota.
     const budgetResult = await checkDailyAiBudget(db, userId, REFLECTION_DAILY_AI_BUDGET);
     if (!budgetResult.allowed) {
-      sendRateLimitResponse(res, 'dailyBudget', 0, { userId, endpoint: 'dailyReflection' });
+      sendRateLimitResponse(res, 'dailyBudget', budgetResult.retryAfterSeconds, { userId, endpoint: 'dailyReflection' });
       return;
     }
 
-    // Fetch profile for personalization, respecting the opt-in toggle.
-    // Default to personalization ON when optInTailored is undefined, strip
-    // the profile only when explicitly opted out.
-    const profile = await getUserProfileOnce(userId);
-    const useProfile = profile?.optInTailored !== false;
-    if (!useProfile) {
-      logger.info('personalization.optedOut', { userId, endpoint: 'dailyReflection' });
+    let budgetReserved = true;
+
+    try {
+      // Respect the opt-in toggle. Default to personalization ON when
+      // optInTailored is undefined; strip profile only on explicit opt-out.
+      const useProfile = profile?.optInTailored !== false;
+      if (!useProfile) {
+        logger.info('personalization.optedOut', { userId, endpoint: 'dailyReflection' });
+      }
+      const profileForAgent = useProfile ? (profile as UserProfilePayload | null) : null;
+
+      // Generate reflection
+      const reflection = await runReflectionAgent(summaries, openaiApiKey.value(), profileForAgent);
+      const generatedAt = new Date().toISOString();
+      const payload = { reflection, generatedAt, date: today };
+
+      // Cache in Firestore
+      await cacheRef.set(payload);
+
+      // Success: the slot is earned.
+      budgetReserved = false;
+
+      logger.info("dailyReflection: generated and cached", { userId, today });
+      return successResponse(res, payload);
+    } catch (aiOrWriteError) {
+      // OpenAI call or Firestore write failed after budget was reserved.
+      // Refund so the user isn't charged for a server-side failure. Uses
+      // UTC today for the refund doc — mirrors `checkDailyAiBudget`'s UTC key.
+      if (budgetReserved) {
+        await refundDailyAiBudget(db, userId, getTodayUtcDateString());
+      }
+      throw aiOrWriteError;
     }
-    const profileForAgent = useProfile ? (profile as UserProfilePayload | null) : null;
-
-    // Generate reflection
-    const reflection = await runReflectionAgent(summaries, openaiApiKey.value(), profileForAgent);
-    const generatedAt = new Date().toISOString();
-    const payload = { reflection, generatedAt, date: today };
-
-    // Cache in Firestore
-    await cacheRef.set(payload);
-
-    logger.info("dailyReflection: generated and cached", { userId, today });
-    return successResponse(res, payload);
   } catch (error) {
     logger.error("dailyReflection failed", {
       userId,

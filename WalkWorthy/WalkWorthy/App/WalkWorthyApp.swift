@@ -39,29 +39,75 @@ struct WalkWorthyApp: App {
         #endif
 
         let authSession = FirebaseAuthSession()
-        guard let liveClient = LiveAPIClient(config: resolvedConfig, tokenProvider: authSession, appCheckProvider: authSession) else {
-            fatalError("API_BASE_URL is not configured")
+
+        // C1 — degraded-mode fallback instead of fatalError.
+        // If Config.apiBaseURL is missing/invalid we still construct a valid
+        // (but unreachable) LiveAPIClient so the rest of the app type-checks,
+        // and we surface a configuration-error screen via AppState.
+        var startupError: String?
+        let liveClient: LiveAPIClient
+        if let configured = LiveAPIClient(config: resolvedConfig, tokenProvider: authSession, appCheckProvider: authSession) {
+            liveClient = configured
+        } else {
+            startupError = "Unable to load configuration. Please reinstall the app or contact support."
+            // RFC 2606 reserved TLD `invalid` — NXDOMAIN, guaranteed non-routable.
+            // IMPORTANT: must NOT be `.local` (mDNS/Bonjour); any device on a
+            // hostile Wi-Fi could claim that name and intercept the Authorization
+            // bearer token. Parsing this URL literal is infallible — the force
+            // unwrap can never trap.
+            let fallbackURL = URL(string: "https://invalid/")!
+            liveClient = LiveAPIClient(baseURL: fallbackURL, tokenProvider: authSession, appCheckProvider: authSession)
         }
 
-        let container: ModelContainer
-        do {
-            container = try ModelContainer(for: JournalEntry.self)
-        } catch {
-            #if DEBUG
-            print("[WalkWorthyApp] ModelContainer init failed, using in-memory fallback: \(error)")
-            #endif
-            container = try! ModelContainer(for: JournalEntry.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
-        }
+        // C2 — never crash at @main on SwiftData failure.
+        // Try on-disk first, then in-memory with JournalEntry, then an empty-schema
+        // in-memory container as a last resort. In the last-resort branch the
+        // Journal feature is gracefully disabled — writes will no-op — and the
+        // user sees ConfigurationErrorView via `startupError`.
+        let container: ModelContainer = {
+            do {
+                return try ModelContainer(for: JournalEntry.self)
+            } catch {
+                #if DEBUG
+                print("[WalkWorthyApp] ModelContainer init failed, trying in-memory fallback: \(error)")
+                #endif
+            }
+
+            do {
+                let fallback = try ModelContainer(
+                    for: JournalEntry.self,
+                    configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+                )
+                startupError = startupError ?? "Journal storage unavailable — please reinstall."
+                return fallback
+            } catch {
+                #if DEBUG
+                print("[WalkWorthyApp] In-memory ModelContainer also failed: \(error)")
+                #endif
+            }
+
+            startupError = "Journal storage unavailable — please reinstall."
+            // Final fallback: empty-schema in-memory container. Minimal and
+            // well-formed — if SwiftData still fails here, the device is in an
+            // unrecoverable state and a crash at @main is unavoidable.
+            // swiftlint:disable:next force_try
+            return try! ModelContainer(
+                for: Schema([] as [any PersistentModel.Type]),
+                configurations: ModelConfiguration(isStoredInMemoryOnly: true)
+            )
+        }()
 
         self.authSession = authSession
         self.config = resolvedConfig
         self.container = container
-        _appState = StateObject(wrappedValue: AppState(
+        let state = AppState(
             config: resolvedConfig,
             apiClient: liveClient,
             authSession: authSession,
             modelContainer: container
-        ))
+        )
+        state.markConfigurationError(startupError)
+        _appState = StateObject(wrappedValue: state)
     }
 
     var body: some Scene {
@@ -71,7 +117,6 @@ struct WalkWorthyApp: App {
                 .modelContainer(container)
                 .preferredColorScheme(.dark)
                 .task {
-                    await NotificationScheduler.shared.requestAuthorizationIfNeeded()
                     await appState.startObservingAuthState()
                 }
         }

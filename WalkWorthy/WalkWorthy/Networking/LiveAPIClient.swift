@@ -29,6 +29,24 @@ final class LiveAPIClient: EncouragementAPI {
         self.encoder.outputFormatting = .sortedKeys
     }
 
+    /// Degraded-mode initializer used when `Config.apiBaseURL` is missing/invalid.
+    /// Points at an unreachable host (RFC 2606 reserved TLD `invalid` — DNS returns
+    /// NXDOMAIN, so no request is ever issued — which also prevents an attacker on
+    /// the local network from claiming a Bonjour name to intercept the
+    /// `Authorization: Bearer <token>` header) so every request fails with
+    /// `APIError.network` instead of crashing the app at `@main`. Callers should
+    /// surface a configuration-error UI (see `AppState.configurationError`).
+    init(baseURL: URL, tokenProvider: BearerTokenProviding, appCheckProvider: AppCheckTokenProviding, urlSession: URLSession = .shared) {
+        self.baseURL = baseURL
+        self.tokenProvider = tokenProvider
+        self.appCheckProvider = appCheckProvider
+        self.urlSession = urlSession
+        self.decoder = JSONDecoder()
+        self.decoder.dateDecodingStrategy = .iso8601
+        self.encoder = JSONEncoder()
+        self.encoder.outputFormatting = .sortedKeys
+    }
+
     // MARK: - EncouragementAPI
 
     func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws {

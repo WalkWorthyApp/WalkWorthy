@@ -41,10 +41,13 @@ struct SignInFormView: View {
         }
         .padding(.horizontal, scaled(24))
         .padding(.vertical, scaled(16))
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                focusedField = .email
-            }
+        .task {
+            // Wait for SwiftUI to settle keyboard/focus before requesting email focus.
+            // Using `.task` (vs. DispatchQueue.asyncAfter) ensures SwiftUI cancels
+            // this on view disappear, avoiding a focus race if the user taps
+            // another field quickly.
+            try? await Task.sleep(for: .milliseconds(300))
+            focusedField = .email
         }
         .onChange(of: viewModel.email) {
             if viewModel.errorDetails != nil {

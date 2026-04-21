@@ -22,6 +22,13 @@ import {
   sanitizeText,
   type UserProfilePayload,
 } from "./profile-sanitize";
+import {
+  MOOD_MODEL,
+  GuardrailTripError,
+  isGuardrailTrip,
+  sleep,
+  withTimeout,
+} from "./model-config";
 
 // ============================================================================
 // Types
@@ -286,7 +293,7 @@ const MAX_RETRIES = 2;
 export async function runMoodAgent(
   input: MoodAgentInput,
   apiKey: string,
-  model = "gpt-4.1-nano",
+  model: string = MOOD_MODEL,
 ): Promise<AIEncouragementResponse> {
   logger.info("[MoodAgent] Starting with model:", model);
 
@@ -312,10 +319,17 @@ export async function runMoodAgent(
   let lastError: unknown;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
+    // Exponential backoff between attempts — first attempt runs immediately.
+    if (attempt > 0) {
+      const delayMs = 250 * Math.pow(2, attempt);
+      logger.info(`[MoodAgent] Backing off ${delayMs}ms before retry ${attempt + 1}`);
+      await sleep(delayMs);
+    }
+
     logger.info(`[MoodAgent] Attempt ${attempt + 1}/${MAX_RETRIES}`);
     try {
       logger.info("[MoodAgent] Calling OpenAI agent...");
-      const result = await run(agent, serializedInput);
+      const result = await withTimeout((signal) => run(agent, serializedInput, { signal }));
       logger.info("[MoodAgent] Agent returned response");
       return parseEncouragement(
         result.finalOutput,
@@ -323,6 +337,13 @@ export async function runMoodAgent(
       );
     } catch (err) {
       lastError = err;
+      // Guardrail trips are deterministic — retrying will produce the same
+      // output and waste quota. Rethrow immediately as a distinct error so
+      // callers can surface a stable error code.
+      if (isGuardrailTrip(err)) {
+        logger.error("[MoodAgent] PII guardrail tripped; not retrying", { attempt: attempt + 1 });
+        throw new GuardrailTripError();
+      }
       logger.error(`[MoodAgent] Attempt ${attempt + 1} failed:`, err);
     }
   }

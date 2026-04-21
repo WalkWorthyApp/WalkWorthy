@@ -1,5 +1,5 @@
 import type { Firestore } from 'firebase-admin/firestore';
-import { Timestamp } from 'firebase-admin/firestore';
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 import { logger } from 'firebase-functions/v2';
 
@@ -16,6 +16,13 @@ export interface RateLimitResult {
 export interface DailyBudgetResult {
   allowed: boolean;
   remaining: number;
+  /**
+   * Hint passed to `Retry-After` on 429 responses. Zero (the normal case)
+   * means the user has exhausted their daily quota and should wait until the
+   * day rolls over. A non-zero value is returned when the budget check itself
+   * failed (fail-closed) so the client can retry shortly.
+   */
+  retryAfterSeconds: number;
 }
 
 export type RateLimitScope = 'user' | 'ip' | 'dailyBudget';
@@ -129,22 +136,41 @@ export async function checkRateLimit(
       return { allowed: true, retryAfterSeconds: 0 };
     });
   } catch (err) {
-    logger.error('checkRateLimit transaction failed', { key, err });
-    // Fail open to avoid blocking legitimate requests on Firestore errors
+    logger.error('Rate limit check failed', {
+      code: 'RATE_LIMIT_CHECK_FAILED',
+      key,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // Fail open for per-user sliding window: blocking legitimate users on
+    // transient Firestore errors is worse than allowing one extra request.
+    // Distinct error code (above) enables targeted alerting.
     return { allowed: true, retryAfterSeconds: 0 };
   }
 }
 
 /**
+ * Returns today's date string in UTC (YYYY-MM-DD). Shared between
+ * `checkDailyAiBudget` and `refundDailyAiBudget` to keep the document ID
+ * identical across reserve/refund calls.
+ */
+export function getTodayUtcDateString(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
  * Daily AI budget counter backed by Firestore.
  * Tracks per-user call counts scoped to a UTC calendar day.
+ *
+ * FAILS CLOSED: because this function gates OpenAI spend, any Firestore
+ * transaction error MUST deny the request. Failing open would allow an
+ * attacker to bypass spend caps by inducing transient Firestore errors.
  */
 export async function checkDailyAiBudget(
   db: Firestore,
   userId: string,
   maxCallsPerDay: number
 ): Promise<DailyBudgetResult> {
-  const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
+  const today = getTodayUtcDateString();
   const docId = `${userId}_${today}`;
   const docRef = db.collection('_dailyBudgets').doc(docId);
 
@@ -158,7 +184,7 @@ export async function checkDailyAiBudget(
       if (!snap.exists) {
         const newDoc: DailyBudgetDoc = { callCount: 1, date: today, expiresAt };
         tx.set(docRef, newDoc);
-        return { allowed: true, remaining: maxCallsPerDay - 1 };
+        return { allowed: true, remaining: maxCallsPerDay - 1, retryAfterSeconds: 0 };
       }
 
       const data = snap.data() as DailyBudgetDoc;
@@ -167,21 +193,66 @@ export async function checkDailyAiBudget(
         // Stale document from a previous day — reset
         const resetDoc: DailyBudgetDoc = { callCount: 1, date: today, expiresAt };
         tx.set(docRef, resetDoc);
-        return { allowed: true, remaining: maxCallsPerDay - 1 };
+        return { allowed: true, remaining: maxCallsPerDay - 1, retryAfterSeconds: 0 };
       }
 
       if (data.callCount >= maxCallsPerDay) {
-        return { allowed: false, remaining: 0 };
+        return { allowed: false, remaining: 0, retryAfterSeconds: 0 };
       }
 
       const updatedCount = data.callCount + 1;
       tx.update(docRef, { callCount: updatedCount, expiresAt });
-      return { allowed: true, remaining: maxCallsPerDay - updatedCount };
+      return { allowed: true, remaining: maxCallsPerDay - updatedCount, retryAfterSeconds: 0 };
     });
   } catch (err) {
-    logger.error('checkDailyAiBudget transaction failed', { userId, err });
-    // Fail open to avoid blocking legitimate requests on Firestore errors
-    return { allowed: true, remaining: 0 };
+    logger.error('AI budget check failed', {
+      userId,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // FAIL CLOSED: denying the request is the safe default when we cannot
+    // verify the user is within their daily spend cap. Give the client a
+    // short retry window so the eventual consistency can clear.
+    return { allowed: false, remaining: 0, retryAfterSeconds: 60 };
+  }
+}
+
+/**
+ * Compensating decrement for a previously-reserved daily AI budget slot.
+ *
+ * Called from API handlers when the work that was charged against the budget
+ * (OpenAI call, Firestore write) failed, so the user is not penalized by
+ * server-side errors. Uses `FieldValue.increment(-1)` for an atomic,
+ * transaction-free refund; missing documents are ignored (nothing to refund).
+ *
+ * Intentionally best-effort: a failure here is logged but must not propagate
+ * further, because the caller is already in an error path.
+ */
+export async function refundDailyAiBudget(
+  db: Firestore,
+  userId: string,
+  todayDate: string
+): Promise<void> {
+  const docId = `${userId}_${todayDate}`;
+  const docRef = db.collection('_dailyBudgets').doc(docId);
+  try {
+    // Use a transaction so we never decrement below 0 or a document
+    // belonging to a different day (rollover between reserve and refund).
+    await db.runTransaction(async (tx) => {
+      const snap = await tx.get(docRef);
+      if (!snap.exists) return;
+      const data = snap.data() as DailyBudgetDoc;
+      if (data.date !== todayDate) return;
+      if (typeof data.callCount !== 'number' || data.callCount <= 0) return;
+      tx.update(docRef, { callCount: FieldValue.increment(-1) });
+    });
+    logger.info('AI budget refunded', { userId, date: todayDate });
+  } catch (err) {
+    logger.error('AI budget refund failed', {
+      userId,
+      date: todayDate,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    // Intentionally swallow — caller is already handling an error path.
   }
 }
 

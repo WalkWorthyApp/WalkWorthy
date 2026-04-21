@@ -31,6 +31,14 @@ final class AppState: ObservableObject {
     }
     @Published var authenticationNotice: String?
     @Published var isCheckingAuth: Bool = true
+    /// Non-nil when app startup failed to load a valid configuration
+    /// (e.g. missing API base URL, SwiftData store creation failed).
+    /// When set, `RootView` shows `ConfigurationErrorView` and blocks all other UI.
+    ///
+    /// `private(set)` so only `markConfigurationError(_:)` (called at startup from
+    /// `WalkWorthyApp.init`) can assign it — prevents unrelated code from
+    /// accidentally blanking the app UI later.
+    @Published private(set) var configurationError: String?
 
     // MARK: - Mood Tracking State
     @Published var currentMoodStatus: MoodStatusResponse?
@@ -100,6 +108,15 @@ final class AppState: ObservableObject {
     func markOnboardingComplete() {
         onboardingCompleted = true
         defaults.set(true, forKey: storageKey(StorageKey.onboardingCompleted))
+    }
+
+    /// Sole setter for `configurationError`. Called once from `WalkWorthyApp.init`
+    /// when startup fails to load a valid configuration (missing API base URL,
+    /// SwiftData store creation failed, etc.). Keep this path narrow — the UI is
+    /// fully blocked when this is set, so accidental assignments elsewhere would
+    /// blank the entire app.
+    func markConfigurationError(_ message: String?) {
+        configurationError = message
     }
 
     /// Updates user profile data in both local storage and Firebase backend.
@@ -187,9 +204,11 @@ final class AppState: ObservableObject {
                 self.isCheckingAuth = false
             }
         }
-        // Fallback: unblock UI if Firebase hasn't responded within 5 seconds
+        // Fallback: unblock UI if Firebase hasn't responded within 10 seconds.
+        // Higher than Firebase's typical cold-start auth check to avoid a
+        // TitleScreen flash on slow networks before the auth listener fires.
         Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(5))
+            try? await Task.sleep(for: .seconds(10))
             guard let self, self.isCheckingAuth else { return }
             self.isCheckingAuth = false
         }
