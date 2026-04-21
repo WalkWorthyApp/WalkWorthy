@@ -1,4 +1,5 @@
 import type { Firestore } from 'firebase-admin/firestore';
+import { Timestamp } from 'firebase-admin/firestore';
 import type { Request, Response } from 'express';
 import { logger } from 'firebase-functions/v2';
 
@@ -59,11 +60,13 @@ export function sendRateLimitResponse(
 interface RateLimitDoc {
   timestamps: string[];
   updatedAt: string;
+  expiresAt?: FirebaseFirestore.Timestamp;
 }
 
 interface DailyBudgetDoc {
   callCount: number;
   date: string;
+  expiresAt?: FirebaseFirestore.Timestamp;
 }
 
 // AI endpoints (expensive)
@@ -115,9 +118,11 @@ export async function checkRateLimit(
 
       const nowIso = new Date(now).toISOString();
       const updatedTimestamps = [...windowTimestamps, nowIso];
+      // Firestore TTL policy on `_rateLimits.expiresAt` auto-deletes stale docs — see README / Firestore Console.
       const updatedDoc: RateLimitDoc = {
         timestamps: updatedTimestamps,
         updatedAt: nowIso,
+        expiresAt: Timestamp.fromMillis(now + config.windowMs + 60 * 60 * 1000),
       };
       tx.set(docRef, updatedDoc);
 
@@ -147,8 +152,11 @@ export async function checkDailyAiBudget(
     return await db.runTransaction(async (tx) => {
       const snap = await tx.get(docRef);
 
+      // Firestore TTL policy on `_dailyBudgets.expiresAt` auto-deletes stale docs — see README / Firestore Console.
+      const expiresAt = Timestamp.fromMillis(Date.now() + 48 * 60 * 60 * 1000);
+
       if (!snap.exists) {
-        const newDoc: DailyBudgetDoc = { callCount: 1, date: today };
+        const newDoc: DailyBudgetDoc = { callCount: 1, date: today, expiresAt };
         tx.set(docRef, newDoc);
         return { allowed: true, remaining: maxCallsPerDay - 1 };
       }
@@ -157,7 +165,7 @@ export async function checkDailyAiBudget(
 
       if (data.date !== today) {
         // Stale document from a previous day — reset
-        const resetDoc: DailyBudgetDoc = { callCount: 1, date: today };
+        const resetDoc: DailyBudgetDoc = { callCount: 1, date: today, expiresAt };
         tx.set(docRef, resetDoc);
         return { allowed: true, remaining: maxCallsPerDay - 1 };
       }
@@ -167,7 +175,7 @@ export async function checkDailyAiBudget(
       }
 
       const updatedCount = data.callCount + 1;
-      tx.update(docRef, { callCount: updatedCount });
+      tx.update(docRef, { callCount: updatedCount, expiresAt });
       return { allowed: true, remaining: maxCallsPerDay - updatedCount };
     });
   } catch (err) {
