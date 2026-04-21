@@ -468,8 +468,9 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
     const profile = await getUserProfileOnce(userId);
     const timezone = profile?.timezone || 'America/New_York';
 
-    // Check for history query
+    // Check for history / fullHistory query (mutually exclusive modes)
     const historyDays = req.query.history ? parseInt(req.query.history as string, 10) : undefined;
+    const fullHistoryDays = req.query.fullHistory ? parseInt(req.query.fullHistory as string, 10) : undefined;
     const startDateParam = req.query.startDate as string | undefined;
     const endDateParam = req.query.endDate as string | undefined;
 
@@ -485,6 +486,10 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
     if (startDateParam && endDateParam && startDateParam > endDateParam) {
       res.status(400).json({ error: "startDate must not be after endDate." });
       return;
+    }
+
+    if (fullHistoryDays && fullHistoryDays > 0) {
+      return handleGetFullHistory(userId, Math.min(fullHistoryDays, 31), db, timezone, res, startDateParam, endDateParam);
     }
 
     if (historyDays && historyDays > 0) {
@@ -610,5 +615,60 @@ async function handleGetHistory(userId: string, days: number, db: FirebaseFirest
     });
 
     return errorResponse(res, 500, 'Failed to retrieve mood history.');
+  }
+}
+
+/**
+ * Get full check-in documents (with moodSpectrumData, aiResponse, note) for
+ * the past N days. Powers the Settings → Check-in log deep-dive view.
+ *
+ * Uses the deterministic doc-id invariant (one doc per day per check-in type,
+ * max 3 per day) to cap the query size at days * 3. Within a day the iOS
+ * client reorders by check-in type (morning → midday → evening).
+ */
+async function handleGetFullHistory(userId: string, days: number, db: FirebaseFirestore.Firestore, timezone: string, res: Response, startDateOverride?: string, endDateOverride?: string): Promise<void> {
+  try {
+    const now = new Date();
+    const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    const startDateString = startDateOverride ?? getDateStringInTimezone(startDate, timezone);
+
+    let query = db
+      .collection(COLLECTIONS.users)
+      .doc(userId)
+      .collection('moodCheckIns')
+      .where('date', '>=', startDateString)
+      .orderBy('date', 'desc');
+
+    if (endDateOverride) {
+      query = query.where('date', '<=', endDateOverride);
+    }
+
+    const checkInsQuery = await query
+      .limit(days * 3) // morning/midday/evening per day is the upper bound
+      .get();
+
+    const checkIns: MoodCheckIn[] = checkInsQuery.docs.map(
+      (doc) => doc.data() as MoodCheckIn,
+    );
+
+    logger.info('Mood full history retrieved', {
+      userId,
+      days,
+      timezone,
+      startDateString,
+      count: checkIns.length,
+    });
+
+    return successResponse(res, {
+      checkIns,
+      daysRequested: days,
+    });
+  } catch (error) {
+    logger.error('Get full history failed', {
+      userId,
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+
+    return errorResponse(res, 500, 'Failed to retrieve check-in log.');
   }
 }
