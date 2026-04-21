@@ -92,6 +92,7 @@ enum ReminderType {
 }
 
 struct NotificationSettingsView: View {
+    @EnvironmentObject private var appState: AppState
     @State private var morningTime = defaultTime(hour: 7, minute: 0)
     @State private var middayTime = defaultTime(hour: 12, minute: 0)
     @State private var eveningTime = defaultTime(hour: 19, minute: 0)
@@ -102,6 +103,15 @@ struct NotificationSettingsView: View {
     @State private var pendingAuthorizationFor: ReminderType?
 
     private let defaults = UserDefaults.standard
+
+    /// Scopes reminder preference keys to the signed-in user so shared
+    /// devices don't leak one account's notification schedule to another.
+    /// Falls back to the bare key only for pre-auth reads — those should
+    /// never occur in practice because this view requires authentication.
+    private func scopedKey(_ baseKey: String) -> String {
+        guard let userSub = appState.authenticatedUserSub else { return baseKey }
+        return "\(baseKey)::\(userSub)"
+    }
 
     var body: some View {
         ZStack {
@@ -278,38 +288,81 @@ struct NotificationSettingsView: View {
         UIApplication.shared.open(settingsUrl)
     }
 
+    /// One-shot migration: older TestFlight builds wrote reminder preferences
+    /// under the bare (unscoped) key. When we introduced per-user scoping, any
+    /// existing value stopped being read — which looked like "reminders silently
+    /// reset" to those users. This copies the bare value to the scoped slot on
+    /// first read and removes the bare key so we don't migrate twice.
+    /// Idempotent: once the scoped slot exists the helper is a no-op.
+    private func migrateReminderKeyIfNeeded(bare: String) {
+        guard let userSub = appState.authenticatedUserSub else { return }
+        let scoped = "\(bare)::\(userSub)"
+        if defaults.object(forKey: scoped) == nil,
+           let value = defaults.object(forKey: bare) {
+            defaults.set(value, forKey: scoped)
+            defaults.removeObject(forKey: bare)
+        }
+    }
+
     private func loadSavedSettings() {
+        // Migrate any legacy unscoped reminder keys into the per-user scope so
+        // existing TestFlight users retain their reminder times and toggles.
+        let legacyKeys = [
+            StorageKeys.morningEnabled,
+            StorageKeys.middayEnabled,
+            StorageKeys.eveningEnabled,
+            StorageKeys.morningHour,
+            StorageKeys.morningMinute,
+            StorageKeys.middayHour,
+            StorageKeys.middayMinute,
+            StorageKeys.eveningHour,
+            StorageKeys.eveningMinute,
+        ]
+        for key in legacyKeys {
+            migrateReminderKeyIfNeeded(bare: key)
+        }
+
+        let morningEnabledKey = scopedKey(StorageKeys.morningEnabled)
+        let middayEnabledKey = scopedKey(StorageKeys.middayEnabled)
+        let eveningEnabledKey = scopedKey(StorageKeys.eveningEnabled)
+        let morningHourKey = scopedKey(StorageKeys.morningHour)
+        let morningMinuteKey = scopedKey(StorageKeys.morningMinute)
+        let middayHourKey = scopedKey(StorageKeys.middayHour)
+        let middayMinuteKey = scopedKey(StorageKeys.middayMinute)
+        let eveningHourKey = scopedKey(StorageKeys.eveningHour)
+        let eveningMinuteKey = scopedKey(StorageKeys.eveningMinute)
+
         // Load enabled states
-        if defaults.object(forKey: StorageKeys.morningEnabled) != nil {
-            morningEnabled = defaults.bool(forKey: StorageKeys.morningEnabled)
+        if defaults.object(forKey: morningEnabledKey) != nil {
+            morningEnabled = defaults.bool(forKey: morningEnabledKey)
         }
-        if defaults.object(forKey: StorageKeys.middayEnabled) != nil {
-            middayEnabled = defaults.bool(forKey: StorageKeys.middayEnabled)
+        if defaults.object(forKey: middayEnabledKey) != nil {
+            middayEnabled = defaults.bool(forKey: middayEnabledKey)
         }
-        if defaults.object(forKey: StorageKeys.eveningEnabled) != nil {
-            eveningEnabled = defaults.bool(forKey: StorageKeys.eveningEnabled)
+        if defaults.object(forKey: eveningEnabledKey) != nil {
+            eveningEnabled = defaults.bool(forKey: eveningEnabledKey)
         }
 
         // Load times
-        if let morningHour = defaults.object(forKey: StorageKeys.morningHour) as? Int,
-           let morningMinute = defaults.object(forKey: StorageKeys.morningMinute) as? Int {
+        if let morningHour = defaults.object(forKey: morningHourKey) as? Int,
+           let morningMinute = defaults.object(forKey: morningMinuteKey) as? Int {
             morningTime = Self.defaultTime(hour: morningHour, minute: morningMinute)
         }
-        if let middayHour = defaults.object(forKey: StorageKeys.middayHour) as? Int,
-           let middayMinute = defaults.object(forKey: StorageKeys.middayMinute) as? Int {
+        if let middayHour = defaults.object(forKey: middayHourKey) as? Int,
+           let middayMinute = defaults.object(forKey: middayMinuteKey) as? Int {
             middayTime = Self.defaultTime(hour: middayHour, minute: middayMinute)
         }
-        if let eveningHour = defaults.object(forKey: StorageKeys.eveningHour) as? Int,
-           let eveningMinute = defaults.object(forKey: StorageKeys.eveningMinute) as? Int {
+        if let eveningHour = defaults.object(forKey: eveningHourKey) as? Int,
+           let eveningMinute = defaults.object(forKey: eveningMinuteKey) as? Int {
             eveningTime = Self.defaultTime(hour: eveningHour, minute: eveningMinute)
         }
     }
 
     private func saveAndSchedule() {
         // Save enabled states
-        defaults.set(morningEnabled, forKey: StorageKeys.morningEnabled)
-        defaults.set(middayEnabled, forKey: StorageKeys.middayEnabled)
-        defaults.set(eveningEnabled, forKey: StorageKeys.eveningEnabled)
+        defaults.set(morningEnabled, forKey: scopedKey(StorageKeys.morningEnabled))
+        defaults.set(middayEnabled, forKey: scopedKey(StorageKeys.middayEnabled))
+        defaults.set(eveningEnabled, forKey: scopedKey(StorageKeys.eveningEnabled))
 
         // Save times
         let calendar = Calendar.current
@@ -317,12 +370,12 @@ struct NotificationSettingsView: View {
         let middayComponents = calendar.dateComponents([.hour, .minute], from: middayTime)
         let eveningComponents = calendar.dateComponents([.hour, .minute], from: eveningTime)
 
-        defaults.set(morningComponents.hour, forKey: StorageKeys.morningHour)
-        defaults.set(morningComponents.minute, forKey: StorageKeys.morningMinute)
-        defaults.set(middayComponents.hour, forKey: StorageKeys.middayHour)
-        defaults.set(middayComponents.minute, forKey: StorageKeys.middayMinute)
-        defaults.set(eveningComponents.hour, forKey: StorageKeys.eveningHour)
-        defaults.set(eveningComponents.minute, forKey: StorageKeys.eveningMinute)
+        defaults.set(morningComponents.hour, forKey: scopedKey(StorageKeys.morningHour))
+        defaults.set(morningComponents.minute, forKey: scopedKey(StorageKeys.morningMinute))
+        defaults.set(middayComponents.hour, forKey: scopedKey(StorageKeys.middayHour))
+        defaults.set(middayComponents.minute, forKey: scopedKey(StorageKeys.middayMinute))
+        defaults.set(eveningComponents.hour, forKey: scopedKey(StorageKeys.eveningHour))
+        defaults.set(eveningComponents.minute, forKey: scopedKey(StorageKeys.eveningMinute))
 
         // Schedule notifications
         Task {

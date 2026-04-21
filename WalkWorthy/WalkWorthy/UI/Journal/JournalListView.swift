@@ -10,12 +10,41 @@ import SwiftUI
 import SwiftData
 import UIKit
 
+/// Top-level wrapper that reads the current `authenticatedUserSub` from
+/// `AppState` and passes it into the content view. The content view takes the
+/// sub as an init parameter so `@Query`'s predicate is scoped at view-build
+/// time — ensuring User B can never see User A's entries even for a single
+/// frame. See `JournalEntry.userSub`.
 struct JournalListView: View {
     @EnvironmentObject private var appState: AppState
-    @Query(sort: \JournalEntry.createdAt, order: .reverse) private var allEntries: [JournalEntry]
+
+    var body: some View {
+        JournalListContent(userSub: appState.authenticatedUserSub)
+            // `.id` forces SwiftUI to rebuild (and re-run the @Query) whenever
+            // the signed-in user changes on a shared device.
+            .id(appState.authenticatedUserSub ?? "__unauthenticated__")
+    }
+}
+
+private struct JournalListContent: View {
+    @EnvironmentObject private var appState: AppState
+    @Query private var allEntries: [JournalEntry]
     @State private var searchText: String = ""
     @State private var isComposingNew: Bool = false
     @State private var entryPendingDelete: JournalEntry?
+    @State private var deleteError: String?
+
+    init(userSub: String?) {
+        // Unauthenticated sessions filter on a sentinel that cannot match any
+        // real entry. Legacy pre-column rows (userSub == "") are also hidden
+        // here and deleted on sign-out by `AppState.clearJournalState()`.
+        let sub = userSub ?? "__unauthenticated__"
+        _allEntries = Query(
+            filter: #Predicate<JournalEntry> { $0.userSub == sub },
+            sort: \JournalEntry.createdAt,
+            order: .reverse
+        )
+    }
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -87,13 +116,36 @@ struct JournalListView: View {
         ) {
             Button("Delete", role: .destructive) {
                 if let entry = entryPendingDelete {
-                    try? appState.deleteJournalEntry(id: entry.id)
+                    // Replaces the previous `try?` silent failure. Surface the
+                    // error so the user knows the note wasn't deleted and can
+                    // retry instead of believing it's gone.
+                    do {
+                        try appState.deleteJournalEntry(id: entry.id)
+                    } catch {
+                        deleteError = "Couldn't delete that note. Please try again."
+                        #if DEBUG
+                        print("[JournalListView] delete failed: \(error)")
+                        #endif
+                        // TODO: Crashlytics.record(error) when Crashlytics is added.
+                    }
                 }
                 entryPendingDelete = nil
             }
             Button("Cancel", role: .cancel) {
                 entryPendingDelete = nil
             }
+        }
+        .alert(
+            "Couldn't delete note",
+            isPresented: Binding(
+                get: { deleteError != nil },
+                set: { if !$0 { deleteError = nil } }
+            ),
+            presenting: deleteError
+        ) { _ in
+            Button("OK", role: .cancel) { deleteError = nil }
+        } message: { msg in
+            Text(msg)
         }
     }
 

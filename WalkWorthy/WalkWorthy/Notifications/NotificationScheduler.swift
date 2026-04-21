@@ -11,7 +11,6 @@ final class NotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
     static let shared = NotificationScheduler()
 
     private let center = UNUserNotificationCenter.current()
-    private let authorizationKey = "walkworthy.notifications.authorized"
 
     private override init() {
         super.init()
@@ -19,23 +18,24 @@ final class NotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
 
     @MainActor
     func requestAuthorizationIfNeeded() async {
-        let defaults = UserDefaults.standard
         center.delegate = self
 
+        // `UNUserNotificationCenter.notificationSettings()` is the authoritative
+        // source for authorization state. Mirroring the answer into UserDefaults
+        // only invited drift (e.g. user revokes permission in Settings while the
+        // app is backgrounded, our flag stays stale). If we ever need this
+        // synchronously elsewhere, query the center directly.
         do {
             let settings = await center.notificationSettings()
             switch settings.authorizationStatus {
             case .authorized, .provisional:
-                defaults.set(true, forKey: authorizationKey)
                 return
             case .notDetermined:
-                let granted = try await center.requestAuthorization(options: [.alert, .sound, .badge])
-                defaults.set(granted, forKey: authorizationKey)
+                _ = try await center.requestAuthorization(options: [.alert, .sound, .badge])
             default:
-                defaults.set(false, forKey: authorizationKey)
+                return
             }
         } catch {
-            defaults.set(false, forKey: authorizationKey)
             #if DEBUG
             print("[NotificationScheduler] Authorization error: \(error)")
             #endif

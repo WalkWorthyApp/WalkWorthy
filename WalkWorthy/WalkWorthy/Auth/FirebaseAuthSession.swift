@@ -35,14 +35,16 @@ actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
 
     // MARK: - BearerTokenProviding
 
-    func validBearerToken() async throws -> String {
+    func validBearerToken(forcingRefresh: Bool) async throws -> String {
         guard let user = Auth.auth().currentUser else {
             throw AuthError.notAuthenticated
         }
 
         do {
-            // Firebase SDK handles token caching and automatic refresh internally
-            return try await user.getIDToken(forcingRefresh: false)
+            // Firebase SDK handles token caching and automatic refresh internally,
+            // but callers can force a refresh (e.g. after a 401) to rule out a
+            // mid-request expiration before surfacing the error to the user.
+            return try await user.getIDToken(forcingRefresh: forcingRefresh)
         } catch {
             throw AuthError.tokenFetchFailed(error.localizedDescription)
         }

@@ -74,10 +74,21 @@ private struct MoodLogDay: Identifiable {
 
 // MARK: - Main view
 
+/// Thin wrapper that reads `authenticatedUserSub` from AppState and feeds it
+/// into the content view so the journal `@Query` is scoped per-user at
+/// view-build time. Prevents cross-user data leaks on shared devices.
 struct MoodLogView: View {
     @EnvironmentObject private var appState: AppState
-    @Query(sort: \JournalEntry.createdAt, order: .reverse)
-    private var allJournalEntries: [JournalEntry]
+
+    var body: some View {
+        MoodLogContent(userSub: appState.authenticatedUserSub)
+            .id(appState.authenticatedUserSub ?? "__unauthenticated__")
+    }
+}
+
+private struct MoodLogContent: View {
+    @EnvironmentObject private var appState: AppState
+    @Query private var allJournalEntries: [JournalEntry]
 
     @State private var checkIns: [MoodCheckIn] = []
     @State private var isLoading: Bool = false
@@ -86,6 +97,15 @@ struct MoodLogView: View {
     @State private var errorMessage: String? = nil
 
     private static let pageSize: Int = 14
+
+    init(userSub: String?) {
+        let sub = userSub ?? "__unauthenticated__"
+        _allJournalEntries = Query(
+            filter: #Predicate<JournalEntry> { $0.userSub == sub },
+            sort: \JournalEntry.createdAt,
+            order: .reverse
+        )
+    }
 
     var body: some View {
         ZStack {

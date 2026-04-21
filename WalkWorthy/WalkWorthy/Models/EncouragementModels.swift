@@ -9,6 +9,9 @@ import Foundation
 
 protocol EncouragementAPI {
     func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws
+    /// Fetch the authenticated user's profile from the backend. Returns nil
+    /// when the backend has no profile on file yet (pre-onboarding).
+    func fetchUserProfile() async throws -> RemoteUserProfileResponse?
 
     // Mood tracking methods
     func submitMoodCheckIn(_ request: MoodCheckInRequest) async throws -> MoodCheckInResponse
@@ -32,6 +35,22 @@ struct RemoteUserProfileRequest: Codable {
     var translationPreference: String?
     var checkInTimes: CheckInTimes?
     var timezone: String?
+}
+
+/// Mirror of the backend `UserProfile` document. All fields are optional
+/// because the user may not have completed onboarding yet or may not have
+/// populated every field. Decoded from `GET /userProfile`.
+struct RemoteUserProfileResponse: Codable {
+    var ageRange: String?
+    var firstName: String?
+    var occupation: String?
+    var major: String?
+    var gender: String?
+    var hobbies: [String]?
+    var optInTailored: Bool?
+    var translationPreference: String?
+    var timezone: String?
+    var checkInTimes: CheckInTimes?
 }
 
 enum Translation: String, CaseIterable, Identifiable, Codable {

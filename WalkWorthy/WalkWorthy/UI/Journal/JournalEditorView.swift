@@ -16,13 +16,33 @@ struct JournalEditorView: View {
 
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    /// Drives the `.background` save trigger. Force-quit from the app switcher
+    /// fires `.background` just before suspension, which gives us our last
+    /// chance to persist in-progress text.
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var text: String
     @State private var isMoodCardExpanded: Bool = false
     @State private var showMoodCard: Bool = true
     @State private var showDeleteConfirm: Bool = false
     @State private var showShareSheet: Bool = false
+    /// In-flight debounced auto-save. Cancelled on every keystroke (to restart
+    /// the 1.5s timer) and on view disappear.
+    @State private var autoSaveTask: Task<Void, Never>?
+    /// User-visible save failure. Presented via `.alert` and nil'd on dismiss.
+    @State private var saveError: String?
+    /// Tracks the entry created during a `.new`-mode session so that subsequent
+    /// saves (from `.background` scenephase, `.onDisappear`, or the debounced
+    /// auto-save) become updates rather than duplicate inserts. Without this,
+    /// typing + backgrounding the app before navigating away creates one row
+    /// per lifecycle trigger.
+    @State private var createdEntryId: String?
     @FocusState private var focus: Field?
+
+    /// Debounce interval for auto-save. Long enough to avoid thrashing the
+    /// store on every keystroke, short enough that a force-quit rarely loses
+    /// more than the last ~1-2 seconds of text.
+    private static let autoSaveDebounce: Duration = .seconds(1.5)
 
     private let existing: JournalEntry?
 
@@ -137,8 +157,16 @@ struct JournalEditorView: View {
                             titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 if let existing {
-                    try? appState.deleteJournalEntry(id: existing.id)
-                    dismiss()
+                    do {
+                        try appState.deleteJournalEntry(id: existing.id)
+                        dismiss()
+                    } catch {
+                        saveError = "Couldn't delete this note. Please try again."
+                        #if DEBUG
+                        print("[JournalEditorView] delete failed: \(error)")
+                        #endif
+                        // TODO: Crashlytics.record(error) once Crashlytics is wired up.
+                    }
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -146,10 +174,50 @@ struct JournalEditorView: View {
         .sheet(isPresented: $showShareSheet) {
             ActivityView(items: [text])
         }
+        .alert(
+            "Couldn't save",
+            isPresented: Binding(
+                get: { saveError != nil },
+                set: { if !$0 { saveError = nil } }
+            ),
+            presenting: saveError
+        ) { _ in
+            Button("OK", role: .cancel) { saveError = nil }
+        } message: { msg in
+            Text(msg)
+        }
         .onAppear {
             if case .new = mode { focus = .title }
         }
-        .onDisappear { save() }
+        // Debounced auto-save: cancels the in-flight task on every keystroke
+        // and re-schedules. If the user stops typing for `autoSaveDebounce`
+        // we persist; otherwise the existing task is simply replaced with no
+        // write. `Task.sleep` is cancellation-aware so this is safe.
+        .onChange(of: text) { _, _ in
+            autoSaveTask?.cancel()
+            autoSaveTask = Task {
+                do {
+                    try await Task.sleep(for: Self.autoSaveDebounce)
+                } catch {
+                    return // cancelled — newer keystroke replaced us
+                }
+                if Task.isCancelled { return }
+                save()
+            }
+        }
+        // Force-quit / app-switcher kill saves text before iOS suspends us.
+        // `.background` fires synchronously during this transition, giving
+        // us one last chance to persist. Keep `.onDisappear` as a fallback.
+        .onChange(of: scenePhase) { _, newPhase in
+            if newPhase == .background {
+                autoSaveTask?.cancel()
+                save()
+            }
+        }
+        .onDisappear {
+            autoSaveTask?.cancel()
+            save()
+        }
         }  // close ZStack
     }
 
@@ -183,17 +251,36 @@ struct JournalEditorView: View {
 
     private func save() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        switch mode {
-        case .new:
-            guard !trimmed.isEmpty else { return }
-            _ = try? appState.createJournalEntry(text: text)
-        case .existing(let entry):
-            guard !trimmed.isEmpty else {
-                try? appState.deleteJournalEntry(id: entry.id)
-                return
+        do {
+            switch mode {
+            case .new:
+                guard !trimmed.isEmpty else { return }
+                // First save in a .new-mode session: create and remember the id.
+                // Subsequent saves (scenephase .background, .onDisappear,
+                // debounced auto-save) update that same row instead of
+                // inserting duplicates.
+                if let createdId = createdEntryId {
+                    try appState.updateJournalEntry(id: createdId, text: text)
+                } else {
+                    let created = try appState.createJournalEntry(text: text)
+                    createdEntryId = created.id
+                }
+            case .existing(let entry):
+                guard !trimmed.isEmpty else {
+                    try appState.deleteJournalEntry(id: entry.id)
+                    return
+                }
+                guard text != entry.text else { return }
+                try appState.updateJournalEntry(id: entry.id, text: text)
             }
-            guard text != entry.text else { return }
-            try? appState.updateJournalEntry(id: entry.id, text: text)
+        } catch {
+            // Surface to the user so they know the text wasn't persisted and
+            // can retry / copy the text out before navigating away.
+            saveError = "Couldn't save — please try again."
+            #if DEBUG
+            print("[JournalEditorView] save failed: \(error)")
+            #endif
+            // TODO: Crashlytics.record(error) once Crashlytics is wired up.
         }
     }
 }

@@ -18,6 +18,7 @@ enum APIError: LocalizedError {
     case missingConfiguration(String)
     case unauthorized
     case notAuthenticated
+    case appCheckFailed
     case conflict(message: String?)
     case rateLimited(retryAfterSeconds: Int?, scope: RateLimitScope)
     case server(statusCode: Int, message: String?)
@@ -32,6 +33,8 @@ enum APIError: LocalizedError {
             return "Missing configuration value for \(key)."
         case .unauthorized, .notAuthenticated:
             return "Please sign in to continue."
+        case .appCheckFailed:
+            return "Device verification unavailable. Please try again in a moment."
         case .conflict(let message):
             return message ?? "Request could not be completed."
         case .rateLimited(let retryAfterSeconds, let scope):
@@ -53,6 +56,8 @@ enum APIError: LocalizedError {
         switch self {
         case .rateLimited:
             return "Usage limit reached"
+        case .appCheckFailed:
+            return "Device verification failed"
         default:
             return nil
         }

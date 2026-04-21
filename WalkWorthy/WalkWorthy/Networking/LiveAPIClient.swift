@@ -8,6 +8,22 @@
 import Foundation
 
 final class LiveAPIClient: EncouragementAPI {
+    /// Characterizes the latency profile of an endpoint so we can pick an
+    /// appropriate per-request timeout. AI endpoints talk to OpenAI through the
+    /// backend and can legitimately take 10–20s; everything else should return
+    /// in well under 5s.
+    enum EndpointKind {
+        case ai
+        case nonAI
+
+        var timeoutInterval: TimeInterval {
+            switch self {
+            case .ai: return 30
+            case .nonAI: return 15
+            }
+        }
+    }
+
     private let baseURL: URL
     private let tokenProvider: BearerTokenProviding
     private let appCheckProvider: AppCheckTokenProviding
@@ -15,14 +31,14 @@ final class LiveAPIClient: EncouragementAPI {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
 
-    init?(config: Config, tokenProvider: BearerTokenProviding, appCheckProvider: AppCheckTokenProviding, urlSession: URLSession = .shared) {
+    init?(config: Config, tokenProvider: BearerTokenProviding, appCheckProvider: AppCheckTokenProviding, urlSession: URLSession? = nil) {
         guard let baseURL = config.apiBaseURL else {
             return nil
         }
         self.baseURL = baseURL
         self.tokenProvider = tokenProvider
         self.appCheckProvider = appCheckProvider
-        self.urlSession = urlSession
+        self.urlSession = urlSession ?? LiveAPIClient.makeDefaultSession()
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
         self.encoder = JSONEncoder()
@@ -36,22 +52,46 @@ final class LiveAPIClient: EncouragementAPI {
     /// `Authorization: Bearer <token>` header) so every request fails with
     /// `APIError.network` instead of crashing the app at `@main`. Callers should
     /// surface a configuration-error UI (see `AppState.configurationError`).
-    init(baseURL: URL, tokenProvider: BearerTokenProviding, appCheckProvider: AppCheckTokenProviding, urlSession: URLSession = .shared) {
+    init(baseURL: URL, tokenProvider: BearerTokenProviding, appCheckProvider: AppCheckTokenProviding, urlSession: URLSession? = nil) {
         self.baseURL = baseURL
         self.tokenProvider = tokenProvider
         self.appCheckProvider = appCheckProvider
-        self.urlSession = urlSession
+        self.urlSession = urlSession ?? LiveAPIClient.makeDefaultSession()
         self.decoder = JSONDecoder()
         self.decoder.dateDecodingStrategy = .iso8601
         self.encoder = JSONEncoder()
         self.encoder.outputFormatting = .sortedKeys
     }
 
+    /// Builds a `URLSession` with a bounded overall deadline so retries + per-call
+    /// timeouts can't compound into a multi-minute stall. Per-request timeouts
+    /// are still set via `URLRequest.timeoutInterval` on each call.
+    static func makeDefaultSession() -> URLSession {
+        let configuration = URLSessionConfiguration.default
+        configuration.timeoutIntervalForRequest = 30
+        configuration.timeoutIntervalForResource = 45
+        return URLSession(configuration: configuration)
+    }
+
     // MARK: - EncouragementAPI
 
     func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws {
-        let request = try await makeRequest(path: "userProfile", method: "PATCH", body: payload)
-        try await sendExpectingNoContent(request)
+        try await sendExpectingNoContent(
+            path: "userProfile",
+            method: "PATCH",
+            body: payload,
+            endpointKind: .nonAI
+        )
+    }
+
+    func fetchUserProfile() async throws -> RemoteUserProfileResponse? {
+        let envelope: UserProfileEnvelope = try await performRequest(
+            path: "userProfile",
+            method: "GET",
+            endpointKind: .nonAI,
+            decode: UserProfileEnvelope.self
+        )
+        return envelope.profile
     }
 
     // MARK: - Mood API
@@ -71,13 +111,13 @@ final class LiveAPIClient: EncouragementAPI {
 
         for attempt in 1...maxAttempts {
             do {
-                let request = try await makeRequest(path: "moodCheckIn", method: "POST", body: moodRequest)
-                #if DEBUG
-                if attempt == 1 {
-                    print("[LiveAPIClient] Full Request URL: \(request.url?.absoluteString ?? "nil")")
-                }
-                #endif
-                let response = try await send(request, decode: MoodCheckInResponse.self)
+                let response: MoodCheckInResponse = try await performRequest(
+                    path: "moodCheckIn",
+                    method: "POST",
+                    body: moodRequest,
+                    endpointKind: .ai,
+                    decode: MoodCheckInResponse.self
+                )
                 #if DEBUG
                 print("[LiveAPIClient] Mood check-in success (attempt \(attempt))")
                 #endif
@@ -114,8 +154,12 @@ final class LiveAPIClient: EncouragementAPI {
     }
 
     func fetchMoodStatus() async throws -> MoodStatusResponse {
-        let request = try await makeRequest(path: "moodCheckIn", method: "GET")
-        return try await send(request, decode: MoodStatusResponse.self)
+        try await performRequest(
+            path: "moodCheckIn",
+            method: "GET",
+            endpointKind: .nonAI,
+            decode: MoodStatusResponse.self
+        )
     }
 
     func fetchMoodHistory(days: Int, startDate: String?, endDate: String?) async throws -> MoodHistoryResponse {
@@ -128,12 +172,13 @@ final class LiveAPIClient: EncouragementAPI {
         if let endDate {
             queryItems.append(URLQueryItem(name: "endDate", value: endDate))
         }
-        let request = try await makeRequest(
+        return try await performRequest(
             path: "moodCheckIn",
             method: "GET",
-            queryItems: queryItems
+            queryItems: queryItems,
+            endpointKind: .nonAI,
+            decode: MoodHistoryResponse.self
         )
-        return try await send(request, decode: MoodHistoryResponse.self)
     }
 
     func fetchMoodLogFullHistory(days: Int, endDate: String?) async throws -> MoodLogResponse {
@@ -143,12 +188,13 @@ final class LiveAPIClient: EncouragementAPI {
         if let endDate {
             queryItems.append(URLQueryItem(name: "endDate", value: endDate))
         }
-        let request = try await makeRequest(
+        return try await performRequest(
             path: "moodCheckIn",
             method: "GET",
-            queryItems: queryItems
+            queryItems: queryItems,
+            endpointKind: .nonAI,
+            decode: MoodLogResponse.self
         )
-        return try await send(request, decode: MoodLogResponse.self)
     }
 
     private static func logicalDate() -> Date {
@@ -159,12 +205,13 @@ final class LiveAPIClient: EncouragementAPI {
 
     func fetchDailyReflection() async throws -> DailyReflection {
         let localDate = isoDateFormatter.string(from: Self.logicalDate())
-        let request = try await makeRequest(
+        return try await performRequest(
             path: "dailyReflection",
             method: "GET",
-            queryItems: [URLQueryItem(name: "date", value: localDate)]
+            queryItems: [URLQueryItem(name: "date", value: localDate)],
+            endpointKind: .ai,
+            decode: DailyReflection.self
         )
-        return try await send(request, decode: DailyReflection.self)
     }
 
     private static let isoDateFormatter: DateFormatter = {
@@ -178,14 +225,107 @@ final class LiveAPIClient: EncouragementAPI {
 
     // MARK: - Internal helpers
 
-    private func makeRequest<T: Encodable>(path: String, method: String, body: T) async throws -> URLRequest {
-        var request = try await makeRequest(path: path, method: method)
-        request.httpBody = try encodeBody(body)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        return request
+    /// Build, send, and decode a JSON request in one call. Handles the 401
+    /// forced-refresh retry transparently so individual endpoint methods don't
+    /// need to duplicate the logic.
+    ///
+    /// Retry semantics: **Single retry only.** If the first request returns 401
+    /// we force-refresh the bearer token and try once more. If the retry also
+    /// returns 401, we propagate `.unauthorized` to the caller — further retries
+    /// would tight-loop against an invalid session. Callers are responsible for
+    /// handling persistent auth failure (typically by routing the user to sign
+    /// in again). The retry path re-enters `makeRequest` which re-fetches the
+    /// App Check token; if that fetch fails the request proceeds without the
+    /// header (see App Check degrade-mode comment in `makeRequest`).
+    private func performRequest<T: Decodable>(
+        path: String,
+        method: String,
+        queryItems: [URLQueryItem]? = nil,
+        endpointKind: EndpointKind,
+        decode type: T.Type
+    ) async throws -> T {
+        let request = try await makeRequest(
+            path: path,
+            method: method,
+            queryItems: queryItems,
+            endpointKind: endpointKind,
+            forcingTokenRefresh: false
+        )
+
+        do {
+            return try await send(request, decode: type)
+        } catch APIError.unauthorized {
+            let retryRequest = try await makeRequest(
+                path: path,
+                method: method,
+                queryItems: queryItems,
+                endpointKind: endpointKind,
+                forcingTokenRefresh: true
+            )
+            // If this second send throws .unauthorized, it propagates to the
+            // caller unchanged — we do not retry a second time.
+            return try await send(retryRequest, decode: type)
+        }
     }
 
-    private func makeRequest(path: String, method: String, queryItems: [URLQueryItem]? = nil) async throws -> URLRequest {
+    /// Variant used for JSON-body requests — identical retry semantics.
+    private func performRequest<Body: Encodable, T: Decodable>(
+        path: String,
+        method: String,
+        body: Body,
+        queryItems: [URLQueryItem]? = nil,
+        endpointKind: EndpointKind,
+        decode type: T.Type
+    ) async throws -> T {
+        let encodedBody = try encodeBody(body)
+
+        let request = try await makeRequest(
+            path: path,
+            method: method,
+            queryItems: queryItems,
+            endpointKind: endpointKind,
+            forcingTokenRefresh: false,
+            body: encodedBody
+        )
+
+        do {
+            return try await send(request, decode: type)
+        } catch APIError.unauthorized {
+            let retryRequest = try await makeRequest(
+                path: path,
+                method: method,
+                queryItems: queryItems,
+                endpointKind: endpointKind,
+                forcingTokenRefresh: true,
+                body: encodedBody
+            )
+            return try await send(retryRequest, decode: type)
+        }
+    }
+
+    private func sendExpectingNoContent<Body: Encodable>(
+        path: String,
+        method: String,
+        body: Body,
+        endpointKind: EndpointKind
+    ) async throws {
+        let _: EmptyPayload = try await performRequest(
+            path: path,
+            method: method,
+            body: body,
+            endpointKind: endpointKind,
+            decode: EmptyPayload.self
+        )
+    }
+
+    private func makeRequest(
+        path: String,
+        method: String,
+        queryItems: [URLQueryItem]? = nil,
+        endpointKind: EndpointKind,
+        forcingTokenRefresh: Bool,
+        body: Data? = nil
+    ) async throws -> URLRequest {
         var url = baseURL
         if !path.isEmpty {
             let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -208,22 +348,39 @@ final class LiveAPIClient: EncouragementAPI {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 60
+        request.timeoutInterval = endpointKind.timeoutInterval
+
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
 
         do {
-            let token = try await tokenProvider.validBearerToken()
+            let token = try await tokenProvider.validBearerToken(forcingRefresh: forcingTokenRefresh)
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         } catch {
             throw APIError.notAuthenticated
         }
 
+        // App Check token fetch can fail for reasons that are not caller-recoverable:
+        // simulators (App Attest only works on real devices), App Store reviewer
+        // devices (known App Attest flakiness), and transient Firebase revalidation
+        // windows. Hard-blocking these would brick the app in legitimate scenarios.
+        //
+        // Instead: degrade silently — log in DEBUG, proceed without the header. The
+        // backend independently enforces App Check via `verifyAppCheck()` and returns
+        // 403 if the header is missing/invalid. `handleResponse` maps 403 to
+        // `APIError.unauthorized`, which is a recoverable path (sign in again).
         do {
             let appCheckToken = try await appCheckProvider.validAppCheckToken()
             request.setValue(appCheckToken, forHTTPHeaderField: "X-Firebase-AppCheck")
         } catch {
             #if DEBUG
-            print("[LiveAPIClient] App Check token fetch failed: \(error)")
+            print("[LiveAPIClient] App Check token fetch failed; proceeding without header: \(error)")
             #endif
+            // Intentionally proceed. Backend enforces App Check independently via
+            // verifyAppCheck(). A missing header returns 403, which `handleResponse`
+            // maps to APIError.unauthorized — recoverable by the user.
         }
 
         return request
@@ -246,10 +403,6 @@ final class LiveAPIClient: EncouragementAPI {
             #endif
             throw APIError.network(error)
         }
-    }
-
-    private func sendExpectingNoContent(_ request: URLRequest) async throws {
-        let _: EmptyPayload = try await send(request, decode: EmptyPayload.self)
     }
 
     private func handleResponse<T: Decodable>(data: Data, response: URLResponse, decode type: T.Type) throws -> T {
@@ -344,4 +497,9 @@ private struct RateLimitErrorBody: Decodable {
     let code: String?
     let scope: String?
     let retryAfterSeconds: Int?
+}
+
+/// Backend wraps the profile in `{ profile: {...} | null }`.
+private struct UserProfileEnvelope: Decodable {
+    let profile: RemoteUserProfileResponse?
 }

@@ -44,8 +44,9 @@ final class AuthenticationViewModel: ObservableObject {
 
     init(appState: AppState) {
         self.appState = appState
-        // Load last saved email
-        self.email = LastEmailStorage.loadEmail() ?? ""
+        // Email recall is handled by iOS via `.textContentType(.emailAddress)`
+        // + iCloud Keychain autofill on the SignInFormView. Storing a copy in
+        // UserDefaults leaks across accounts on shared devices, so we don't.
     }
 
     /// Validates email and password inputs
@@ -108,9 +109,6 @@ final class AuthenticationViewModel: ObservableObject {
         }
 
         do {
-            // Save email before attempting auth
-            LastEmailStorage.saveEmail(trimmedEmail)
-
             switch mode {
             case .signIn:
                 try await appState.startSignIn(email: trimmedEmail, password: password)

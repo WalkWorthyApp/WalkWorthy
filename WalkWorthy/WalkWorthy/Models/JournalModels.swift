@@ -26,6 +26,16 @@ class JournalEntry {
     var moodScore: Int? = nil        // 1–10
     var emotionTags: [String] = []   // selected emotion words
 
+    // Per-user scoping. Required to prevent cross-user PII leaks on shared devices:
+    // all fetches/queries filter by the current authenticated user's Firebase UID
+    // (`appState.authenticatedUserSub`). Default "" covers entries written before
+    // this column existed; such legacy entries never match a real user and are
+    // cleaned up on sign-out via `AppState.clearJournalState()`.
+    //
+    // TODO: If ever migrating to encrypted backend sync, back-fill this column
+    // from the sync payload rather than from local state.
+    var userSub: String = ""
+
     init(
         id: String,
         text: String,
@@ -36,7 +46,8 @@ class JournalEntry {
         isPinned: Bool = false,
         moodLevelRaw: String? = nil,
         moodScore: Int? = nil,
-        emotionTags: [String] = []
+        emotionTags: [String] = [],
+        userSub: String = ""
     ) {
         self.id = id
         self.text = text
@@ -48,6 +59,7 @@ class JournalEntry {
         self.moodLevelRaw = moodLevelRaw
         self.moodScore = moodScore
         self.emotionTags = emotionTags
+        self.userSub = userSub
     }
 }
 
