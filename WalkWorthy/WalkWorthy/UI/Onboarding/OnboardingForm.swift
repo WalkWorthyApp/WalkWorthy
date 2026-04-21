@@ -10,6 +10,7 @@ import SwiftUI
 struct OnboardingForm: View {
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
+    @State private var firstName: String = ""
     @State private var ageText: String = ""
     @State private var occupation: String = ""
     @State private var major: String = ""
@@ -24,6 +25,7 @@ struct OnboardingForm: View {
     @FocusState private var focusedField: Field?
 
     enum Field {
+        case firstName
         case age
         case occupation
         case major
@@ -45,6 +47,7 @@ struct OnboardingForm: View {
         ScrollView {
             VStack(alignment: .leading, spacing: scaled(24)) {
                 header
+                firstNameSection
                 ageSection
                 contextSection
                 genderSection
@@ -80,6 +83,29 @@ struct OnboardingForm: View {
                 .font(.largeTitle.bold())
             Text("Help us tailor encouragements to your rhythms. Your information stays private and secure.")
                 .font(.body)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var firstNameSection: some View {
+        VStack(alignment: .leading, spacing: scaled(8)) {
+            HStack(spacing: scaled(6)) {
+                Text("First name")
+                    .font(.headline)
+                Text("(optional)")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+            TextField("Your first name", text: $firstName)
+                .textContentType(.givenName)
+                .textInputAutocapitalization(.words)
+                .disableAutocorrection(true)
+                .padding()
+                .glassCard()
+                .focused($focusedField, equals: .firstName)
+                .accessibilityLabel("First name (optional)")
+            Text("Used only for your greeting on the Home screen.")
+                .font(.footnote)
                 .foregroundStyle(.secondary)
         }
     }
@@ -256,6 +282,7 @@ struct OnboardingForm: View {
         isEditingExistingProfile = appState.onboardingCompleted
 
         let profile = appState.loadProfile()
+        firstName = profile.firstName
         if let age = profile.age {
             ageText = String(age)
         } else {
@@ -316,11 +343,13 @@ struct OnboardingForm: View {
 
         focusedField = nil
         let age = Int(ageText)
+        let trimmedFirstName = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOccupation = occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = major.trimmingCharacters(in: .whitespacesAndNewlines)
+        firstName = trimmedFirstName
         occupation = trimmedOccupation
         major = trimmedMajor
-        appState.updateProfile(age: age, occupation: trimmedOccupation, major: trimmedMajor, gender: gender, hobbies: selectedHobbies, optIn: optIn)
+        appState.updateProfile(firstName: trimmedFirstName, age: age, occupation: trimmedOccupation, major: trimmedMajor, gender: gender, hobbies: selectedHobbies, optIn: optIn)
         appState.markOnboardingComplete()
 
         if isEditingExistingProfile {
