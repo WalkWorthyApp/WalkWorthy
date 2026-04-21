@@ -42,31 +42,6 @@ final class NotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    func scheduleTestNotification(in seconds: TimeInterval = 10) {
-        Task {
-            if !(await isAuthorized) {
-                await requestAuthorizationIfNeeded()
-            }
-            guard await isAuthorized else { return }
-            let content = UNMutableNotificationContent()
-            content.title = "WalkWorthy"
-            content.body = "This is your test encouragement notification."
-            content.sound = .default
-            content.categoryIdentifier = NotificationCategory.encouragement.rawValue
-
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: max(1, seconds), repeats: false)
-            let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: trigger)
-
-            do {
-                try await center.add(request)
-            } catch {
-                #if DEBUG
-                print("[NotificationScheduler] Failed to schedule test notification: \(error)")
-                #endif
-            }
-        }
-    }
-
     private var isAuthorized: Bool {
         get async {
             let settings = await center.notificationSettings()

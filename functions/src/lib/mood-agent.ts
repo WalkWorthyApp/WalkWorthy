@@ -12,31 +12,24 @@ import { z } from "zod";
 import Ajv from "ajv";
 import { logger } from "firebase-functions/v2";
 import type {
-  AgeRange,
-  Gender,
   CheckInType,
   Translation,
   AIEncouragementResponse,
   MoodSpectrumData,
 } from "../shared/types";
-import { validateAgeRange, validateGender } from "../shared/types";
+import {
+  sanitizeProfile,
+  sanitizeText,
+  type UserProfilePayload,
+} from "./profile-sanitize";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-export interface UserProfilePayload {
-  /** SENSITIVE: Optional major/field of study (for students). Can identify users when combined with other profile data. */
-  major?: string;
-  /** SENSITIVE: Optional occupation/job title (for non-students). Can identify users when combined with other profile data. */
-  occupation?: string;
-  /** SENSITIVE: Gender is PII; must be one of the predefined gender options */
-  gender?: Gender;
-  /** SENSITIVE: Age range is PII; must be one of the predefined ranges */
-  ageRange?: AgeRange;
-  hobbies?: string[];
-  optInTailored?: boolean;
-}
+// Re-export UserProfilePayload for backwards compatibility with consumers
+// (e.g., api/mood-checkin.ts) that previously imported it from this module.
+export type { UserProfilePayload } from "./profile-sanitize";
 
 export interface MoodAgentInput {
   profile: UserProfilePayload | null;
@@ -160,6 +153,29 @@ For score=5, tags=["Calm","Steady"], categories=["Tasks"], midday, followUpScore
   "translation": "NIV"
 }
 
+## Using the User Profile (SUBTLE CONTEXT ONLY)
+
+You may receive a "profile" object with optional fields: ageRange, occupation, major, gender, hobbies. Treat this as SILENT CONTEXT that quietly shapes your response — never as material to name or list back.
+
+**DO:**
+- Let ageRange, occupation/major, and hobbies inform your TONE, IMAGERY, and VERSE CHOICE. A verse about diligence hits differently for a grad student than for a retiree.
+- Match life-stage vocabulary naturally: "exam season" or "before class" for students; "Monday morning" or "project deadline" for working professionals; "the week ahead" when unclear.
+- Pick imagery that resonates with their world without announcing it (e.g., for someone with outdoor hobbies, a verse about God's creation may land more than one about city streets).
+
+**DON'T:**
+- Name-drop hobbies, major, occupation, gender, or age. Never write "As a nursing student…", "I know you love reading…", or "Hey engineer,".
+- List the user's profile back to them in any form.
+- Mention that a profile or personalization exists.
+- Refer to the user by an identity label or role.
+
+**Contrast example** — profile: {ageRange: "18-24", major: "Nursing", hobbies: ["Music","Reading"]}, morning, score=3, tags=["Anxious"]:
+
+BAD (name-dropping): "Hey nursing student, clinicals are tough. Maybe put on some music later."
+
+GOOD (subtle): "Mornings before a heavy day can feel like the whole weight lands before you've even started. You don't have to carry all of it right now."
+
+If the profile is null or empty, fall back to neutral, universally-applicable warmth.
+
 ## Output Requirements
 - Output STRICT JSON matching the schema {message, verseRef, verseText, translation}
 - No prose, explanations, or code fences - just the JSON object
@@ -190,38 +206,8 @@ function ensureConfig(apiKey: string) {
 // ============================================================================
 // Input Sanitization
 // ============================================================================
-
-function sanitize(text: string, max = 400): string {
-  const stripped = text
-    .replace(/<[^>]+>/g, " ")
-    .replace(/https?:\/\/\S+/gi, " ");
-  return stripped.replace(/\s+/g, " ").trim().slice(0, max);
-}
-
-function sanitizeProfile(
-  profile: UserProfilePayload | null | undefined,
-): UserProfilePayload | null {
-  if (!profile) return null;
-
-  // Validate sensitive enum fields to prevent invalid data being passed to AI
-  const validGender = profile.gender
-    ? validateGender(profile.gender)
-    : undefined;
-  const validAgeRange = profile.ageRange
-    ? validateAgeRange(profile.ageRange)
-    : undefined;
-
-  return {
-    major: profile.major ? sanitize(profile.major, 120) : undefined,
-    occupation: profile.occupation
-      ? sanitize(profile.occupation, 120)
-      : undefined,
-    gender: validGender,
-    ageRange: validAgeRange,
-    hobbies: profile.hobbies?.slice(0, 6).map((h) => sanitize(h, 40)),
-    optInTailored: Boolean(profile.optInTailored),
-  };
-}
+// sanitizeProfile() and sanitizeText() live in ./profile-sanitize so the
+// reflection agent can share the same sanitization logic.
 
 function normalizeTranslation(value: Translation | string): Translation {
   const upper = value.toUpperCase() as Translation;
@@ -315,10 +301,10 @@ export async function runMoodAgent(
     checkInType: input.checkInType,
     moodScore: moodSpectrumData.moodScore,
     moodLevel: moodSpectrumData.moodLevel,
-    emotionTags: moodSpectrumData.emotionTags.slice(0, 10).map((t) => sanitize(t, 30)),
-    impactCategories: moodSpectrumData.impactCategories.slice(0, 10).map((c) => sanitize(c, 30)),
+    emotionTags: moodSpectrumData.emotionTags.slice(0, 10).map((t) => sanitizeText(t, 30)),
+    impactCategories: moodSpectrumData.impactCategories.slice(0, 10).map((c) => sanitizeText(c, 30)),
     followUpScore: moodSpectrumData.followUpScore,
-    note: moodSpectrumData.note ? sanitize(moodSpectrumData.note, 300) : undefined,
+    note: moodSpectrumData.note ? sanitizeText(moodSpectrumData.note, 300) : undefined,
   };
 
   const serializedInput = JSON.stringify(payload, null, 2);

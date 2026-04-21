@@ -231,6 +231,15 @@ struct MoodHistoryResponse: Codable {
     let daysRequested: Int
 }
 
+/// Full-fidelity check-in log response — each entry contains
+/// `moodSpectrumData` (tags, impacts, note) and the full `aiResponse`,
+/// unlike `MoodHistoryResponse` which only carries per-day summaries.
+/// Powers the Settings → Check-in Log deep-dive view.
+struct MoodLogResponse: Codable {
+    let checkIns: [MoodCheckIn]
+    let daysRequested: Int
+}
+
 // MARK: - Daily Reflection
 
 struct DailyReflection: Codable, Equatable {

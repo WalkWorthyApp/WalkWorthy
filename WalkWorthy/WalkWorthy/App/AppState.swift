@@ -15,6 +15,11 @@ final class AppState: ObservableObject {
     @Published var selectedTranslation: Translation
     @Published var onboardingCompleted: Bool
     @Published var useProfilePersonalization: Bool
+    /// Mirrors the UserDefaults-backed profile for SwiftUI-observable access
+    /// (HomeView greeting + tone-aware subtitle). Nil before sign-in / after sign-out.
+    @Published private(set) var currentProfile: OnboardingProfile?
+    /// User has dismissed the "add your first name" prompt on Home. Scoped per user.
+    @Published private(set) var nameBackfillDismissed: Bool = false
     @Published private(set) var authenticatedUserSub: String?
     @Published var isAuthenticated: Bool {
         didSet {
@@ -56,12 +61,14 @@ final class AppState: ObservableObject {
         StorageKey.onboardingCompleted,
         StorageKey.useProfilePersonalization,
         StorageKey.translation,
+        StorageKey.profileFirstName,
         StorageKey.profileAge,
         StorageKey.profileMajor,
         StorageKey.profileOccupation,
         StorageKey.profileGender,
         StorageKey.profileHobbies,
         StorageKey.profileOptIn,
+        StorageKey.dismissedNameBackfill,
     ]
 
     init(
@@ -101,9 +108,15 @@ final class AppState: ObservableObject {
     /// as a local cache. This data is protected by iOS Data Protection, which encrypts UserDefaults
     /// when the device is locked. The authoritative copy is synced to Firebase with proper security rules.
     /// Authentication tokens use Keychain storage with kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly.
-    func updateProfile(age: Int?, occupation: String, major: String, gender: Gender, hobbies: Set<String>, optIn: Bool) {
+    func updateProfile(firstName: String, age: Int?, occupation: String, major: String, gender: Gender, hobbies: Set<String>, optIn: Bool) {
+        let trimmedFirstName = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOccupation = occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = major.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedFirstName.isEmpty {
+            defaults.removeObject(forKey: storageKey(StorageKey.profileFirstName))
+        } else {
+            defaults.set(trimmedFirstName, forKey: storageKey(StorageKey.profileFirstName))
+        }
         if let age {
             defaults.set(age, forKey: storageKey(StorageKey.profileAge))
         } else {
@@ -115,21 +128,33 @@ final class AppState: ObservableObject {
         defaults.set(Array(hobbies), forKey: storageKey(StorageKey.profileHobbies))
         defaults.set(optIn, forKey: storageKey(StorageKey.profileOptIn))
 
-        syncProfile(age: age, occupation: trimmedOccupation, major: trimmedMajor, gender: gender, hobbies: hobbies, optIn: optIn)
+        // Refresh observable profile so Home greeting updates without a relaunch.
+        currentProfile = OnboardingProfile(
+            firstName: trimmedFirstName,
+            age: age,
+            occupation: trimmedOccupation,
+            major: trimmedMajor,
+            gender: gender,
+            hobbies: hobbies,
+            optIn: optIn
+        )
+
+        syncProfile(firstName: trimmedFirstName, age: age, occupation: trimmedOccupation, major: trimmedMajor, gender: gender, hobbies: hobbies, optIn: optIn)
     }
 
     func loadProfile() -> OnboardingProfile {
         if authenticatedUserSub == nil {
-            return OnboardingProfile(age: nil, occupation: "", major: "", gender: .male, hobbies: [], optIn: true)
+            return OnboardingProfile(firstName: "", age: nil, occupation: "", major: "", gender: .male, hobbies: [], optIn: true)
         }
 
+        let firstName = defaults.string(forKey: storageKey(StorageKey.profileFirstName)) ?? ""
         let age = defaults.value(forKey: storageKey(StorageKey.profileAge)) as? Int
         let occupation = defaults.string(forKey: storageKey(StorageKey.profileOccupation)) ?? ""
         let major = defaults.string(forKey: storageKey(StorageKey.profileMajor)) ?? ""
         let gender = Gender(rawValue: defaults.string(forKey: storageKey(StorageKey.profileGender)) ?? "") ?? .male
         let hobbies = Set(defaults.stringArray(forKey: storageKey(StorageKey.profileHobbies)) ?? [])
         let optIn = defaults.object(forKey: storageKey(StorageKey.profileOptIn)) as? Bool ?? true
-        return OnboardingProfile(age: age, occupation: occupation, major: major, gender: gender, hobbies: hobbies, optIn: optIn)
+        return OnboardingProfile(firstName: firstName, age: age, occupation: occupation, major: major, gender: gender, hobbies: hobbies, optIn: optIn)
     }
 
     func setUseProfilePersonalization(_ isOn: Bool) {
@@ -137,14 +162,11 @@ final class AppState: ObservableObject {
         defaults.set(isOn, forKey: storageKey(StorageKey.useProfilePersonalization))
     }
 
-    func setTranslation(_ translation: Translation) {
-        selectedTranslation = translation
-        defaults.set(translation.rawValue, forKey: storageKey(StorageKey.translation))
-        syncStoredProfile()
-    }
-
-    func scheduleTestNotification() {
-        notificationScheduler.scheduleTestNotification()
+    /// Record the user's dismissal of the "add your first name" banner on Home.
+    /// Scoped per-user; persists across app launches.
+    func setNameBackfillDismissed(_ isDismissed: Bool) {
+        nameBackfillDismissed = isDismissed
+        defaults.set(isDismissed, forKey: storageKey(StorageKey.dismissedNameBackfill))
     }
 
     func startObservingAuthState() async {
@@ -253,6 +275,8 @@ final class AppState: ObservableObject {
             onboardingCompleted = false
             useProfilePersonalization = true
             selectedTranslation = config.defaultTranslation
+            currentProfile = nil
+            nameBackfillDismissed = false
             return
         }
 
@@ -267,6 +291,10 @@ final class AppState: ObservableObject {
         useProfilePersonalization = defaults.object(forKey: storageKey(StorageKey.useProfilePersonalization)) as? Bool ?? true
 
         selectedTranslation = Translation(rawValue: defaults.string(forKey: storageKey(StorageKey.translation)) ?? "") ?? config.defaultTranslation
+
+        // Hydrate observable profile mirror + banner-dismissed flag for this user
+        currentProfile = hasStoredProfile() ? loadProfile() : nil
+        nameBackfillDismissed = defaults.bool(forKey: storageKey(StorageKey.dismissedNameBackfill))
     }
 
     private func hasStoredProfile() -> Bool {
@@ -274,6 +302,7 @@ final class AppState: ObservableObject {
             return false
         }
 
+        if defaults.object(forKey: storageKey(StorageKey.profileFirstName)) != nil { return true }
         if defaults.object(forKey: storageKey(StorageKey.profileAge)) != nil { return true }
         if defaults.object(forKey: storageKey(StorageKey.profileOccupation)) != nil { return true }
         if defaults.object(forKey: storageKey(StorageKey.profileMajor)) != nil { return true }
@@ -283,17 +312,9 @@ final class AppState: ObservableObject {
         return false
     }
 
-    private func syncProfile(age: Int?, occupation: String, major: String, gender: Gender, hobbies: Set<String>, optIn: Bool) {
+    private func syncProfile(firstName: String, age: Int?, occupation: String, major: String, gender: Gender, hobbies: Set<String>, optIn: Bool) {
         guard isAuthenticated else { return }
-        let profile = OnboardingProfile(age: age, occupation: occupation, major: major, gender: gender, hobbies: hobbies, optIn: optIn)
-        Task {
-            await sendProfileUpdate(profile)
-        }
-    }
-
-    private func syncStoredProfile() {
-        guard isAuthenticated else { return }
-        let profile = loadProfile()
+        let profile = OnboardingProfile(firstName: firstName, age: age, occupation: occupation, major: major, gender: gender, hobbies: hobbies, optIn: optIn)
         Task {
             await sendProfileUpdate(profile)
         }
@@ -301,6 +322,7 @@ final class AppState: ObservableObject {
 
     private func sendProfileUpdate(_ profile: OnboardingProfile) async {
         guard isAuthenticated else { return }
+        let trimmedFirstName = profile.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOccupation = profile.occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = profile.major.trimmingCharacters(in: .whitespacesAndNewlines)
         let hobbies = profile.hobbies.sorted()
@@ -310,6 +332,7 @@ final class AppState: ObservableObject {
 
         let payload = RemoteUserProfileRequest(
             ageRange: ageRangeString(for: profile.age),
+            firstName: trimmedFirstName.isEmpty ? nil : trimmedFirstName,
             occupation: trimmedOccupation.isEmpty ? nil : trimmedOccupation,
             major: trimmedMajor.isEmpty ? nil : trimmedMajor,
             gender: profile.gender.rawValue.lowercased(),
@@ -383,6 +406,15 @@ final class AppState: ObservableObject {
         guard isAuthenticated else { throw MoodError.notAuthenticated }
 
         return try await apiClient.fetchMoodHistory(days: days, startDate: startDate, endDate: endDate)
+    }
+
+    /// Fetch the full-fidelity mood check-in log (with moodSpectrumData + aiResponse)
+    /// for the past `days` days. Powers the Settings → Check-in Log deep-dive.
+    /// Pass `endDate` (YYYY-MM-DD) to page further back in time.
+    func loadMoodLog(days: Int = 14, endDate: String? = nil) async throws -> MoodLogResponse {
+        guard isAuthenticated else { throw MoodError.notAuthenticated }
+
+        return try await apiClient.fetchMoodLogFullHistory(days: days, endDate: endDate)
     }
 
     func clearMoodState() {
@@ -533,12 +565,14 @@ extension AppState {
         static let onboardingCompleted = "walkworthy.onboardingCompleted"
         static let useProfilePersonalization = "walkworthy.settings.useProfilePersonalization"
         static let translation = "walkworthy.settings.translation"
+        static let profileFirstName = "walkworthy.profile.firstName"
         static let profileAge = "walkworthy.profile.age"
         static let profileMajor = "walkworthy.profile.major"
         static let profileOccupation = "walkworthy.profile.occupation"
         static let profileGender = "walkworthy.profile.gender"
         static let profileHobbies = "walkworthy.profile.hobbies"
         static let profileOptIn = "walkworthy.profile.optIn"
+        static let dismissedNameBackfill = "walkworthy.dismissed.nameBackfill"
         static let lastAuthenticatedUser = "walkworthy.auth.lastUser"
         static let dailyReflectionPrefix = "walkworthy.dailyReflection"
     }

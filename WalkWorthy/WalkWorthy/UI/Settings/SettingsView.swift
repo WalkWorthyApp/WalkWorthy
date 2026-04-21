@@ -35,15 +35,14 @@ struct SettingsView: View {
                         }
                         .listRowBackground(Color.wwCardBackground)
 
-                        Picker("Bible translation", selection: Binding(
-                            get: { appState.selectedTranslation },
-                            set: { appState.setTranslation($0) }
-                        )) {
-                            ForEach(Translation.allCases) { translation in
-                                Text(translation.displayName).tag(translation)
-                            }
-                        }
-                        .listRowBackground(Color.wwCardBackground)
+                        // Bible translation picker removed until multi-translation
+                        // content is actually shipped. Today the app uses ESV
+                        // everywhere (Verse of the Day, AI encouragements), so a
+                        // 7-option picker would be misleading. AppState still tracks
+                        // selectedTranslation (default ESV) and the backend schema
+                        // accepts all 7 values, so re-adding the picker is a small
+                        // diff — restore this Picker, setTranslation, and
+                        // syncStoredProfile when real translation content lands.
                     }
 
                     Section("Notifications") {
@@ -53,20 +52,13 @@ struct SettingsView: View {
                             Label("Check-in reminders", systemImage: "bell.badge")
                         }
                         .listRowBackground(Color.wwCardBackground)
-
-                        Button {
-                            appState.scheduleTestNotification()
-                        } label: {
-                            Label("Send test notification", systemImage: "bell")
-                        }
-                        .listRowBackground(Color.wwCardBackground)
                     }
 
                     Section("Data") {
                         NavigationLink {
-                            MoodHistoryView()
+                            MoodLogView()
                         } label: {
-                            Label("Mood history", systemImage: "chart.line.uptrend.xyaxis")
+                            Label("Check-in log", systemImage: "list.bullet.rectangle")
                         }
                         .listRowBackground(Color.wwCardBackground)
                     }

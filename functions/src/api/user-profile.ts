@@ -76,6 +76,7 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
 
         const profileData: UserProfile = {
           ageRange: validated.ageRange,
+          firstName: validated.firstName,
           gender: validated.gender,
           major: validated.major,
           occupation: validated.occupation,
@@ -112,6 +113,24 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
             return errorResponse(res, 400, 'Invalid gender value');
           }
           updates.gender = validGender;
+        }
+
+        if (req.body.firstName !== undefined) {
+          if (req.body.firstName === null) {
+            updates.firstName = FieldValue.delete() as unknown as string | undefined;
+          } else if (typeof req.body.firstName === 'string') {
+            const trimmed = req.body.firstName.trim();
+            if (trimmed.length === 0) {
+              // Empty string clears the field (client convenience: some UIs can't send null)
+              updates.firstName = FieldValue.delete() as unknown as string | undefined;
+            } else if (trimmed.length <= 60) {
+              updates.firstName = trimmed;
+            } else {
+              return errorResponse(res, 400, 'Invalid firstName value');
+            }
+          } else {
+            return errorResponse(res, 400, 'Invalid firstName value');
+          }
         }
 
         if (req.body.major !== undefined) {

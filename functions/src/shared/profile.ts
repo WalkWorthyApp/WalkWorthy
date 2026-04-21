@@ -5,6 +5,13 @@ export interface UserProfile {
   /** SENSITIVE: Stored PII - use redactSensitiveFields() when logging */
   ageRange?: AgeRange;
 
+  /**
+   * OPTIONAL - SENSITIVE: User's first name for Home-view greeting personalization.
+   * NOT passed to AI agents — see profile-sanitize.ts::UserProfilePayload which
+   * intentionally omits this field.
+   */
+  firstName?: string;
+
   /** SENSITIVE: Optional major/field of study (for students). Can identify users when combined with other profile data. */
   major?: string;
 

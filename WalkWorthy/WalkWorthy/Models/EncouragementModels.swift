@@ -14,12 +14,16 @@ protocol EncouragementAPI {
     func submitMoodCheckIn(_ request: MoodCheckInRequest) async throws -> MoodCheckInResponse
     func fetchMoodStatus() async throws -> MoodStatusResponse
     func fetchMoodHistory(days: Int, startDate: String?, endDate: String?) async throws -> MoodHistoryResponse
+    func fetchMoodLogFullHistory(days: Int, endDate: String?) async throws -> MoodLogResponse
     func fetchDailyReflection() async throws -> DailyReflection
 
 }
 
 struct RemoteUserProfileRequest: Codable {
     var ageRange: String?
+    /// Optional first name used only for Home-view greeting personalization.
+    /// NOT forwarded to AI agents on the backend.
+    var firstName: String?
     var occupation: String?
     var major: String?
     var gender: String?
@@ -62,6 +66,9 @@ enum Gender: String, CaseIterable, Identifiable {
 }
 
 struct OnboardingProfile {
+    /// Optional first name. Empty/whitespace means not set. Used only for Home
+    /// greeting personalization — never passed to AI agents.
+    var firstName: String
     var age: Int?
     var occupation: String  // For professionals
     var major: String       // For students

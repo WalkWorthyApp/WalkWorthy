@@ -61,9 +61,14 @@ struct DailyVerseCard: View {
                 .lineSpacing(scaled(4))
                 .fixedSize(horizontal: false, vertical: true)
 
-            Text("— \(todaysVerse.ref)")
-                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(13)))
-                .foregroundStyle(.secondary)
+            HStack(spacing: scaled(6)) {
+                Text("— \(todaysVerse.ref)")
+                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(13)))
+                    .foregroundStyle(.secondary)
+                Text("·  ESV")
+                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(12)))
+                    .foregroundStyle(.secondary.opacity(0.7))
+            }
         }
         .padding()
         .frame(maxWidth: .infinity, alignment: .leading)

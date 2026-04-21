@@ -30,6 +30,12 @@ export interface UserProfileInput {
   /** REQUIRED - SENSITIVE: Must be one of the predefined age ranges */
   ageRange: AgeRange;
 
+  /**
+   * OPTIONAL - SENSITIVE: User's first name for Home-view greeting personalization.
+   * NOT passed to AI agents. Validated: trimmed, 1–60 chars.
+   */
+  firstName?: string;
+
   /** OPTIONAL - SENSITIVE: major/field of study (for students). May be free-form but should be validated. */
   major?: string;
 
@@ -150,6 +156,15 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
     checkInTimes = validateCheckInTimes(obj.checkInTimes);
   }
 
+  // OPTIONAL: Validate firstName (trim + length 1–60 when present)
+  let firstName: string | undefined;
+  if (typeof obj.firstName === 'string') {
+    const trimmed = obj.firstName.trim();
+    if (trimmed.length > 0 && trimmed.length <= 60) {
+      firstName = trimmed;
+    }
+  }
+
   return {
     ageRange,
     gender,
@@ -158,6 +173,7 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
     translationPreference: translationPref,
     timezone,
     // Optional fields
+    firstName,
     major: typeof obj.major === 'string' ? obj.major.slice(0, 120) : undefined,
     occupation: typeof obj.occupation === 'string' ? obj.occupation.slice(0, 120) : undefined,
     checkInTimes,

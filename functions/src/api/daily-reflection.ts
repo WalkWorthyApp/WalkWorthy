@@ -12,6 +12,8 @@ import type { Request, Response } from "express";
 import { getDb, COLLECTIONS, initializeFirebase } from "../shared/firebase";
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from "../shared/auth";
 import { runReflectionAgent } from "../lib/reflection-agent";
+import { getUserProfileOnce } from "../shared/profile";
+import type { UserProfilePayload } from "../lib/profile-sanitize";
 import type { DailyMoodSummary } from "../shared/types";
 import { checkRateLimit, checkDailyAiBudget, getClientIp, sendRateLimitResponse, DAILY_REFLECTION_USER_LIMIT, DAILY_REFLECTION_IP_LIMIT, REFLECTION_DAILY_AI_BUDGET } from '../shared/rate-limiter';
 
@@ -120,8 +122,18 @@ async function handleGet(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    // Fetch profile for personalization, respecting the opt-in toggle.
+    // Default to personalization ON when optInTailored is undefined, strip
+    // the profile only when explicitly opted out.
+    const profile = await getUserProfileOnce(userId);
+    const useProfile = profile?.optInTailored !== false;
+    if (!useProfile) {
+      logger.info('personalization.optedOut', { userId, endpoint: 'dailyReflection' });
+    }
+    const profileForAgent = useProfile ? (profile as UserProfilePayload | null) : null;
+
     // Generate reflection
-    const reflection = await runReflectionAgent(summaries, openaiApiKey.value());
+    const reflection = await runReflectionAgent(summaries, openaiApiKey.value(), profileForAgent);
     const generatedAt = new Date().toISOString();
     const payload = { reflection, generatedAt, date: today };
 
