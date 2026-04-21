@@ -44,22 +44,27 @@ struct OnboardingForm: View {
     }
 
     private var formContent: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: scaled(24)) {
-                header
-                firstNameSection
-                ageSection
-                contextSection
-                genderSection
-                hobbiesSection
-                optInSection
-                privacyCopy
-                primaryButton
+        ZStack {
+            TimeOfDayTheme.current.backdrop
+                .ignoresSafeArea()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: scaled(24)) {
+                    header
+                    firstNameSection
+                    ageSection
+                    contextSection
+                    genderSection
+                    hobbiesSection
+                    optInSection
+                    privacyCopy
+                    primaryButton
+                }
+                .padding(.vertical, scaled(32))
+                .padding(.horizontal, scaled(24))
             }
-            .padding(.vertical, scaled(32))
-            .padding(.horizontal, scaled(24))
+            .scrollContentBackground(.hidden)
         }
-        .background(gradient)
         .onAppear(perform: loadProfile)
         .onChange(of: ageText) {
             if ageError != nil { ageError = nil }
@@ -271,11 +276,6 @@ struct OnboardingForm: View {
             .accessibilityHint("Saves your preferences locally and continues to the app.")
         }
         .padding(.top, scaled(16))
-    }
-
-    private var gradient: some View {
-        LinearGradient(colors: [Color(.systemBackground), Color(.systemBackground).opacity(0.6)], startPoint: .top, endPoint: .bottom)
-            .ignoresSafeArea()
     }
 
     private func loadProfile() {
