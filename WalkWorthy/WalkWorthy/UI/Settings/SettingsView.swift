@@ -56,9 +56,9 @@ struct SettingsView: View {
 
                     Section("Data") {
                         NavigationLink {
-                            MoodHistoryView()
+                            MoodLogView()
                         } label: {
-                            Label("Mood history", systemImage: "chart.line.uptrend.xyaxis")
+                            Label("Check-in log", systemImage: "list.bullet.rectangle")
                         }
                         .listRowBackground(Color.wwCardBackground)
                     }

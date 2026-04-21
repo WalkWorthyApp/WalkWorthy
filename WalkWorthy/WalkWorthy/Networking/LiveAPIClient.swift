@@ -118,6 +118,21 @@ final class LiveAPIClient: EncouragementAPI {
         return try await send(request, decode: MoodHistoryResponse.self)
     }
 
+    func fetchMoodLogFullHistory(days: Int, endDate: String?) async throws -> MoodLogResponse {
+        var queryItems: [URLQueryItem] = [
+            URLQueryItem(name: "fullHistory", value: String(days))
+        ]
+        if let endDate {
+            queryItems.append(URLQueryItem(name: "endDate", value: endDate))
+        }
+        let request = try await makeRequest(
+            path: "moodCheckIn",
+            method: "GET",
+            queryItems: queryItems
+        )
+        return try await send(request, decode: MoodLogResponse.self)
+    }
+
     private static func logicalDate() -> Date {
         let hour = Calendar.current.component(.hour, from: Date())
         guard hour < 3 else { return Date() }

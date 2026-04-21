@@ -14,6 +14,7 @@ protocol EncouragementAPI {
     func submitMoodCheckIn(_ request: MoodCheckInRequest) async throws -> MoodCheckInResponse
     func fetchMoodStatus() async throws -> MoodStatusResponse
     func fetchMoodHistory(days: Int, startDate: String?, endDate: String?) async throws -> MoodHistoryResponse
+    func fetchMoodLogFullHistory(days: Int, endDate: String?) async throws -> MoodLogResponse
     func fetchDailyReflection() async throws -> DailyReflection
 
 }

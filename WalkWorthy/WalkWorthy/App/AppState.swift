@@ -408,6 +408,15 @@ final class AppState: ObservableObject {
         return try await apiClient.fetchMoodHistory(days: days, startDate: startDate, endDate: endDate)
     }
 
+    /// Fetch the full-fidelity mood check-in log (with moodSpectrumData + aiResponse)
+    /// for the past `days` days. Powers the Settings → Check-in Log deep-dive.
+    /// Pass `endDate` (YYYY-MM-DD) to page further back in time.
+    func loadMoodLog(days: Int = 14, endDate: String? = nil) async throws -> MoodLogResponse {
+        guard isAuthenticated else { throw MoodError.notAuthenticated }
+
+        return try await apiClient.fetchMoodLogFullHistory(days: days, endDate: endDate)
+    }
+
     func clearMoodState() {
         currentMoodStatus = nil
         latestMoodResponse = nil
