@@ -769,8 +769,9 @@ final class AppState: ObservableObject {
             journalError = "Couldn't load your journal entries. Please try again."
             #if DEBUG
             print("[AppState] loadJournalEntries failed: \(error)")
+            #else
+            Crashlytics.crashlytics().record(error: error)
             #endif
-            // TODO: If Crashlytics is added later, record non-fatal here.
         }
     }
 

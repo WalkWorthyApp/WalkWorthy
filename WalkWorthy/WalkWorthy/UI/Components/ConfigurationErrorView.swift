@@ -12,8 +12,7 @@ import SwiftUI
 struct ConfigurationErrorView: View {
     let message: String
 
-    // TODO: Replace with the real support address before App Store launch.
-    private static let supportEmail = "support@walkworthy.app"
+    private static let supportEmail = "walkworthyofficial@gmail.com"
 
     private var supportURL: URL? {
         URL(string: "mailto:\(Self.supportEmail)")
