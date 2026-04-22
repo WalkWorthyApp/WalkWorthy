@@ -98,6 +98,33 @@ struct SettingsView: View {
                     Section("About") {
                         LabeledContent("Build", value: Bundle.main.versionString)
                             .listRowBackground(Color.wwCardBackground)
+                        Link(destination: URL(string: "https://walkworthy-app.web.app/privacy")!) {
+                            HStack {
+                                Text("Privacy Policy")
+                                Spacer()
+                                Image(systemName: "arrow.up.right.square")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .listRowBackground(Color.wwCardBackground)
+                        Link(destination: URL(string: "https://walkworthy-app.web.app/terms")!) {
+                            HStack {
+                                Text("Terms of Use")
+                                Spacer()
+                                Image(systemName: "arrow.up.right.square")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .listRowBackground(Color.wwCardBackground)
+                        Link(destination: URL(string: "mailto:walkworthyofficial@gmail.com")!) {
+                            HStack {
+                                Text("Contact Support")
+                                Spacer()
+                                Image(systemName: "envelope")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .listRowBackground(Color.wwCardBackground)
                     }
                 }
                 .scrollContentBackground(.hidden)

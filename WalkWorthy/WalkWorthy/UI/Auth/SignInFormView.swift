@@ -46,6 +46,12 @@ struct SignInFormView: View {
 
             // Mode switch link
             modeSwitchLink
+
+            // Legal consent line (shown only in create-account mode; signing in
+            // implies prior acceptance at the time the account was created).
+            if viewModel.mode == .createAccount {
+                legalConsentText
+            }
         }
         .padding(.horizontal, scaled(24))
         .padding(.vertical, scaled(16))
@@ -285,5 +291,43 @@ struct SignInFormView: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.top, scaled(8))
+    }
+
+    /// Consent line shown during create-account. Uses AttributedString so the
+    /// Privacy Policy and Terms phrases render as tappable links while the
+    /// surrounding text stays static. Required for App Store submission — users
+    /// must be able to reach the policies before creating an account.
+    private var legalConsentText: some View {
+        let attributed: AttributedString = {
+            var full = AttributedString("By creating an account you agree to our ")
+            full.foregroundColor = .secondary
+
+            var terms = AttributedString("Terms of Use")
+            terms.link = URL(string: "https://walkworthy-app.web.app/terms")
+            terms.foregroundColor = Color.accentColor
+
+            var and = AttributedString(" and ")
+            and.foregroundColor = .secondary
+
+            var privacy = AttributedString("Privacy Policy")
+            privacy.link = URL(string: "https://walkworthy-app.web.app/privacy")
+            privacy.foregroundColor = Color.accentColor
+
+            var period = AttributedString(".")
+            period.foregroundColor = .secondary
+
+            full.append(terms)
+            full.append(and)
+            full.append(privacy)
+            full.append(period)
+            return full
+        }()
+
+        return Text(attributed)
+            .font(.caption)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, scaled(12))
+            .padding(.horizontal, scaled(16))
     }
 }
