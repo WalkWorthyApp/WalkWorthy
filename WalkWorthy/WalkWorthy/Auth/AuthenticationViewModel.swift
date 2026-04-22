@@ -7,6 +7,7 @@
 
 import SwiftUI
 import Combine
+import AuthenticationServices
 
 @MainActor
 final class AuthenticationViewModel: ObservableObject {
@@ -120,6 +121,78 @@ final class AuthenticationViewModel: ObservableObject {
         } catch {
             // Translate Firebase error to user-friendly message
             errorDetails = FirebaseAuthErrorMapper.mapError(error)
+        }
+    }
+
+    /// Raw (unhashed) nonce for the in-flight Sign in with Apple request.
+    /// Generated in `configureAppleRequest` and consumed in
+    /// `handleAppleAuthorizationResult`. Nil between requests.
+    ///
+    /// We must retain this value between the `onRequest` and `onCompletion`
+    /// callbacks because Firebase's `OAuthProvider.appleCredential(...)`
+    /// requires it to verify that Apple's returned identity token was signed
+    /// over our hash of the same nonce — proof the token wasn't replayed.
+    private var pendingAppleRawNonce: String?
+
+    /// Configures an `ASAuthorizationAppleIDRequest` for Sign in with Apple.
+    /// Called from `SignInWithAppleButton`'s `onRequest` closure. Generates a
+    /// random nonce, stashes it for the completion handler, and sets the
+    /// hashed nonce on the request alongside the requested scopes.
+    func configureAppleRequest(_ request: ASAuthorizationAppleIDRequest) {
+        let nonce = SignInWithAppleCoordinator.generateRawNonce()
+        pendingAppleRawNonce = nonce
+        request.requestedScopes = [.fullName, .email]
+        request.nonce = SignInWithAppleCoordinator.sha256(nonce)
+    }
+
+    /// Completes a Sign in with Apple flow once Apple's sheet has resolved.
+    /// Handles three outcomes:
+    ///   1. User cancelled the sheet — silently no-op (not an error).
+    ///   2. Apple returned an unusable credential — surface a friendly error.
+    ///   3. Success — exchange the identity token + raw nonce for a Firebase
+    ///      session, mapping any Firebase errors through
+    ///      `FirebaseAuthErrorMapper` for consistency with email/password.
+    func handleAppleAuthorizationResult(_ result: Result<ASAuthorization, Error>) async {
+        errorDetails = nil
+
+        switch result {
+        case .failure(let error):
+            pendingAppleRawNonce = nil
+            if let authError = error as? ASAuthorizationError, authError.code == .canceled {
+                // User dismissed Apple's sheet. Not worth surfacing.
+                return
+            }
+            errorDetails = FirebaseAuthErrorMapper.mapError(error)
+
+        case .success(let authorization):
+            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+                  let idTokenData = credential.identityToken,
+                  let idToken = String(data: idTokenData, encoding: .utf8),
+                  let rawNonce = pendingAppleRawNonce
+            else {
+                pendingAppleRawNonce = nil
+                errorDetails = AuthErrorDetails(
+                    title: "Apple Sign In Failed",
+                    message: "Apple returned an unexpected response.",
+                    suggestion: "Please try again, or use email sign-in instead."
+                )
+                return
+            }
+            // Single-use nonce — clear before the network call so a retry
+            // regenerates a fresh one even if the call throws.
+            pendingAppleRawNonce = nil
+
+            isLoading = true
+            defer { isLoading = false }
+
+            do {
+                try await appState.signInWithApple(idToken: idToken,
+                                                   rawNonce: rawNonce,
+                                                   fullName: credential.fullName)
+                // Success - RootView will handle navigation to OnboardingForm.
+            } catch {
+                errorDetails = FirebaseAuthErrorMapper.mapError(error)
+            }
         }
     }
 

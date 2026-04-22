@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import AuthenticationServices
 
 struct SignInFormView: View {
     @ObservedObject var viewModel: AuthenticationViewModel
+    @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focusedField: Field?
 
     enum Field {
@@ -35,6 +37,12 @@ struct SignInFormView: View {
 
             // Submit button
             submitButton
+
+            // "or" divider between email/password and Apple sign-in
+            orDivider
+
+            // Sign in with Apple — required by App Store Guideline 4.8
+            appleSignInButton
 
             // Mode switch link
             modeSwitchLink
@@ -221,6 +229,45 @@ struct SignInFormView: View {
         }
         .buttonStyle(.plain)
         .disabled(viewModel.isLoading)
+    }
+
+    private var orDivider: some View {
+        HStack(spacing: scaled(12)) {
+            Rectangle()
+                .fill(Color(.systemGray4))
+                .frame(height: 1)
+            Text("or")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Rectangle()
+                .fill(Color(.systemGray4))
+                .frame(height: 1)
+        }
+        .padding(.vertical, scaled(4))
+        .accessibilityHidden(true)
+    }
+
+    private var appleSignInButton: some View {
+        // `.signIn` is the right label regardless of `viewModel.mode` — Apple
+        // treats first-time and repeat taps the same way, creating the
+        // Firebase account on first success and signing in on subsequent ones.
+        //
+        // The button configures its request in `onRequest` (via the view
+        // model, which owns the nonce lifecycle), and the view model consumes
+        // the resulting `ASAuthorization` in `onCompletion`.
+        SignInWithAppleButton(.signIn, onRequest: { request in
+            viewModel.configureAppleRequest(request)
+        }, onCompletion: { result in
+            Task { @MainActor in
+                await viewModel.handleAppleAuthorizationResult(result)
+            }
+        })
+        .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+        .frame(maxWidth: .infinity)
+        .frame(height: scaled(48))
+        .clipShape(RoundedRectangle(cornerRadius: scaled(16), style: .continuous))
+        .disabled(viewModel.isLoading)
+        .opacity(viewModel.isLoading ? 0.6 : 1)
     }
 
     private var modeSwitchLink: some View {

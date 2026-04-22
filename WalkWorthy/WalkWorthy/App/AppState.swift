@@ -365,6 +365,37 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Bridges an Apple identity token + raw nonce into a Firebase session.
+    /// Mirrors the post-sign-in state sync done in `startSignIn`: profile
+    /// hydrate, onboarding completion check, daily reflection prefetch.
+    /// Errors propagate unchanged so the view layer can route them through
+    /// `FirebaseAuthErrorMapper` just like email/password.
+    ///
+    /// Required for App Store Guideline 4.8 — apps offering third-party or
+    /// email login must also offer Sign in with Apple.
+    func signInWithApple(idToken: String,
+                         rawNonce: String,
+                         fullName: PersonNameComponents?) async throws {
+        do {
+            try await authSession.signInWithApple(idToken: idToken,
+                                                  rawNonce: rawNonce,
+                                                  fullName: fullName)
+            isAuthenticated = true
+            authenticationNotice = nil
+            await refreshAuthenticatedUser()
+            await refreshProfileFromBackend()
+            if currentProfile != nil {
+                markOnboardingComplete()
+            }
+            checkAndFetchDailyReflection()
+        } catch {
+            isAuthenticated = false
+            authenticationNotice = nil
+            setAuthenticatedUserSub(nil)
+            throw error
+        }
+    }
+
     /// Firebase requires a recent sign-in (within ~5 minutes) before it will
     /// allow `user.delete()`. The backend account-deletion endpoint performs
     /// the Firebase Auth teardown server-side via the Admin SDK (which isn't
@@ -614,10 +645,16 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Maps a user-entered age to the backend `AgeRange` bucket used for
+    /// personalization. The backend only supports 18+ buckets today, so
+    /// onboarding-gated teens (13-17, per `OnboardingForm.minimumAge`) map
+    /// to `nil` and the agents fall back to other profile fields
+    /// (occupation/major/hobbies) for tone. This is personalization-only —
+    /// auth/usage is gated separately in the onboarding form, not here.
     private func ageRangeString(for age: Int?) -> String? {
         guard let age else { return nil }
         switch age {
-        case ..<18: return nil // Under 18 not supported
+        case ..<18: return nil // 13-17 allowed (gated in onboarding); no teen bucket on backend.
         case 18...24: return "18-24"
         case 25...34: return "25-34"
         case 35...44: return "35-44"

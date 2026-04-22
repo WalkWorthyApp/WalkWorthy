@@ -8,12 +8,14 @@
 import Foundation
 import FirebaseAuth
 import FirebaseAppCheck
+import AuthenticationServices
 
 actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
     enum AuthError: LocalizedError, Sendable {
         case notAuthenticated
         case tokenFetchFailed(String)
         case userNotFound
+        case invalidAppleCredential
 
         var errorDescription: String? {
             switch self {
@@ -23,6 +25,8 @@ actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
                 return "Failed to get authentication token: \(message)"
             case .userNotFound:
                 return "User not found."
+            case .invalidAppleCredential:
+                return "Apple Sign In returned an unexpected response. Please try again."
             }
         }
     }
@@ -72,6 +76,55 @@ actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
 
     func createAccount(email: String, password: String) async throws {
         _ = try await Auth.auth().createUser(withEmail: email, password: password)
+    }
+
+    /// Exchanges an Apple identity token + raw nonce for a Firebase session.
+    ///
+    /// Used by both the view-model-driven `SignInWithAppleButton` path
+    /// (which owns its own nonce via `SignInWithAppleCoordinator`'s static
+    /// helpers) and the standalone coordinator path. The caller is
+    /// responsible for presenting Apple's sheet; this method just bridges
+    /// the returned credential into Firebase.
+    ///
+    /// `fullName` is populated only on the user's first Sign in with Apple
+    /// for this app's bundle ID. Firebase's
+    /// `appleCredential(withIDToken:rawNonce:fullName:)` overload will use it
+    /// to set `displayName` on the Firebase user — a no-op on subsequent
+    /// sign-ins, which is exactly the behavior we want.
+    ///
+    /// Required for App Store Guideline 4.8: any app offering email or
+    /// third-party login must also offer Sign in with Apple.
+    func signInWithApple(idToken: String,
+                         rawNonce: String,
+                         fullName: PersonNameComponents?) async throws {
+        let firebaseCredential = OAuthProvider.appleCredential(
+            withIDToken: idToken,
+            rawNonce: rawNonce,
+            fullName: fullName
+        )
+        _ = try await Auth.auth().signIn(with: firebaseCredential)
+    }
+
+    /// Convenience overload that drives the full flow through
+    /// `SignInWithAppleCoordinator` — generates a nonce, presents Apple's
+    /// sheet, and bridges the result into Firebase. Useful for callers that
+    /// don't have a `SignInWithAppleButton` in hand (e.g. a plain action
+    /// button, a UIKit host, or testing code paths).
+    func signInWithApple() async throws {
+        let coordinator = await SignInWithAppleCoordinator()
+        let authorization = try await coordinator.authorize()
+
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let idTokenData = credential.identityToken,
+              let idToken = String(data: idTokenData, encoding: .utf8)
+        else {
+            throw AuthError.invalidAppleCredential
+        }
+
+        let rawNonce = await coordinator.rawNonce
+        try await signInWithApple(idToken: idToken,
+                                  rawNonce: rawNonce,
+                                  fullName: credential.fullName)
     }
 
     func signOut() async throws {
