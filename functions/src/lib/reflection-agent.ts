@@ -83,7 +83,9 @@ function ensureAgent(apiKey: string): Agent<object, typeof reflectionOutputSchem
     name: "WalkWorthyReflectionAgent",
     instructions: REFLECTION_SYSTEM_PROMPT,
     model: MOOD_MODEL,
-    modelSettings: { temperature: 0.6, topP: 1, maxTokens: 256 },
+    // Zero Data Retention — see mood-agent.ts for rationale. OpenAI does not
+    // persist the request/response after generation; privacy-policy claim.
+    modelSettings: { temperature: 0.6, topP: 1, maxTokens: 256, store: false },
     outputType: reflectionOutputSchema,
   });
 

@@ -277,6 +277,11 @@ function ensureAgent(
       temperature: 0.4,
       topP: 1,
       maxTokens: 512,
+      // Zero Data Retention: OpenAI does not persist this request/response
+      // after generation. Privacy Policy surfaces this commitment to users;
+      // the org's "API call logging" setting is "Enabled per call" so each
+      // call opts out explicitly via this flag.
+      store: false,
     },
     outputType: encouragementOutputSchema,
     outputGuardrails: [piiGuardrail],
