@@ -2,21 +2,24 @@
 //  SplashView.swift
 //  WalkWorthy
 //
-//  Instagram-style branded splash: the full-bleed `LaunchSplash` asset
-//  (light + dark variants, picked by the asset catalog based on the
-//  device's color scheme since `RootView` passes `nil` to
-//  `preferredColorScheme` during `isCheckingAuth`).
+//  Instagram-style branded splash: the full-bleed `LaunchSplash` asset,
+//  whose asset catalog provides light + dark variants picked by
+//  `\Environment.colorScheme`.
 //
-//  Shown only during cold-start auth resolution. `AppState` unblocks
-//  `isCheckingAuth` as soon as the auth state is known, so this covers
-//  the brief window between the system `UILaunchScreen` and the main UI
-//  — users see the same branded composition start-to-finish instead of
-//  a flat color flash.
+//  The initial color scheme is captured at first render and applied
+//  via `.environment(\.colorScheme, locked)` to the image subtree. This
+//  prevents a mid-transition variant swap: when `RootView` flips its
+//  `.preferredColorScheme` from `nil` → `.dark` as `isCheckingAuth`
+//  resolves, the parent environment's scheme changes, but the splash
+//  keeps rendering the variant it started with until it fades out.
 //
 
 import SwiftUI
 
 struct SplashView: View {
+    @Environment(\.colorScheme) private var environmentScheme
+    @State private var lockedScheme: ColorScheme?
+
     var body: some View {
         Image("LaunchSplash")
             .resizable()
@@ -24,5 +27,11 @@ struct SplashView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .clipped()
             .ignoresSafeArea()
+            .environment(\.colorScheme, lockedScheme ?? environmentScheme)
+            .onAppear {
+                if lockedScheme == nil {
+                    lockedScheme = environmentScheme
+                }
+            }
     }
 }
