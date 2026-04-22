@@ -35,6 +35,22 @@ struct SplashView: View {
                 .clipped()
                 .ignoresSafeArea()
 
+            // Gradient overlay — darkens the bottom third of the screen to
+            // (a) make the image's own bottom-edge darkening feel intentional
+            // rather than a flat dark block, and (b) give the progress bar a
+            // subtle backdrop so it reads cleanly against whatever splash
+            // art sits above.
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0.55),
+                    .init(color: Color.black.opacity(0.35), location: 1.0)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            .allowsHitTesting(false)
+
             // Progress bar — pinned near the bottom, safe-area-aware so it
             // doesn't sit under the home indicator.
             VStack {
