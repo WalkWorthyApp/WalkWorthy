@@ -12,10 +12,6 @@
 	<dict>
 		<key>UIColorName</key>
 		<string>AppBackground</string>
-		<key>UIImageName</key>
-		<string>TitleLogoDark</string>
-		<key>UIImageRespectsSafeAreaInsets</key>
-		<true/>
 	</dict>
 </dict>
 </plist>
