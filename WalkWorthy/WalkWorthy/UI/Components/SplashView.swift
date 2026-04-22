@@ -2,39 +2,53 @@
 //  SplashView.swift
 //  WalkWorthy
 //
-//  Branded splash displayed during cold-start auth resolution. Matches the
-//  UILaunchScreen's AppBackground color + TitleLogoDark image so the visual
-//  hand-off from the system launch screen to the SwiftUI `isCheckingAuth`
-//  state is seamless — no black-flash between the two.
+//  Branded full-screen splash shown during cold-start auth resolution.
+//  The LaunchSplash asset has light + dark variants and fills the screen
+//  so the hand-off from the system UILaunchScreen (same AppBackground color)
+//  to Swift is seamless — no black flash at any step.
+//
+//  A linear progress bar at the bottom animates from 0 → 90% over ~2s to
+//  give the perception of "almost done loading". The auth resolution
+//  typically completes inside that window; on the rare occasion it takes
+//  longer, the bar pauses at 90% until the view transitions out.
 //
 
 import SwiftUI
 
 struct SplashView: View {
-    @State private var isPulsing: Bool = false
+    @State private var progress: Double = 0.0
 
     var body: some View {
         ZStack {
-            Color("AppBackground")
+            // Full-bleed adaptive splash image (light / dark variants via
+            // asset catalog appearance). `resizable + scaledToFill + clipped`
+            // gives us background-image semantics on any device aspect.
+            Image("LaunchSplash")
+                .resizable()
+                .scaledToFill()
                 .ignoresSafeArea()
+                .clipped()
 
-            VStack(spacing: scaled(20)) {
-                Image("TitleLogoDark")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: scaled(180))
-                    .opacity(isPulsing ? 1.0 : 0.88)
-                    .scaleEffect(isPulsing ? 1.0 : 0.985)
-                    .animation(
-                        .easeInOut(duration: 1.4).repeatForever(autoreverses: true),
-                        value: isPulsing
-                    )
-
-                ProgressView()
-                    .progressViewStyle(.circular)
-                    .tint(.white.opacity(0.6))
+            // Linear progress bar sits above the safe area bottom so it's
+            // visible on devices with home indicators.
+            VStack {
+                Spacer()
+                ProgressView(value: progress, total: 1.0)
+                    .progressViewStyle(.linear)
+                    .tint(.white)
+                    .frame(maxWidth: 260)
+                    .padding(.bottom, 60)
+                    .opacity(0.85)
             }
         }
-        .onAppear { isPulsing = true }
+        .onAppear {
+            // Animate toward "almost done" over 2s. If auth resolves first
+            // (typical), the SplashView transitions out before reaching 90%.
+            // If auth takes longer, the bar plateaus at 90%, never claims
+            // completion — an honest "loading, nearly there" cue.
+            withAnimation(.easeOut(duration: 2.0)) {
+                progress = 0.9
+            }
+        }
     }
 }

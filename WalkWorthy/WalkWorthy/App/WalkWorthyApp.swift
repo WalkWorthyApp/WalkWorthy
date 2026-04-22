@@ -97,7 +97,9 @@ struct WalkWorthyApp: App {
             RootView()
                 .environmentObject(appState)
                 .modelContainer(container)
-                .preferredColorScheme(.dark)
+                // Color scheme is applied conditionally inside RootView so the
+                // cold-start SplashView adapts to system (light/dark) while the
+                // rest of the app remains dark-themed.
                 .task {
                     await appState.startObservingAuthState()
                 }
