@@ -80,18 +80,26 @@ final class SignInWithAppleCoordinator: NSObject,
     // MARK: - ASAuthorizationControllerPresentationContextProviding
 
     nonisolated func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-        // Hop to the main actor synchronously via DispatchQueue — this delegate
-        // method is called on the main thread by AuthenticationServices, so a
-        // simple `MainActor.assumeIsolated` is safe.
+        // Hop to the main actor synchronously — this delegate method is called
+        // on the main thread by AuthenticationServices, so `assumeIsolated` is safe.
         MainActor.assumeIsolated {
-            // Find the active foreground window. Falls back to a fresh
-            // UIWindow() on the extremely unlikely path where no connected
-            // scene is foregrounded at the moment the user taps the button.
-            let scene = UIApplication.shared.connectedScenes
+            // Prefer the foreground-active window scene; fall back to any
+            // connected window scene. A scene-based SwiftUI app presenting SIWA
+            // always has ≥1 UIWindowScene in `connectedScenes`, so the guard
+            // below is a safety net for an invariant that holds by construction.
+            let windowScenes = UIApplication.shared.connectedScenes
                 .compactMap { $0 as? UIWindowScene }
-                .first(where: { $0.activationState == .foregroundActive })
-                ?? UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
-            return scene?.keyWindow ?? scene?.windows.first ?? UIWindow()
+            guard let scene = windowScenes.first(where: { $0.activationState == .foregroundActive })
+                ?? windowScenes.first
+            else {
+                // Truly unreachable for a scene-based app. iOS 26 deprecated
+                // the zero-arg `UIWindow()` initializer in favor of
+                // `UIWindow(windowScene:)`, so we can't construct a reasonable
+                // fallback without a scene — trap instead of silently returning
+                // a detached window that SIWA couldn't present on anyway.
+                preconditionFailure("SIWA presentationAnchor invoked with no connected UIWindowScene")
+            }
+            return scene.keyWindow ?? scene.windows.first ?? UIWindow(windowScene: scene)
         }
     }
 
