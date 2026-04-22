@@ -168,7 +168,6 @@ struct JournalEditorView: View {
                         #else
                         Crashlytics.crashlytics().record(error: error)
                         #endif
-                        // TODO: Crashlytics.record(error) once Crashlytics is wired up.
                     }
                 }
             }

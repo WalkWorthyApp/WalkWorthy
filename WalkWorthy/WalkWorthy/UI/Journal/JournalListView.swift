@@ -9,6 +9,7 @@
 import SwiftUI
 import SwiftData
 import UIKit
+import FirebaseCrashlytics
 
 /// Top-level wrapper that reads the current `authenticatedUserSub` from
 /// `AppState` and passes it into the content view. The content view takes the
@@ -125,8 +126,9 @@ private struct JournalListContent: View {
                         deleteError = "Couldn't delete that note. Please try again."
                         #if DEBUG
                         print("[JournalListView] delete failed: \(error)")
+                        #else
+                        Crashlytics.crashlytics().record(error: error)
                         #endif
-                        // TODO: Crashlytics.record(error) when Crashlytics is added.
                     }
                 }
                 entryPendingDelete = nil
