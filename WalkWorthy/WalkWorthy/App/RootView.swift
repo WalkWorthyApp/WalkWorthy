@@ -36,12 +36,6 @@ struct RootView: View {
                     .transition(.asymmetric(insertion: .move(edge: .leading), removal: .opacity))
             }
         }
-        // Dark mode is forced for the main app experience (TitleScreen,
-        // Onboarding, MainTab) but intentionally NOT during auth check or
-        // configuration error. Passing `nil` means "respect the device's
-        // system setting", so SplashView's LaunchSplash asset picks the
-        // correct light/dark variant on cold launch before auth resolves.
-        .preferredColorScheme((appState.isCheckingAuth || appState.configurationError != nil) ? nil : .dark)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.isCheckingAuth)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.onboardingCompleted)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.requiresAuthenticationGate)
