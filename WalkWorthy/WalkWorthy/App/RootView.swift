@@ -36,9 +36,11 @@ struct RootView: View {
                     .transition(.asymmetric(insertion: .move(edge: .leading), removal: .opacity))
             }
         }
-        // Adaptive during cold-start splash (respects device light/dark),
-        // forced dark once auth resolves and the main app renders. The
-        // splash's transition-out masks the scheme change.
+        // Adaptive during the cold-start splash so the SplashView picks the
+        // LaunchSplash asset variant matching the device's system setting;
+        // forced dark once auth resolves. SplashView locks its own scheme at
+        // first render so the nil → .dark flip at transition-out doesn't
+        // re-render the splash in the wrong variant before it fades.
         .preferredColorScheme((appState.isCheckingAuth || appState.configurationError != nil) ? nil : .dark)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.isCheckingAuth)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.onboardingCompleted)
