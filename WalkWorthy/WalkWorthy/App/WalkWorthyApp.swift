@@ -11,6 +11,7 @@ import UIKit
 import UserNotifications
 import FirebaseCore
 import FirebaseAppCheck
+import FirebaseCrashlytics
 import SwiftData
 
 @main

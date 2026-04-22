@@ -20,6 +20,12 @@ protocol EncouragementAPI {
     func fetchMoodLogFullHistory(days: Int, endDate: String?) async throws -> MoodLogResponse
     func fetchDailyReflection() async throws -> DailyReflection
 
+    /// Permanently deletes the authenticated user's Firestore data AND their
+    /// Firebase Auth user. Required for App Store Guideline 5.1.1(v).
+    /// On success the backend returns `{ "deleted": true }`; the Firebase Auth
+    /// state listener then flips the client to signed-out.
+    func deleteAccount() async throws
+
 }
 
 struct RemoteUserProfileRequest: Codable {

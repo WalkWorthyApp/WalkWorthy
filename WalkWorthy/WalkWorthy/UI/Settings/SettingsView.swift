@@ -12,6 +12,13 @@ struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
     private let config = Config.shared
 
+    // MARK: - Account deletion state
+    // Account deletion is required for App Store Guideline 5.1.1(v).
+    @State private var showDeleteConfirmation = false
+    @State private var showReauthSheet = false
+    @State private var isDeletingAccount = false
+    @State private var deleteAccountError: String?
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -69,7 +76,22 @@ struct SettingsView: View {
                         } label: {
                             Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
                         }
-                        .disabled(!appState.isAuthenticated)
+                        .disabled(!appState.isAuthenticated || isDeletingAccount)
+                        .listRowBackground(Color.wwCardBackground)
+
+                        Button(role: .destructive) {
+                            showDeleteConfirmation = true
+                        } label: {
+                            HStack {
+                                Label("Delete account", systemImage: "trash")
+                                if isDeletingAccount {
+                                    Spacer()
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                            }
+                        }
+                        .disabled(!appState.isAuthenticated || isDeletingAccount)
                         .listRowBackground(Color.wwCardBackground)
                     }
 
@@ -80,6 +102,193 @@ struct SettingsView: View {
                 }
                 .scrollContentBackground(.hidden)
                 .navigationTitle("Settings")
+                .confirmationDialog(
+                    "Delete Account?",
+                    isPresented: $showDeleteConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete Account", role: .destructive) {
+                        Task { await startAccountDeletion() }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This permanently removes your profile, mood history, journal entries, daily reflections, and encouragements. This cannot be undone.")
+                }
+                .sheet(isPresented: $showReauthSheet) {
+                    ReauthenticationSheet(
+                        onAuthenticated: {
+                            // Sheet dismisses itself before calling us; continue
+                            // straight to the backend delete.
+                            Task { await performBackendDeletion() }
+                        }
+                    )
+                }
+                .alert(
+                    "Couldn't delete account",
+                    isPresented: Binding(
+                        get: { deleteAccountError != nil },
+                        set: { if !$0 { deleteAccountError = nil } }
+                    ),
+                    presenting: deleteAccountError
+                ) { _ in
+                    Button("OK", role: .cancel) { deleteAccountError = nil }
+                } message: { message in
+                    Text(message)
+                }
+            }
+        }
+    }
+
+    // MARK: - Account deletion flow
+    //
+    // Two-step: (1) if the session is stale, prompt for password re-auth via
+    // ReauthenticationSheet — on success it calls `performBackendDeletion()`.
+    // (2) otherwise skip straight to the backend call. Local cleanup only runs
+    // after the backend confirms success so a network failure never strands the
+    // user's on-device data in a half-deleted state.
+
+    private func startAccountDeletion() async {
+        guard appState.isAuthenticated, !isDeletingAccount else { return }
+        isDeletingAccount = true
+
+        let needsReauth = await appState.accountDeletionRequiresReauth()
+        if needsReauth {
+            // Hand off to the re-auth sheet. It clears isDeletingAccount on
+            // cancel; on success it calls performBackendDeletion() which
+            // handles the spinner + error alerts.
+            isDeletingAccount = false
+            showReauthSheet = true
+        } else {
+            await performBackendDeletion()
+        }
+    }
+
+    private func performBackendDeletion() async {
+        isDeletingAccount = true
+        defer { isDeletingAccount = false }
+
+        do {
+            try await appState.deleteAccount()
+            // Success: the Firebase auth state listener will flip
+            // isAuthenticated to false, which drives the RootView back to
+            // TitleScreenView. Belt-and-suspenders signOut() in case the
+            // listener is slow on a flaky network.
+            appState.signOut()
+        } catch APIError.unauthorized, APIError.notAuthenticated {
+            deleteAccountError = "Please sign in again, then try deleting your account."
+            // Force a sign-out so the user returns to TitleScreenView. The
+            // alert above also surfaces the reason.
+            appState.signOut()
+        } catch let error as APIError {
+            deleteAccountError = error.errorDescription ?? "Couldn't delete account — please try again."
+        } catch {
+            deleteAccountError = "Couldn't delete account — please try again."
+            #if DEBUG
+            print("[SettingsView] deleteAccount failed: \(error)")
+            #endif
+        }
+    }
+}
+
+// MARK: - Re-auth sheet
+
+/// Password-only re-authentication sheet shown before account deletion when
+/// the Firebase session is older than the sensitive-operation window.
+/// Firebase requires `user.reauthenticate(with:)` for destructive actions;
+/// the backend also enforces a token-freshness check on `/deleteAccount`.
+private struct ReauthenticationSheet: View {
+    /// Called once re-authentication succeeds. The sheet dismisses itself
+    /// before invoking this closure so the caller can immediately present
+    /// the next UI step (a progress indicator on the destructive action).
+    let onAuthenticated: () -> Void
+
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var password: String = ""
+    @State private var isSubmitting: Bool = false
+    @State private var errorMessage: String?
+    @FocusState private var passwordFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                TimeOfDayTheme.current.backdrop
+                    .ignoresSafeArea()
+
+                Form {
+                    Section {
+                        Text("For your security, please re-enter your password to confirm account deletion.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .listRowBackground(Color.wwCardBackground)
+                    }
+
+                    Section("Password") {
+                        SecureField("Password", text: $password)
+                            .textContentType(.password)
+                            .submitLabel(.continue)
+                            .focused($passwordFocused)
+                            .onSubmit { submit() }
+                            .listRowBackground(Color.wwCardBackground)
+                    }
+
+                    if let errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.subheadline)
+                                .foregroundStyle(.red)
+                                .listRowBackground(Color.wwCardBackground)
+                        }
+                    }
+                }
+                .scrollContentBackground(.hidden)
+                .disabled(isSubmitting)
+            }
+            .navigationTitle("Confirm Password")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isSubmitting)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSubmitting {
+                        ProgressView()
+                    } else {
+                        Button("Continue") { submit() }
+                            .disabled(password.isEmpty)
+                    }
+                }
+            }
+            .task {
+                // Slight delay so the sheet's entrance animation doesn't race
+                // the keyboard — matches the pattern in SignInFormView.
+                try? await Task.sleep(for: .milliseconds(300))
+                passwordFocused = true
+            }
+        }
+    }
+
+    private func submit() {
+        guard !isSubmitting, !password.isEmpty else { return }
+        isSubmitting = true
+        errorMessage = nil
+
+        Task {
+            do {
+                try await appState.reauthenticate(password: password)
+                // Dismiss first so the parent can immediately present its
+                // progress indicator on the Settings screen without the sheet
+                // flashing over it.
+                dismiss()
+                onAuthenticated()
+            } catch {
+                let details = FirebaseAuthErrorMapper.mapError(error)
+                errorMessage = details.displayText
+                isSubmitting = false
             }
         }
     }

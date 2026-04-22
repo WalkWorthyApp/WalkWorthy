@@ -9,6 +9,7 @@
 
 import SwiftUI
 import SwiftData
+import FirebaseCrashlytics
 
 struct JournalEditorView: View {
     enum Mode { case new, existing(JournalEntry) }
@@ -164,6 +165,8 @@ struct JournalEditorView: View {
                         saveError = "Couldn't delete this note. Please try again."
                         #if DEBUG
                         print("[JournalEditorView] delete failed: \(error)")
+                        #else
+                        Crashlytics.crashlytics().record(error: error)
                         #endif
                         // TODO: Crashlytics.record(error) once Crashlytics is wired up.
                     }
@@ -279,8 +282,9 @@ struct JournalEditorView: View {
             saveError = "Couldn't save — please try again."
             #if DEBUG
             print("[JournalEditorView] save failed: \(error)")
+            #else
+            Crashlytics.crashlytics().record(error: error)
             #endif
-            // TODO: Crashlytics.record(error) once Crashlytics is wired up.
         }
     }
 }

@@ -26,3 +26,7 @@ export { dailyReflection } from './api/daily-reflection';
 
 // Journal - CRUD operations for user journal entries
 export { journal } from './api/journal';
+
+// Delete Account - Apple App Store Guideline 5.1.1(v) compliance: erase all
+// user data (Firestore + Auth) when the user requests account deletion.
+export { deleteAccount } from './api/delete-account';

@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import FirebaseCrashlytics
 
 final class LiveAPIClient: EncouragementAPI {
     /// Characterizes the latency profile of an endpoint so we can pick an
@@ -92,6 +93,25 @@ final class LiveAPIClient: EncouragementAPI {
             decode: UserProfileEnvelope.self
         )
         return envelope.profile
+    }
+
+    /// Permanently delete the authenticated user's Firestore data and their
+    /// Firebase Auth user. Required for App Store Guideline 5.1.1(v).
+    ///
+    /// Backend contract: `POST /deleteAccount` with an empty body. Response
+    /// `200` returns `{ "deleted": true }`. Any other shape, a `deleted: false`
+    /// payload, or a non-2xx status surfaces as an `APIError` so the caller
+    /// can abort local cleanup.
+    func deleteAccount() async throws {
+        let response: DeleteAccountResponse = try await performRequest(
+            path: "deleteAccount",
+            method: "POST",
+            endpointKind: .nonAI,
+            decode: DeleteAccountResponse.self
+        )
+        guard response.deleted else {
+            throw APIError.server(statusCode: 500, message: "Account deletion did not complete")
+        }
     }
 
     // MARK: - Mood API
@@ -377,6 +397,11 @@ final class LiveAPIClient: EncouragementAPI {
         } catch {
             #if DEBUG
             print("[LiveAPIClient] App Check token fetch failed; proceeding without header: \(error)")
+            #else
+            // Record as a non-fatal so we can see App Attest failure frequency in
+            // production — helpful for diagnosing Apple reviewer device flakiness
+            // or provisioning regressions.
+            Crashlytics.crashlytics().record(error: error)
             #endif
             // Intentionally proceed. Backend enforces App Check independently via
             // verifyAppCheck(). A missing header returns 403, which `handleResponse`
@@ -502,4 +527,11 @@ private struct RateLimitErrorBody: Decodable {
 /// Backend wraps the profile in `{ profile: {...} | null }`.
 private struct UserProfileEnvelope: Decodable {
     let profile: RemoteUserProfileResponse?
+}
+
+/// Backend acknowledgement for `POST /deleteAccount`. A `true` value means
+/// Firestore documents AND the Firebase Auth user were removed server-side;
+/// the auth state listener will then flip the client to signed-out.
+private struct DeleteAccountResponse: Decodable {
+    let deleted: Bool
 }

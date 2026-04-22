@@ -10,6 +10,7 @@ import SwiftUI
 import Combine
 import SwiftData
 import UserNotifications
+import FirebaseCrashlytics
 
 @MainActor
 final class AppState: ObservableObject {
@@ -361,6 +362,107 @@ final class AppState: ObservableObject {
             authenticationNotice = nil
             setAuthenticatedUserSub(nil)
             throw error
+        }
+    }
+
+    /// Firebase requires a recent sign-in (within ~5 minutes) before it will
+    /// allow `user.delete()`. The backend account-deletion endpoint performs
+    /// the Firebase Auth teardown server-side via the Admin SDK (which isn't
+    /// subject to that window), but a stale client session also means the
+    /// bearer token in the `Authorization` header can be older than the
+    /// freshness window the backend enforces. Prompt the user to re-enter
+    /// their password whenever the last sign-in was more than 5 minutes ago.
+    private static let reauthRequiredWindow: TimeInterval = 5 * 60
+
+    /// Returns `true` if the user must re-enter their password before we hit
+    /// the backend `deleteAccount` endpoint. Gated on the Firebase-reported
+    /// `lastSignInDate`; a fresh sign-in / create-account flow skips the prompt.
+    func accountDeletionRequiresReauth() async -> Bool {
+        guard let seconds = await authSession.secondsSinceLastSignIn() else {
+            // No metadata means we can't prove freshness — safer to prompt.
+            return true
+        }
+        return seconds > Self.reauthRequiredWindow
+    }
+
+    /// Re-authenticates the signed-in user with their email + password. Called
+    /// from the account-deletion re-auth sheet before `deleteAccount()`.
+    /// Propagates Firebase Auth errors so the view can surface them via
+    /// `FirebaseAuthErrorMapper`.
+    func reauthenticate(password: String) async throws {
+        try await authSession.reauthenticate(password: password)
+    }
+
+    /// Permanently deletes the authenticated user's account.
+    ///
+    /// Flow:
+    ///   1. Call the backend — it deletes all Firestore data AND the Firebase
+    ///      Auth user. On success the backend returns `{ deleted: true }`.
+    ///   2. Proactively clear local state (journal entries, mood cache,
+    ///      per-user UserDefaults) so the UI never flashes stale data in the
+    ///      window between the backend response and the Firebase auth listener
+    ///      firing with `user == nil`.
+    ///   3. Firebase's `addStateDidChangeListener` observes the server-side
+    ///      user deletion and flips `isAuthenticated` to false, which drives
+    ///      the UI back to `TitleScreenView` via `RootView`.
+    ///
+    /// On backend failure this method throws and leaves local state untouched
+    /// so the user can retry without losing their on-device journal entries.
+    /// Required for App Store Guideline 5.1.1(v).
+    func deleteAccount() async throws {
+        // Capture the sub before the backend call so we can clean up its
+        // scoped UserDefaults keys after — once the auth listener fires,
+        // `authenticatedUserSub` becomes nil.
+        let departingSub = authenticatedUserSub
+
+        try await apiClient.deleteAccount()
+
+        // Backend succeeded: wipe everything tied to the deleted account.
+        // Journal entries live in SwiftData scoped by userSub — clearJournalState
+        // already deletes the departing user's rows and any legacy empty-sub rows.
+        clearJournalState()
+        clearMoodState()
+
+        // Remove per-user UserDefaults (onboarding flags, personalization toggle,
+        // translation preference, dismissed-banner flags, cached reflections,
+        // reminder prefs). The account is gone — these keys should not linger.
+        if let sub = departingSub {
+            removeUserScopedDefaults(for: sub)
+        }
+
+        // Cancel any in-flight sync tasks so a stale PATCH doesn't land after
+        // the backend has deleted the user.
+        reflectionFetchTask?.cancel()
+        reflectionFetchTask = nil
+        profileSyncTask?.cancel()
+        profileSyncTask = nil
+
+        // Wipe scheduled local notifications so the deleted account's reminder
+        // times don't fire on the next sign-in from a different account.
+        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+
+        configurationError = nil
+
+        // The Firebase auth state listener (started in `startObservingAuthState`)
+        // will fire asynchronously when the server-side user deletion reaches the
+        // client, flipping `isAuthenticated = false` and routing the UI back to
+        // the title screen. Don't loop waiting for it here — SwiftUI re-renders
+        // the moment the `@Published` property changes.
+    }
+
+    /// Removes every UserDefaults key scoped to the given Firebase sub.
+    /// Called after a successful account deletion so no trace of the deleted
+    /// user's preferences remains on-device. Matches the scoping convention in
+    /// `storageKey(_:)`: `"<baseKey>::<userSub>"`.
+    private func removeUserScopedDefaults(for userSub: String) {
+        let suffix = "::\(userSub)"
+        for key in defaults.dictionaryRepresentation().keys where key.hasSuffix(suffix) {
+            defaults.removeObject(forKey: key)
+        }
+        // Also clear the "last authenticated user" pointer so a subsequent
+        // sign-in starts with a clean per-user slate.
+        if defaults.string(forKey: StorageKey.lastAuthenticatedUser) == userSub {
+            defaults.removeObject(forKey: StorageKey.lastAuthenticatedUser)
         }
     }
 
@@ -752,8 +854,9 @@ final class AppState: ObservableObject {
         } catch {
             #if DEBUG
             print("[AppState] clearJournalState cleanup failed: \(error)")
+            #else
+            Crashlytics.crashlytics().record(error: error)
             #endif
-            // TODO: If Crashlytics is added later, record non-fatal here.
         }
     }
 
