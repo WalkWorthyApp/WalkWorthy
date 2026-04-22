@@ -19,8 +19,12 @@ struct RootView: View {
                 ConfigurationErrorView(message: configError)
                     .transition(.opacity)
             } else if appState.isCheckingAuth {
-                Color(.systemBackground)
-                    .ignoresSafeArea()
+                // Branded splash while Firebase auth resolves on cold start.
+                // Matches the UILaunchScreen (same AppBackground color + logo),
+                // so the hand-off from system launch → Swift is seamless and
+                // the user never sees a bare black screen during auth check.
+                SplashView()
+                    .transition(.opacity)
             } else if appState.requiresAuthenticationGate {
                 TitleScreenView()
                     .transition(.opacity)
@@ -32,6 +36,10 @@ struct RootView: View {
                     .transition(.asymmetric(insertion: .move(edge: .leading), removal: .opacity))
             }
         }
+        // Adaptive during cold-start splash (respects device light/dark),
+        // forced dark once auth resolves and the main app renders. The
+        // splash's transition-out masks the scheme change.
+        .preferredColorScheme((appState.isCheckingAuth || appState.configurationError != nil) ? nil : .dark)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.isCheckingAuth)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.onboardingCompleted)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.requiresAuthenticationGate)

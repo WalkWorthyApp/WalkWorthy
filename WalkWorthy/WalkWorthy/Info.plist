@@ -8,5 +8,10 @@
 		<string>Newsreader-Italic.ttf</string>
 		<string>Newsreader-SemiBoldItalic.ttf</string>
 	</array>
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>AppBackground</string>
+	</dict>
 </dict>
 </plist>
