@@ -1,7 +1,7 @@
 {
   "images" : [
     {
-      "filename" : "LaunchSplash-Light.png",
+      "filename" : "LaunchSplash.png",
       "idiom" : "universal"
     },
     {
@@ -11,7 +11,7 @@
           "value" : "dark"
         }
       ],
-      "filename" : "LaunchSplash-Dark.png",
+      "filename" : "2026-04-22_15-36-52.png",
       "idiom" : "universal"
     }
   ],

@@ -304,11 +304,27 @@ final class AppState: ObservableObject {
                 if isSignedIn {
                     self.isAuthenticated = true
                     self.authenticationNotice = nil
+                    // Load UID + user-scoped prefs (onboardingCompleted, translation,
+                    // etc). No network — reads Auth.auth().currentUser.uid + UserDefaults.
                     await self.refreshAuthenticatedUser()
+                    // Fast path: returning user who's completed onboarding. UI can
+                    // render MainTabView immediately using cached prefs; profile +
+                    // daily reflection hydrate in the background so the splash
+                    // doesn't block on network round-trips.
+                    if self.onboardingCompleted {
+                        self.isCheckingAuth = false
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            await self.refreshProfileFromBackend()
+                            self.checkAndFetchDailyReflection()
+                        }
+                        return
+                    }
+                    // Slow path: first sign-in or cleared app data. Need the
+                    // backend profile to decide onboarding vs. main app; blocking
+                    // here prevents an OnboardingForm flash for returning users
+                    // whose scoped pref is missing.
                     await self.refreshProfileFromBackend()
-                    // If we have a backend profile, mark onboarding complete
-                    // so returning users who've cleared app data aren't sent
-                    // back through the form unnecessarily.
                     if self.currentProfile != nil {
                         self.markOnboardingComplete()
                     }
