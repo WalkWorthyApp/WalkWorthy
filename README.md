@@ -62,8 +62,6 @@ functions/src/               Cloud Functions backend
 | `POST` | `/moodCheckIn` | Submit a mood check-in, get AI encouragement |
 | `GET` | `/moodCheckIn` | Today's latest check-in or pending info |
 | `GET` | `/moodCheckIn?history=N` | Mood history for the past N days |
-| `GET` | `/encouragement-next` | Latest encouragement |
-| `GET` | `/encouragement-history` | Recent encouragements |
 | `GET` | `/user-profile` | Get profile |
 | `PUT` | `/user-profile` | Create or replace profile |
 | `PATCH` | `/user-profile` | Partially update profile |

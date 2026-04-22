@@ -9,6 +9,9 @@ import Foundation
 
 protocol EncouragementAPI {
     func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws
+    /// Fetch the authenticated user's profile from the backend. Returns nil
+    /// when the backend has no profile on file yet (pre-onboarding).
+    func fetchUserProfile() async throws -> RemoteUserProfileResponse?
 
     // Mood tracking methods
     func submitMoodCheckIn(_ request: MoodCheckInRequest) async throws -> MoodCheckInResponse
@@ -16,6 +19,12 @@ protocol EncouragementAPI {
     func fetchMoodHistory(days: Int, startDate: String?, endDate: String?) async throws -> MoodHistoryResponse
     func fetchMoodLogFullHistory(days: Int, endDate: String?) async throws -> MoodLogResponse
     func fetchDailyReflection() async throws -> DailyReflection
+
+    /// Permanently deletes the authenticated user's Firestore data AND their
+    /// Firebase Auth user. Required for App Store Guideline 5.1.1(v).
+    /// On success the backend returns `{ "deleted": true }`; the Firebase Auth
+    /// state listener then flips the client to signed-out.
+    func deleteAccount() async throws
 
 }
 
@@ -32,6 +41,22 @@ struct RemoteUserProfileRequest: Codable {
     var translationPreference: String?
     var checkInTimes: CheckInTimes?
     var timezone: String?
+}
+
+/// Mirror of the backend `UserProfile` document. All fields are optional
+/// because the user may not have completed onboarding yet or may not have
+/// populated every field. Decoded from `GET /userProfile`.
+struct RemoteUserProfileResponse: Codable {
+    var ageRange: String?
+    var firstName: String?
+    var occupation: String?
+    var major: String?
+    var gender: String?
+    var hobbies: [String]?
+    var optInTailored: Bool?
+    var translationPreference: String?
+    var timezone: String?
+    var checkInTimes: CheckInTimes?
 }
 
 enum Translation: String, CaseIterable, Identifiable, Codable {

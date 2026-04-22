@@ -12,6 +12,13 @@ struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
     private let config = Config.shared
 
+    // MARK: - Account deletion state
+    // Account deletion is required for App Store Guideline 5.1.1(v).
+    @State private var showDeleteConfirmation = false
+    @State private var showReauthSheet = false
+    @State private var isDeletingAccount = false
+    @State private var deleteAccountError: String?
+
     var body: some View {
         NavigationStack {
             ZStack {
@@ -69,17 +76,246 @@ struct SettingsView: View {
                         } label: {
                             Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right")
                         }
-                        .disabled(!appState.isAuthenticated)
+                        .disabled(!appState.isAuthenticated || isDeletingAccount)
+                        .listRowBackground(Color.wwCardBackground)
+
+                        Button(role: .destructive) {
+                            showDeleteConfirmation = true
+                        } label: {
+                            HStack {
+                                Label("Delete account", systemImage: "trash")
+                                if isDeletingAccount {
+                                    Spacer()
+                                    ProgressView()
+                                        .controlSize(.small)
+                                }
+                            }
+                        }
+                        .disabled(!appState.isAuthenticated || isDeletingAccount)
                         .listRowBackground(Color.wwCardBackground)
                     }
 
                     Section("About") {
                         LabeledContent("Build", value: Bundle.main.versionString)
                             .listRowBackground(Color.wwCardBackground)
+                        Link(destination: URL(string: "https://walkworthy-app.web.app/privacy")!) {
+                            HStack {
+                                Text("Privacy Policy")
+                                Spacer()
+                                Image(systemName: "arrow.up.right.square")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .listRowBackground(Color.wwCardBackground)
+                        Link(destination: URL(string: "https://walkworthy-app.web.app/terms")!) {
+                            HStack {
+                                Text("Terms of Use")
+                                Spacer()
+                                Image(systemName: "arrow.up.right.square")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .listRowBackground(Color.wwCardBackground)
+                        Link(destination: URL(string: "mailto:walkworthyofficial@gmail.com")!) {
+                            HStack {
+                                Text("Contact Support")
+                                Spacer()
+                                Image(systemName: "envelope")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .listRowBackground(Color.wwCardBackground)
                     }
                 }
                 .scrollContentBackground(.hidden)
                 .navigationTitle("Settings")
+                .confirmationDialog(
+                    "Delete Account?",
+                    isPresented: $showDeleteConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Delete Account", role: .destructive) {
+                        Task { await startAccountDeletion() }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("This permanently removes your profile, mood history, journal entries, daily reflections, and encouragements. This cannot be undone.")
+                }
+                .sheet(isPresented: $showReauthSheet) {
+                    ReauthenticationSheet(
+                        onAuthenticated: {
+                            // Sheet dismisses itself before calling us; continue
+                            // straight to the backend delete.
+                            Task { await performBackendDeletion() }
+                        }
+                    )
+                }
+                .alert(
+                    "Couldn't delete account",
+                    isPresented: Binding(
+                        get: { deleteAccountError != nil },
+                        set: { if !$0 { deleteAccountError = nil } }
+                    ),
+                    presenting: deleteAccountError
+                ) { _ in
+                    Button("OK", role: .cancel) { deleteAccountError = nil }
+                } message: { message in
+                    Text(message)
+                }
+            }
+        }
+    }
+
+    // MARK: - Account deletion flow
+    //
+    // Two-step: (1) if the session is stale, prompt for password re-auth via
+    // ReauthenticationSheet — on success it calls `performBackendDeletion()`.
+    // (2) otherwise skip straight to the backend call. Local cleanup only runs
+    // after the backend confirms success so a network failure never strands the
+    // user's on-device data in a half-deleted state.
+
+    private func startAccountDeletion() async {
+        guard appState.isAuthenticated, !isDeletingAccount else { return }
+        isDeletingAccount = true
+
+        let needsReauth = await appState.accountDeletionRequiresReauth()
+        if needsReauth {
+            // Hand off to the re-auth sheet. It clears isDeletingAccount on
+            // cancel; on success it calls performBackendDeletion() which
+            // handles the spinner + error alerts.
+            isDeletingAccount = false
+            showReauthSheet = true
+        } else {
+            await performBackendDeletion()
+        }
+    }
+
+    private func performBackendDeletion() async {
+        isDeletingAccount = true
+        defer { isDeletingAccount = false }
+
+        do {
+            try await appState.deleteAccount()
+            // Success: the Firebase auth state listener will flip
+            // isAuthenticated to false, which drives the RootView back to
+            // TitleScreenView. Belt-and-suspenders signOut() in case the
+            // listener is slow on a flaky network.
+            appState.signOut()
+        } catch APIError.unauthorized, APIError.notAuthenticated {
+            deleteAccountError = "Please sign in again, then try deleting your account."
+            // Force a sign-out so the user returns to TitleScreenView. The
+            // alert above also surfaces the reason.
+            appState.signOut()
+        } catch let error as APIError {
+            deleteAccountError = error.errorDescription ?? "Couldn't delete account — please try again."
+        } catch {
+            deleteAccountError = "Couldn't delete account — please try again."
+            #if DEBUG
+            print("[SettingsView] deleteAccount failed: \(error)")
+            #endif
+        }
+    }
+}
+
+// MARK: - Re-auth sheet
+
+/// Password-only re-authentication sheet shown before account deletion when
+/// the Firebase session is older than the sensitive-operation window.
+/// Firebase requires `user.reauthenticate(with:)` for destructive actions;
+/// the backend also enforces a token-freshness check on `/deleteAccount`.
+private struct ReauthenticationSheet: View {
+    /// Called once re-authentication succeeds. The sheet dismisses itself
+    /// before invoking this closure so the caller can immediately present
+    /// the next UI step (a progress indicator on the destructive action).
+    let onAuthenticated: () -> Void
+
+    @EnvironmentObject private var appState: AppState
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var password: String = ""
+    @State private var isSubmitting: Bool = false
+    @State private var errorMessage: String?
+    @FocusState private var passwordFocused: Bool
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                TimeOfDayTheme.current.backdrop
+                    .ignoresSafeArea()
+
+                Form {
+                    Section {
+                        Text("For your security, please re-enter your password to confirm account deletion.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .listRowBackground(Color.wwCardBackground)
+                    }
+
+                    Section("Password") {
+                        SecureField("Password", text: $password)
+                            .textContentType(.password)
+                            .submitLabel(.continue)
+                            .focused($passwordFocused)
+                            .onSubmit { submit() }
+                            .listRowBackground(Color.wwCardBackground)
+                    }
+
+                    if let errorMessage {
+                        Section {
+                            Text(errorMessage)
+                                .font(.subheadline)
+                                .foregroundStyle(.red)
+                                .listRowBackground(Color.wwCardBackground)
+                        }
+                    }
+                }
+                .scrollContentBackground(.hidden)
+                .disabled(isSubmitting)
+            }
+            .navigationTitle("Confirm Password")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .disabled(isSubmitting)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if isSubmitting {
+                        ProgressView()
+                    } else {
+                        Button("Continue") { submit() }
+                            .disabled(password.isEmpty)
+                    }
+                }
+            }
+            .task {
+                // Slight delay so the sheet's entrance animation doesn't race
+                // the keyboard — matches the pattern in SignInFormView.
+                try? await Task.sleep(for: .milliseconds(300))
+                passwordFocused = true
+            }
+        }
+    }
+
+    private func submit() {
+        guard !isSubmitting, !password.isEmpty else { return }
+        isSubmitting = true
+        errorMessage = nil
+
+        Task {
+            do {
+                try await appState.reauthenticate(password: password)
+                // Dismiss first so the parent can immediately present its
+                // progress indicator on the Settings screen without the sheet
+                // flashing over it.
+                dismiss()
+                onAuthenticated()
+            } catch {
+                let details = FirebaseAuthErrorMapper.mapError(error)
+                errorMessage = details.displayText
+                isSubmitting = false
             }
         }
     }
@@ -92,6 +328,7 @@ enum ReminderType {
 }
 
 struct NotificationSettingsView: View {
+    @EnvironmentObject private var appState: AppState
     @State private var morningTime = defaultTime(hour: 7, minute: 0)
     @State private var middayTime = defaultTime(hour: 12, minute: 0)
     @State private var eveningTime = defaultTime(hour: 19, minute: 0)
@@ -102,6 +339,15 @@ struct NotificationSettingsView: View {
     @State private var pendingAuthorizationFor: ReminderType?
 
     private let defaults = UserDefaults.standard
+
+    /// Scopes reminder preference keys to the signed-in user so shared
+    /// devices don't leak one account's notification schedule to another.
+    /// Falls back to the bare key only for pre-auth reads — those should
+    /// never occur in practice because this view requires authentication.
+    private func scopedKey(_ baseKey: String) -> String {
+        guard let userSub = appState.authenticatedUserSub else { return baseKey }
+        return "\(baseKey)::\(userSub)"
+    }
 
     var body: some View {
         ZStack {
@@ -278,38 +524,81 @@ struct NotificationSettingsView: View {
         UIApplication.shared.open(settingsUrl)
     }
 
+    /// One-shot migration: older TestFlight builds wrote reminder preferences
+    /// under the bare (unscoped) key. When we introduced per-user scoping, any
+    /// existing value stopped being read — which looked like "reminders silently
+    /// reset" to those users. This copies the bare value to the scoped slot on
+    /// first read and removes the bare key so we don't migrate twice.
+    /// Idempotent: once the scoped slot exists the helper is a no-op.
+    private func migrateReminderKeyIfNeeded(bare: String) {
+        guard let userSub = appState.authenticatedUserSub else { return }
+        let scoped = "\(bare)::\(userSub)"
+        if defaults.object(forKey: scoped) == nil,
+           let value = defaults.object(forKey: bare) {
+            defaults.set(value, forKey: scoped)
+            defaults.removeObject(forKey: bare)
+        }
+    }
+
     private func loadSavedSettings() {
+        // Migrate any legacy unscoped reminder keys into the per-user scope so
+        // existing TestFlight users retain their reminder times and toggles.
+        let legacyKeys = [
+            StorageKeys.morningEnabled,
+            StorageKeys.middayEnabled,
+            StorageKeys.eveningEnabled,
+            StorageKeys.morningHour,
+            StorageKeys.morningMinute,
+            StorageKeys.middayHour,
+            StorageKeys.middayMinute,
+            StorageKeys.eveningHour,
+            StorageKeys.eveningMinute,
+        ]
+        for key in legacyKeys {
+            migrateReminderKeyIfNeeded(bare: key)
+        }
+
+        let morningEnabledKey = scopedKey(StorageKeys.morningEnabled)
+        let middayEnabledKey = scopedKey(StorageKeys.middayEnabled)
+        let eveningEnabledKey = scopedKey(StorageKeys.eveningEnabled)
+        let morningHourKey = scopedKey(StorageKeys.morningHour)
+        let morningMinuteKey = scopedKey(StorageKeys.morningMinute)
+        let middayHourKey = scopedKey(StorageKeys.middayHour)
+        let middayMinuteKey = scopedKey(StorageKeys.middayMinute)
+        let eveningHourKey = scopedKey(StorageKeys.eveningHour)
+        let eveningMinuteKey = scopedKey(StorageKeys.eveningMinute)
+
         // Load enabled states
-        if defaults.object(forKey: StorageKeys.morningEnabled) != nil {
-            morningEnabled = defaults.bool(forKey: StorageKeys.morningEnabled)
+        if defaults.object(forKey: morningEnabledKey) != nil {
+            morningEnabled = defaults.bool(forKey: morningEnabledKey)
         }
-        if defaults.object(forKey: StorageKeys.middayEnabled) != nil {
-            middayEnabled = defaults.bool(forKey: StorageKeys.middayEnabled)
+        if defaults.object(forKey: middayEnabledKey) != nil {
+            middayEnabled = defaults.bool(forKey: middayEnabledKey)
         }
-        if defaults.object(forKey: StorageKeys.eveningEnabled) != nil {
-            eveningEnabled = defaults.bool(forKey: StorageKeys.eveningEnabled)
+        if defaults.object(forKey: eveningEnabledKey) != nil {
+            eveningEnabled = defaults.bool(forKey: eveningEnabledKey)
         }
 
         // Load times
-        if let morningHour = defaults.object(forKey: StorageKeys.morningHour) as? Int,
-           let morningMinute = defaults.object(forKey: StorageKeys.morningMinute) as? Int {
+        if let morningHour = defaults.object(forKey: morningHourKey) as? Int,
+           let morningMinute = defaults.object(forKey: morningMinuteKey) as? Int {
             morningTime = Self.defaultTime(hour: morningHour, minute: morningMinute)
         }
-        if let middayHour = defaults.object(forKey: StorageKeys.middayHour) as? Int,
-           let middayMinute = defaults.object(forKey: StorageKeys.middayMinute) as? Int {
+        if let middayHour = defaults.object(forKey: middayHourKey) as? Int,
+           let middayMinute = defaults.object(forKey: middayMinuteKey) as? Int {
             middayTime = Self.defaultTime(hour: middayHour, minute: middayMinute)
         }
-        if let eveningHour = defaults.object(forKey: StorageKeys.eveningHour) as? Int,
-           let eveningMinute = defaults.object(forKey: StorageKeys.eveningMinute) as? Int {
+        if let eveningHour = defaults.object(forKey: eveningHourKey) as? Int,
+           let eveningMinute = defaults.object(forKey: eveningMinuteKey) as? Int {
             eveningTime = Self.defaultTime(hour: eveningHour, minute: eveningMinute)
         }
     }
 
     private func saveAndSchedule() {
         // Save enabled states
-        defaults.set(morningEnabled, forKey: StorageKeys.morningEnabled)
-        defaults.set(middayEnabled, forKey: StorageKeys.middayEnabled)
-        defaults.set(eveningEnabled, forKey: StorageKeys.eveningEnabled)
+        defaults.set(morningEnabled, forKey: scopedKey(StorageKeys.morningEnabled))
+        defaults.set(middayEnabled, forKey: scopedKey(StorageKeys.middayEnabled))
+        defaults.set(eveningEnabled, forKey: scopedKey(StorageKeys.eveningEnabled))
 
         // Save times
         let calendar = Calendar.current
@@ -317,12 +606,12 @@ struct NotificationSettingsView: View {
         let middayComponents = calendar.dateComponents([.hour, .minute], from: middayTime)
         let eveningComponents = calendar.dateComponents([.hour, .minute], from: eveningTime)
 
-        defaults.set(morningComponents.hour, forKey: StorageKeys.morningHour)
-        defaults.set(morningComponents.minute, forKey: StorageKeys.morningMinute)
-        defaults.set(middayComponents.hour, forKey: StorageKeys.middayHour)
-        defaults.set(middayComponents.minute, forKey: StorageKeys.middayMinute)
-        defaults.set(eveningComponents.hour, forKey: StorageKeys.eveningHour)
-        defaults.set(eveningComponents.minute, forKey: StorageKeys.eveningMinute)
+        defaults.set(morningComponents.hour, forKey: scopedKey(StorageKeys.morningHour))
+        defaults.set(morningComponents.minute, forKey: scopedKey(StorageKeys.morningMinute))
+        defaults.set(middayComponents.hour, forKey: scopedKey(StorageKeys.middayHour))
+        defaults.set(middayComponents.minute, forKey: scopedKey(StorageKeys.middayMinute))
+        defaults.set(eveningComponents.hour, forKey: scopedKey(StorageKeys.eveningHour))
+        defaults.set(eveningComponents.minute, forKey: scopedKey(StorageKeys.eveningMinute))
 
         // Schedule notifications
         Task {

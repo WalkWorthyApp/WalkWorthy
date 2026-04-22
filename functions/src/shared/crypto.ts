@@ -158,12 +158,18 @@ export function verifyNotificationToken(token: string, storedHash: string): bool
  * Redact sensitive data from objects for logging.
  * Replaces sensitive fields with '[REDACTED]'.
  *
+ * The field list is kept in sync with `containsSensitiveFields()` in
+ * ../../firestore.rules so anything rules reject as a client write is also
+ * scrubbed from server logs. Keep additions/removals in both places.
+ *
  * @param obj - Object containing potentially sensitive data
  * @returns Sanitized copy of the object safe for logging
  */
 export function redactSensitiveFields<T extends Record<string, unknown>>(obj: T): T {
   const sensitiveFields = [
+    // Notification tokens (all variants)
     'notificationToken',
+    'notificationTokenRaw',
     'notification_token',
     'pushToken',
     'push_token',
@@ -171,14 +177,32 @@ export function redactSensitiveFields<T extends Record<string, unknown>>(obj: T)
     'device_token',
     'fcmToken',
     'apnsToken',
+    'plainToken',
+    // Credentials and secrets
     'password',
     'secret',
     'apiKey',
     'api_key',
+    'privateKey',
+    'private_key',
+    'clientSecret',
+    'client_secret',
+    'serviceAccount',
+    'service_account',
+    'credential',
+    'credentials',
+    'bearer',
+    // OAuth/Auth tokens
     'accessToken',
     'access_token',
     'refreshToken',
     'refresh_token',
+    'idToken',
+    'id_token',
+    'authToken',
+    'auth_token',
+    'sessionId',
+    'session_id',
   ];
 
   const redacted: Record<string, unknown> = { ...obj };

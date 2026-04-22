@@ -14,6 +14,13 @@ import {
   sanitizeProfile,
   type UserProfilePayload,
 } from "./profile-sanitize";
+import {
+  MOOD_MODEL,
+  GuardrailTripError,
+  isGuardrailTrip,
+  sleep,
+  withTimeout,
+} from "./model-config";
 
 // ============================================================================
 // Output Schema
@@ -75,8 +82,10 @@ function ensureAgent(apiKey: string): Agent<object, typeof reflectionOutputSchem
   cachedAgent = new Agent<object, typeof reflectionOutputSchema>({
     name: "WalkWorthyReflectionAgent",
     instructions: REFLECTION_SYSTEM_PROMPT,
-    model: "gpt-4.1-nano",
-    modelSettings: { temperature: 0.6, topP: 1, maxTokens: 256 },
+    model: MOOD_MODEL,
+    // Zero Data Retention — see mood-agent.ts for rationale. OpenAI does not
+    // persist the request/response after generation; privacy-policy claim.
+    modelSettings: { temperature: 0.6, topP: 1, maxTokens: 256, store: false },
     outputType: reflectionOutputSchema,
   });
 
@@ -126,10 +135,18 @@ export async function runReflectionAgent(
   const agent = ensureAgent(apiKey);
   const input = buildPrompt(summaries, profile);
 
+  const MAX_RETRIES = 2;
   let lastError: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    // Exponential backoff between attempts — first attempt runs immediately.
+    if (attempt > 0) {
+      const delayMs = 250 * Math.pow(2, attempt);
+      logger.info(`[ReflectionAgent] Backing off ${delayMs}ms before retry ${attempt + 1}`);
+      await sleep(delayMs);
+    }
+
     try {
-      const result = await run(agent, input);
+      const result = await withTimeout((signal) => run(agent, input, { signal }));
       const output = result.finalOutput;
 
       const raw =
@@ -145,6 +162,10 @@ export async function runReflectionAgent(
       return parsed.reflection.trim();
     } catch (err) {
       lastError = err;
+      if (isGuardrailTrip(err)) {
+        logger.error("[ReflectionAgent] PII guardrail tripped; not retrying", { attempt: attempt + 1 });
+        throw new GuardrailTripError();
+      }
       logger.error(`[ReflectionAgent] Attempt ${attempt + 1} failed:`, err);
     }
   }

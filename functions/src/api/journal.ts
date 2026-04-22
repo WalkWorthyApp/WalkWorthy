@@ -14,6 +14,7 @@ import type { Request, Response } from 'express';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from '../shared/auth';
 import { checkRateLimit, getClientIp, STANDARD_USER_LIMIT, STANDARD_IP_LIMIT } from '../shared/rate-limiter';
+import { getUserLogicalDate } from '../shared/time';
 import { JournalEntry } from '../shared/types';
 import { randomUUID } from 'crypto';
 
@@ -114,7 +115,11 @@ async function handleCreateEntry(req: Request, res: Response): Promise<void> {
     }
 
     const now = new Date();
-    const date = now.toISOString().split('T')[0]; // YYYY-MM-DD in UTC
+    // Bucket entries by the user's logical date so journal entries align with
+    // mood check-in summaries (which also use logical dates in the user's
+    // timezone). UTC bucketing would misalign by several hours for users far
+    // from UTC and put late-night entries on the "wrong" day.
+    const date = await getUserLogicalDate(userId);
     const entryId = randomUUID();
     const nowIso = now.toISOString();
 

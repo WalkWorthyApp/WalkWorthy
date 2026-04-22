@@ -21,11 +21,12 @@ export { userProfile } from './api/user-profile';
 // Mood Check-in - Submit mood check-ins and get AI encouragement
 export { moodCheckIn } from './api/mood-checkin';
 
-// Encouragement - Get latest and historical encouragements
-export { encouragementNext, encouragementHistory } from './api/encouragement-next';
-
 // Daily Reflection - AI-generated devotional prompt cached once per day
 export { dailyReflection } from './api/daily-reflection';
 
 // Journal - CRUD operations for user journal entries
 export { journal } from './api/journal';
+
+// Delete Account - Apple App Store Guideline 5.1.1(v) compliance: erase all
+// user data (Firestore + Auth) when the user requests account deletion.
+export { deleteAccount } from './api/delete-account';

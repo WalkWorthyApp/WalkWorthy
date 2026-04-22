@@ -6,9 +6,11 @@
 //
 
 import SwiftUI
+import AuthenticationServices
 
 struct SignInFormView: View {
     @ObservedObject var viewModel: AuthenticationViewModel
+    @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focusedField: Field?
 
     enum Field {
@@ -36,15 +38,30 @@ struct SignInFormView: View {
             // Submit button
             submitButton
 
+            // "or" divider between email/password and Apple sign-in
+            orDivider
+
+            // Sign in with Apple — required by App Store Guideline 4.8
+            appleSignInButton
+
             // Mode switch link
             modeSwitchLink
+
+            // Legal consent line (shown only in create-account mode; signing in
+            // implies prior acceptance at the time the account was created).
+            if viewModel.mode == .createAccount {
+                legalConsentText
+            }
         }
         .padding(.horizontal, scaled(24))
         .padding(.vertical, scaled(16))
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                focusedField = .email
-            }
+        .task {
+            // Wait for SwiftUI to settle keyboard/focus before requesting email focus.
+            // Using `.task` (vs. DispatchQueue.asyncAfter) ensures SwiftUI cancels
+            // this on view disappear, avoiding a focus race if the user taps
+            // another field quickly.
+            try? await Task.sleep(for: .milliseconds(300))
+            focusedField = .email
         }
         .onChange(of: viewModel.email) {
             if viewModel.errorDetails != nil {
@@ -220,6 +237,45 @@ struct SignInFormView: View {
         .disabled(viewModel.isLoading)
     }
 
+    private var orDivider: some View {
+        HStack(spacing: scaled(12)) {
+            Rectangle()
+                .fill(Color(.systemGray4))
+                .frame(height: 1)
+            Text("or")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+            Rectangle()
+                .fill(Color(.systemGray4))
+                .frame(height: 1)
+        }
+        .padding(.vertical, scaled(4))
+        .accessibilityHidden(true)
+    }
+
+    private var appleSignInButton: some View {
+        // `.signIn` is the right label regardless of `viewModel.mode` — Apple
+        // treats first-time and repeat taps the same way, creating the
+        // Firebase account on first success and signing in on subsequent ones.
+        //
+        // The button configures its request in `onRequest` (via the view
+        // model, which owns the nonce lifecycle), and the view model consumes
+        // the resulting `ASAuthorization` in `onCompletion`.
+        SignInWithAppleButton(.signIn, onRequest: { request in
+            viewModel.configureAppleRequest(request)
+        }, onCompletion: { result in
+            Task { @MainActor in
+                await viewModel.handleAppleAuthorizationResult(result)
+            }
+        })
+        .signInWithAppleButtonStyle(colorScheme == .dark ? .white : .black)
+        .frame(maxWidth: .infinity)
+        .frame(height: scaled(48))
+        .clipShape(RoundedRectangle(cornerRadius: scaled(16), style: .continuous))
+        .disabled(viewModel.isLoading)
+        .opacity(viewModel.isLoading ? 0.6 : 1)
+    }
+
     private var modeSwitchLink: some View {
         HStack(spacing: scaled(4)) {
             Text(viewModel.mode == .signIn ? "Don't have an account?" : "Already have an account?")
@@ -235,5 +291,43 @@ struct SignInFormView: View {
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.top, scaled(8))
+    }
+
+    /// Consent line shown during create-account. Uses AttributedString so the
+    /// Privacy Policy and Terms phrases render as tappable links while the
+    /// surrounding text stays static. Required for App Store submission — users
+    /// must be able to reach the policies before creating an account.
+    private var legalConsentText: some View {
+        let attributed: AttributedString = {
+            var full = AttributedString("By creating an account you agree to our ")
+            full.foregroundColor = .secondary
+
+            var terms = AttributedString("Terms of Use")
+            terms.link = URL(string: "https://walkworthy-app.web.app/terms")
+            terms.foregroundColor = Color.accentColor
+
+            var and = AttributedString(" and ")
+            and.foregroundColor = .secondary
+
+            var privacy = AttributedString("Privacy Policy")
+            privacy.link = URL(string: "https://walkworthy-app.web.app/privacy")
+            privacy.foregroundColor = Color.accentColor
+
+            var period = AttributedString(".")
+            period.foregroundColor = .secondary
+
+            full.append(terms)
+            full.append(and)
+            full.append(privacy)
+            full.append(period)
+            return full
+        }()
+
+        return Text(attributed)
+            .font(.caption)
+            .multilineTextAlignment(.center)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, scaled(12))
+            .padding(.horizontal, scaled(16))
     }
 }

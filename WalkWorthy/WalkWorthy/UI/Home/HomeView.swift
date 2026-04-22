@@ -90,9 +90,19 @@ struct HomeView: View {
         guard appState.isAuthenticated else { return false }
         guard appState.authenticatedUserSub != nil else { return false }
         guard !appState.nameBackfillDismissed else { return false }
-        let name = (appState.currentProfile?.firstName ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty
+        // Two-step gate:
+        // 1. If we have a live profile, show the banner only when firstName is
+        //    empty — the authoritative backend signal.
+        // 2. If the profile is nil (e.g. cold-launch-while-offline before the
+        //    backend fetch resolves), fall back to the persisted
+        //    `hasCompletedProfileSetup` flag so users who set their name
+        //    months ago don't see the banner again. Only show when we have no
+        //    signal whatsoever that setup happened.
+        if let profile = appState.currentProfile {
+            let name = profile.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+            return name.isEmpty
+        }
+        return !appState.hasCompletedProfileSetup
     }
 
     private var greetingHeader: some View {

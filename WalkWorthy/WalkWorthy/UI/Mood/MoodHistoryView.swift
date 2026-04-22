@@ -66,44 +66,61 @@ struct MoodHistoryView: View {
         return calendar.range(of: .day, in: .month, for: date)?.count ?? 30
     }
 
-    // Compute the start and end date for the current window
+    // Compute the start and end date for the current window.
+    // All Calendar math guards against nil — non-Gregorian calendars (Japanese,
+    // Buddhist) and DST edges can return nil from `calendar.date(byAdding:)`
+    // and `calendar.range(of:)`. Fall back to today's window on failure.
     private var currentWindow: (startDate: String, endDate: String) {
         let calendar = Calendar.current
         let today = Date()
+        let todayString = isoDateFormatter.string(from: today)
 
         switch selectedRange {
         case .days(let count):
             // endDate = today shifted by (offset * count) days
             // startDate = endDate minus (count - 1) days
-            let endDate = calendar.date(
+            guard let endDate = calendar.date(
                 byAdding: .day,
                 value: periodOffset * count,
                 to: today
-            )!
-            let startDate = calendar.date(
+            ) else {
+                return (todayString, todayString)
+            }
+            guard let startDate = calendar.date(
                 byAdding: .day,
                 value: -(count - 1),
                 to: endDate
-            )!
+            ) else {
+                let endString = isoDateFormatter.string(from: endDate)
+                return (endString, endString)
+            }
             return (isoDateFormatter.string(from: startDate),
                     isoDateFormatter.string(from: endDate))
 
         case .thisMonth:
             // Shift by 'offset' whole calendar months
-            let targetMonth = calendar.date(
+            guard let targetMonth = calendar.date(
                 byAdding: .month,
                 value: periodOffset,
                 to: today
-            )!
-            let startOfMonth = calendar.date(
+            ) else {
+                return (todayString, todayString)
+            }
+            guard let startOfMonth = calendar.date(
                 from: calendar.dateComponents([.year, .month], from: targetMonth)
-            )!
-            let daysInMonth = calendar.range(of: .day, in: .month, for: targetMonth)!.count
-            let endOfMonth = calendar.date(
+            ) else {
+                return (todayString, todayString)
+            }
+            // Assume 30 days if calendar range lookup fails.
+            let daysInMonth = calendar.range(of: .day, in: .month, for: targetMonth)?.count ?? 30
+            guard let endOfMonth = calendar.date(
                 byAdding: .day,
                 value: daysInMonth - 1,
                 to: startOfMonth
-            )!
+            ) else {
+                let startString = isoDateFormatter.string(from: startOfMonth)
+                return (startString, startString)
+            }
             return (isoDateFormatter.string(from: startOfMonth),
                     isoDateFormatter.string(from: endOfMonth))
         }
@@ -374,9 +391,23 @@ struct MoodHistoryView: View {
 
         var dates: [String] = []
         var cursor = start
-        while cursor <= end {
+        // Defensive: prevents an infinite loop if calendar.date(byAdding:) ever
+        // returns nil (non-Gregorian calendars / DST edges) or `cursor` somehow
+        // fails to advance past `end`. 400 ≈ 12 months of daily entries, far
+        // above the largest configured window (currently 31 days). If this
+        // limit trips, calendar math has regressed — surface it loudly in DEBUG.
+        let maxIterations = 400
+        var iterations = 0
+        while cursor <= end && iterations < maxIterations {
             dates.append(isoDateFormatter.string(from: cursor))
-            cursor = calendar.date(byAdding: .day, value: 1, to: cursor)!
+            guard let next = calendar.date(byAdding: .day, value: 1, to: cursor) else {
+                break
+            }
+            cursor = next
+            iterations += 1
+        }
+        if iterations >= maxIterations {
+            assertionFailure("daysToDisplay iteration limit hit — review calendar math")
         }
         return dates
     }
@@ -396,7 +427,7 @@ struct MoodHistoryView: View {
         }()
 
         let isToday = dateString == isoDateFormatter.string(from: Date())
-        let hasMoodData = summary != nil && summary!.completedCount > 0
+        let hasMoodData = (summary?.completedCount ?? 0) > 0
         let sentimentColor = sentimentColor(for: summary)
 
         // Sizes based on compact mode

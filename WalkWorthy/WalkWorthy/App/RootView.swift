@@ -12,7 +12,13 @@ struct RootView: View {
 
     var body: some View {
         Group {
-            if appState.isCheckingAuth {
+            if let configError = appState.configurationError {
+                // Blocking error screen — shown ahead of everything so a broken
+                // build (missing API URL, SwiftData failure, etc.) surfaces to
+                // the user instead of crashing at launch.
+                ConfigurationErrorView(message: configError)
+                    .transition(.opacity)
+            } else if appState.isCheckingAuth {
                 Color(.systemBackground)
                     .ignoresSafeArea()
             } else if appState.requiresAuthenticationGate {
@@ -29,6 +35,7 @@ struct RootView: View {
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.isCheckingAuth)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.onboardingCompleted)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.requiresAuthenticationGate)
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.configurationError)
     }
 }
 

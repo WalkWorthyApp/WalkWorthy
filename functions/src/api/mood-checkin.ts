@@ -32,6 +32,8 @@ import { randomUUID } from 'crypto';
 import {
   checkRateLimit,
   checkDailyAiBudget,
+  refundDailyAiBudget,
+  getTodayUtcDateString,
   getClientIp,
   sendRateLimitResponse,
   MOOD_CHECKIN_USER_LIMIT,
@@ -39,6 +41,7 @@ import {
   MOOD_DAILY_AI_BUDGET,
   STANDARD_USER_LIMIT,
 } from '../shared/rate-limiter';
+import { getLogicalDateString, getDateStringInTimezone } from '../shared/time';
 
 // Initialize Firebase on module load
 initializeFirebase();
@@ -63,82 +66,71 @@ function normalizeTranslation(value?: string): Translation {
 }
 
 /**
- * Get the logical day date string in YYYY-MM-DD format.
- * Hours 0–2 AM still belong to the previous logical day (morning starts at 3 AM).
+ * Parse an "HH:mm" string into minute-of-day. Returns undefined on any format
+ * issue so callers can fall back to a default. Hours must be 0–23, minutes 0–59.
  */
-function getLogicalDateString(timezone?: string): string {
-  const now = new Date();
-  let hour: number;
-  try {
-    if (timezone) {
-      const fmt = new Intl.DateTimeFormat('en-US', {
-        timeZone: timezone,
-        hour: 'numeric',
-        hourCycle: 'h23',
-      });
-      hour = parseInt(fmt.format(now), 10);
-    } else {
-      hour = now.getUTCHours();
-    }
-  } catch {
-    hour = now.getUTCHours();
-  }
-  const logicalNow = hour < 3 ? new Date(now.getTime() - 24 * 60 * 60 * 1000) : now;
-  return getDateStringInTimezone(logicalNow, timezone);
+function parseHHMMToMinutes(value: string): number | undefined {
+  if (typeof value !== 'string') return undefined;
+  const parts = value.split(':');
+  if (parts.length !== 2) return undefined;
+  const hh = Number(parts[0]);
+  const mm = Number(parts[1]);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return undefined;
+  if (!Number.isInteger(hh) || !Number.isInteger(mm)) return undefined;
+  if (hh < 0 || hh > 23 || mm < 0 || mm > 59) return undefined;
+  return hh * 60 + mm;
 }
 
-/**
- * Format a given date as YYYY-MM-DD in the specified timezone
- */
-function getDateStringInTimezone(date: Date, timezone?: string): string {
-  if (timezone) {
-    try {
-      const formatter = new Intl.DateTimeFormat('en-CA', {
-        timeZone: timezone,
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-      });
-      return formatter.format(date);
-    } catch {
-      // Fall back to UTC if timezone is invalid
-    }
-  }
-  return date.toISOString().split('T')[0];
-}
+// Defaults in minutes-of-day. Morning starts at 03:00 (unchanged); midday/evening
+// boundaries default to the end of morning/midday respectively.
+const DEFAULT_MORNING_START_MIN = 3 * 60;   // 03:00
+const DEFAULT_MIDDAY_START_MIN = 11 * 60;   // 11:00 — end of morning
+const DEFAULT_EVENING_START_MIN = 17 * 60;  // 17:00 — end of midday
 
 /**
- * Determine the current pending check-in type based on time
+ * Determine the current pending check-in type based on time of day in the
+ * user's timezone. Compares minute-of-day integers so boundaries respect the
+ * minute component of the user's configured times (e.g., midday="11:59"
+ * previously truncated to hour=11 and produced an empty morning window).
  */
 function getCurrentCheckInType(
   timezone: string = 'America/New_York',
   checkInTimes?: { morning: string; midday: string; evening: string },
 ): CheckInType {
   const now = new Date();
-  let hour: number;
+  let nowMinutes: number;
 
   try {
     const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone,
-      hour: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
       hourCycle: 'h23',
     });
-    hour = parseInt(formatter.format(now), 10);
+    const parts = formatter.formatToParts(now);
+    const hourPart = parts.find((p) => p.type === 'hour')?.value ?? '';
+    const minutePart = parts.find((p) => p.type === 'minute')?.value ?? '';
+    const hh = Number(hourPart);
+    const mm = Number(minutePart);
+    if (!Number.isFinite(hh) || !Number.isFinite(mm)) {
+      nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
+    } else {
+      nowMinutes = hh * 60 + mm;
+    }
   } catch {
-    hour = now.getUTCHours();
+    nowMinutes = now.getUTCHours() * 60 + now.getUTCMinutes();
   }
 
-  // Evening wraps past midnight — morning doesn't start until 3am
-  const morningStart = 3;
-  const morningEnd = checkInTimes ? parseInt(checkInTimes.midday.split(':')[0], 10) : 11;
-  const middayEnd = checkInTimes ? parseInt(checkInTimes.evening.split(':')[0], 10) : 17;
+  // Evening wraps past midnight — morning doesn't start until 03:00.
+  const middayStart = (checkInTimes && parseHHMMToMinutes(checkInTimes.midday)) ?? DEFAULT_MIDDAY_START_MIN;
+  const eveningStart = (checkInTimes && parseHHMMToMinutes(checkInTimes.evening)) ?? DEFAULT_EVENING_START_MIN;
 
-  if (hour >= morningStart && hour < morningEnd) {
+  if (nowMinutes >= DEFAULT_MORNING_START_MIN && nowMinutes < middayStart) {
     return 'morning';
-  } else if (hour >= morningEnd && hour < middayEnd) {
+  } else if (nowMinutes >= middayStart && nowMinutes < eveningStart) {
     return 'midday';
   } else {
-    return 'evening'; // covers evening start–23 and midnight–2am
+    return 'evening'; // covers evening start–23:59 and 00:00–02:59
   }
 }
 
@@ -299,131 +291,171 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       });
     }
 
-    // Check daily AI budget before calling OpenAI
+    // Reserve a slot in the daily AI budget BEFORE calling OpenAI. If the
+    // downstream OpenAI call or Firestore write fails, we refund the slot via
+    // `refundDailyAiBudget` so users aren't penalized by server-side errors.
     const budgetResult = await checkDailyAiBudget(db, userId, MOOD_DAILY_AI_BUDGET);
     if (!budgetResult.allowed) {
-      sendRateLimitResponse(res, 'dailyBudget', 0, { userId, endpoint: 'moodCheckIn' });
+      sendRateLimitResponse(res, 'dailyBudget', budgetResult.retryAfterSeconds, { userId, endpoint: 'moodCheckIn' });
       return;
     }
 
-    // Step 2: Generate AI response (outside transaction - may take time)
-    // Respect the user's "Use profile for encouragements" toggle: default to
-    // personalization ON when the flag is undefined (matches iOS onboarding
-    // default), strip the profile only when explicitly opted out.
-    const useProfile = profile?.optInTailored !== false;
-    if (!useProfile) {
-      logger.info('personalization.optedOut', { userId, endpoint: 'moodCheckIn' });
-    }
-    const agentInput: MoodAgentInput = {
-      profile: useProfile ? (profile as UserProfilePayload | null) : null,
-      checkInType: input.checkInType,
-      moodSpectrumData: input.moodSpectrumData,
-      translationPreference: translation,
-    };
+    // The budget doc is keyed by UTC date (see `checkDailyAiBudget`), so the
+    // refund must use the same UTC date — NOT the user's logical date
+    // (`todayDate`) which can diverge by up to a full day near midnight for
+    // users far from UTC.
+    const budgetDate = getTodayUtcDateString();
 
-    const aiResponse = await runMoodAgent(agentInput, openaiApiKey.value());
-    logger.info('AI response generated', { userId, verseRef: aiResponse.verseRef });
-
-    // Step 3: Atomically write check-in and summary in final transaction
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
-
-    // Use existing check-in ID if updating, otherwise generate new one
-    const checkInId = transactionResult.type === 'update' ? transactionResult.data.id : randomUUID();
-
-    const checkInData: MoodCheckIn = {
-      id: checkInId,
-      checkInType: input.checkInType,
-      timestamp: now.toISOString(),
-      date: todayDate,
-      moodSpectrumData: input.moodSpectrumData,
-      aiResponse,
-      createdAt: transactionResult.type === 'update' ? transactionResult.data.createdAt : now.toISOString(),
-      expiresAt: expiresAt.toISOString(),
-    };
-
-    let finalCheckInData = checkInData;
-    let concurrentDuplicate = false;
+    // From this point forward, any thrown error must refund the reserved slot.
+    // `budgetReserved` tracks whether a refund is still owed; it flips to false
+    // once the check-in has been successfully persisted.
+    let budgetReserved = true;
 
     try {
-      await db.runTransaction(async (transaction) => {
-        // Optimistic concurrency check: if a concurrent request already wrote this check-in
-        // with the same mood, return that instead to avoid duplicate responses
-        const existingCheckInDoc = await transaction.get(checkInRef);
-        if (existingCheckInDoc.exists) {
-          const existingCheckInData = existingCheckInDoc.data() as MoodCheckIn;
-          if (existingCheckInData.moodSpectrumData &&
-              existingCheckInData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&
-              existingCheckInData.moodSpectrumData.followUpScore === input.moodSpectrumData.followUpScore) {
-            logger.info('Concurrent request already created identical check-in, skipping write', {
-              userId,
-              checkInId: existingCheckInData.id,
-              checkInType: input.checkInType,
-            });
-            finalCheckInData = existingCheckInData;
-            concurrentDuplicate = true;
-            // Abort transaction gracefully - we'll use the existing check-in
-            throw new Error('CONCURRENT_IDENTICAL_CHECKIN');
-          }
-        }
-
-        // Get existing summary within transaction
-        const summaryDoc = await transaction.get(summaryRef);
-        const existingSummary = summaryDoc.exists ? (summaryDoc.data() as DailyMoodSummary) : undefined;
-
-        const checkInSummary: CheckInSummary = {
-          checkInId,
-          moodLevel: input.moodSpectrumData.moodLevel,
-          respondedAt: now.toISOString(),
-        };
-
-        // Use null instead of undefined for Firestore compatibility
-        const updatedSummary: DailyMoodSummary = {
-          date: todayDate,
-          morning: input.checkInType === 'morning' ? checkInSummary : (existingSummary?.morning ?? null),
-          midday: input.checkInType === 'midday' ? checkInSummary : (existingSummary?.midday ?? null),
-          evening: input.checkInType === 'evening' ? checkInSummary : (existingSummary?.evening ?? null),
-          updatedAt: now.toISOString(),
-        };
-
-        // Calculate overall sentiment from updated check-ins
-        updatedSummary.overallSentiment = calculateOverallSentiment(
-          updatedSummary.morning,
-          updatedSummary.midday,
-          updatedSummary.evening,
-        );
-
-        // Set check-in (creates or updates - deterministic docID ensures no duplicates)
-        transaction.set(checkInRef, checkInData);
-        // Set summary atomically with merge to preserve any other fields
-        transaction.set(summaryRef, updatedSummary, { merge: true });
-      });
-    } catch (txnError) {
-      // If concurrent duplicate detected, use the existing check-in instead
-      if (txnError instanceof Error && txnError.message === 'CONCURRENT_IDENTICAL_CHECKIN') {
-        // Continue - we already set finalCheckInData to the existing check-in above
-      } else {
-        // Re-throw any other transaction errors
-        throw txnError;
+      // Step 2: Generate AI response (outside transaction - may take time)
+      // Respect the user's "Use profile for encouragements" toggle: default to
+      // personalization ON when the flag is undefined (matches iOS onboarding
+      // default), strip the profile only when explicitly opted out.
+      const useProfile = profile?.optInTailored !== false;
+      if (!useProfile) {
+        logger.info('personalization.optedOut', { userId, endpoint: 'moodCheckIn' });
       }
+      const agentInput: MoodAgentInput = {
+        profile: useProfile ? (profile as UserProfilePayload | null) : null,
+        checkInType: input.checkInType,
+        moodSpectrumData: input.moodSpectrumData,
+        translationPreference: translation,
+      };
+
+      const aiResponse = await runMoodAgent(agentInput, openaiApiKey.value());
+      logger.info('AI response generated', { userId, verseRef: aiResponse.verseRef });
+
+      // Step 3: Atomically write check-in and summary in final transaction
+      const now = new Date();
+      const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+      // Use existing check-in ID if updating, otherwise generate new one
+      const checkInId = transactionResult.type === 'update' ? transactionResult.data.id : randomUUID();
+
+      const checkInData: MoodCheckIn = {
+        id: checkInId,
+        checkInType: input.checkInType,
+        timestamp: now.toISOString(),
+        date: todayDate,
+        moodSpectrumData: input.moodSpectrumData,
+        aiResponse,
+        createdAt: transactionResult.type === 'update' ? transactionResult.data.createdAt : now.toISOString(),
+        expiresAt: expiresAt.toISOString(),
+      };
+
+      let finalCheckInData = checkInData;
+      let concurrentDuplicate = false;
+
+      try {
+        await db.runTransaction(async (transaction) => {
+          // Optimistic concurrency check: if a concurrent request already wrote this check-in
+          // with the same mood, return that instead to avoid duplicate responses
+          const existingCheckInDoc = await transaction.get(checkInRef);
+          if (existingCheckInDoc.exists) {
+            const existingCheckInData = existingCheckInDoc.data() as MoodCheckIn;
+            if (existingCheckInData.moodSpectrumData &&
+                existingCheckInData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&
+                existingCheckInData.moodSpectrumData.followUpScore === input.moodSpectrumData.followUpScore) {
+              logger.info('Concurrent request already created identical check-in, skipping write', {
+                userId,
+                checkInId: existingCheckInData.id,
+                checkInType: input.checkInType,
+              });
+              finalCheckInData = existingCheckInData;
+              concurrentDuplicate = true;
+              // Abort transaction gracefully - we'll use the existing check-in
+              throw new Error('CONCURRENT_IDENTICAL_CHECKIN');
+            }
+          }
+
+          // Get existing summary within transaction
+          const summaryDoc = await transaction.get(summaryRef);
+          const existingSummary = summaryDoc.exists ? (summaryDoc.data() as DailyMoodSummary) : undefined;
+
+          const checkInSummary: CheckInSummary = {
+            checkInId,
+            moodLevel: input.moodSpectrumData.moodLevel,
+            respondedAt: now.toISOString(),
+          };
+
+          // Use null instead of undefined for Firestore compatibility
+          const updatedSummary: DailyMoodSummary = {
+            date: todayDate,
+            morning: input.checkInType === 'morning' ? checkInSummary : (existingSummary?.morning ?? null),
+            midday: input.checkInType === 'midday' ? checkInSummary : (existingSummary?.midday ?? null),
+            evening: input.checkInType === 'evening' ? checkInSummary : (existingSummary?.evening ?? null),
+            updatedAt: now.toISOString(),
+          };
+
+          // Calculate overall sentiment from updated check-ins
+          updatedSummary.overallSentiment = calculateOverallSentiment(
+            updatedSummary.morning,
+            updatedSummary.midday,
+            updatedSummary.evening,
+          );
+
+          // Set check-in (creates or updates - deterministic docID ensures no duplicates)
+          transaction.set(checkInRef, checkInData);
+          // Set summary atomically with merge to preserve any other fields
+          transaction.set(summaryRef, updatedSummary, { merge: true });
+        });
+      } catch (txnError) {
+        // If concurrent duplicate detected, use the existing check-in instead.
+        // The reserved budget slot is wasted on this call but the refund path
+        // below still fires because we haven't cleared `budgetReserved` yet —
+        // that would let the user retry with a fresh mood. Since the
+        // concurrent request already charged its own slot, we refund ours.
+        if (txnError instanceof Error && txnError.message === 'CONCURRENT_IDENTICAL_CHECKIN') {
+          // Continue - we already set finalCheckInData to the existing check-in above
+        } else {
+          // Re-throw any other transaction errors — outer catch refunds the budget slot
+          throw txnError;
+        }
+      }
+
+      // Write succeeded (including the concurrent-duplicate fast-path where
+      // another request already persisted the check-in). In the duplicate
+      // case we still refund because the concurrent request has its own
+      // charge.
+      if (!concurrentDuplicate) {
+        budgetReserved = false;
+      }
+
+      logger.info('Mood check-in complete', {
+        userId,
+        checkInId: finalCheckInData.id,
+        checkInType: input.checkInType,
+        isUpdate: transactionResult.type === 'update',
+        wasConcurrentDuplicate: concurrentDuplicate,
+      });
+
+      const response: MoodCheckInResponse = {
+        checkInId: finalCheckInData.id,
+        aiResponse: finalCheckInData.aiResponse,
+        createdAt: finalCheckInData.createdAt,
+        expiresAt: finalCheckInData.expiresAt,
+      };
+
+      // Refund the slot reserved for a concurrent duplicate before responding.
+      if (budgetReserved) {
+        await refundDailyAiBudget(db, userId, budgetDate);
+        budgetReserved = false;
+      }
+
+      return successResponse(res, response, 201);
+    } catch (aiOrWriteError) {
+      // OpenAI or Firestore write failed after we reserved the budget slot.
+      // Issue a compensating decrement so the failure isn't charged to the user.
+      if (budgetReserved) {
+        await refundDailyAiBudget(db, userId, budgetDate);
+      }
+      throw aiOrWriteError;
     }
-
-    logger.info('Mood check-in complete', {
-      userId,
-      checkInId: finalCheckInData.id,
-      checkInType: input.checkInType,
-      isUpdate: transactionResult.type === 'update',
-      wasConcurrentDuplicate: concurrentDuplicate,
-    });
-
-    const response: MoodCheckInResponse = {
-      checkInId: finalCheckInData.id,
-      aiResponse: finalCheckInData.aiResponse,
-      createdAt: finalCheckInData.createdAt,
-      expiresAt: finalCheckInData.expiresAt,
-    };
-
-    return successResponse(res, response, 201);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     const errorStack = error instanceof Error ? error.stack : undefined;

@@ -8,6 +8,11 @@
 import SwiftUI
 
 struct OnboardingForm: View {
+    /// Minimum age to use WalkWorthy. Enforced in `validateProfile()` to
+    /// comply with COPPA (US, 13+). If GDPR-EU 16+ localization is ever
+    /// needed, bump this constant (or make it locale-aware).
+    static let minimumAge: Int = 13
+
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss
     @State private var firstName: String = ""
@@ -362,6 +367,12 @@ struct OnboardingForm: View {
 
         guard let age = Int(ageText), age > 0 else {
             ageError = "Please enter your age."
+            focusedField = .age
+            return false
+        }
+
+        guard age >= Self.minimumAge else {
+            ageError = "WalkWorthy is available to ages \(Self.minimumAge) and up. Please enter an age of \(Self.minimumAge) or older to continue."
             focusedField = .age
             return false
         }

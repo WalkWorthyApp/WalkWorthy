@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		2FCA27BD2F01E38F002FFC6A /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 2FCA27BC2F01E38F002FFC6A /* FirebaseAuth */; };
 		2FCA27BF2F01E38F002FFC6A /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = 2FCA27BE2F01E38F002FFC6A /* FirebaseAppCheck */; };
+		2FCA27C12F01E38F002FFC6A /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = 2FCA27C02F01E38F002FFC6A /* FirebaseCrashlytics */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +44,7 @@
 			files = (
 				2FCA27BD2F01E38F002FFC6A /* FirebaseAuth in Frameworks */,
 				2FCA27BF2F01E38F002FFC6A /* FirebaseAppCheck in Frameworks */,
+				2FCA27C12F01E38F002FFC6A /* FirebaseCrashlytics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -83,6 +85,7 @@
 				2F5AB6122E90FD8F00333B8C /* Sources */,
 				2F5AB6132E90FD8F00333B8C /* Frameworks */,
 				2F5AB6142E90FD8F00333B8C /* Resources */,
+				2FCA27C22F01E38F002FFC6A /* Crashlytics Upload Symbols */,
 			);
 			buildRules = (
 			);
@@ -95,6 +98,7 @@
 			packageProductDependencies = (
 				2FCA27BC2F01E38F002FFC6A /* FirebaseAuth */,
 				2FCA27BE2F01E38F002FFC6A /* FirebaseAppCheck */,
+				2FCA27C02F01E38F002FFC6A /* FirebaseCrashlytics */,
 			);
 			productName = WalkWorthy;
 			productReference = 2F5AB6162E90FD8F00333B8C /* WalkWorthy.app */;
@@ -147,6 +151,31 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		2FCA27C22F01E38F002FFC6A /* Crashlytics Upload Symbols */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${DWARF_DSYM_FOLDER_PATH}/${DWARF_DSYM_FILE_NAME}/Contents/Resources/DWARF/${TARGET_NAME}",
+				"${BUILT_PRODUCTS_DIR}/${INFOPLIST_PATH}",
+				"$(BUILT_PRODUCTS_DIR)/$(WRAPPER_NAME)/GoogleService-Info.plist",
+			);
+			name = "Crashlytics Upload Symbols";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${BUILD_DIR%Build/*}SourcePackages/checkouts/firebase-ios-sdk/Crashlytics/run\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		2F5AB6122E90FD8F00333B8C /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -192,11 +221,11 @@
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				DEVELOPMENT_TEAM = 3NR6R348HH;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -261,7 +290,7 @@
 				DEVELOPMENT_TEAM = 3NR6R348HH;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -286,16 +315,17 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = WalkWorthy/WalkWorthy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 3NR6R348HH;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WalkWorthy/Info.plist;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = com.walkworthy.refresh;
+				INFOPLIST_KEY_CFBundleDisplayName = WalkWorthy;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UIBackgroundModes = "fetch processing";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -304,7 +334,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = nathanjones.WalkWorthy;
+				PRODUCT_BUNDLE_IDENTIFIER = com.walkworthy.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -321,13 +351,15 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = WalkWorthy/WalkWorthy.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 3NR6R348HH;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = WalkWorthy/Info.plist;
-				INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = com.walkworthy.refresh;
+				INFOPLIST_KEY_CFBundleDisplayName = WalkWorthy;
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -338,7 +370,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = nathanjones.WalkWorthy;
+				PRODUCT_BUNDLE_IDENTIFIER = com.walkworthy.app;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -394,6 +426,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2F3DAE502F01D37B00B35947 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseAppCheck;
+		};
+		2FCA27C02F01E38F002FFC6A /* FirebaseCrashlytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2F3DAE502F01D37B00B35947 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseCrashlytics;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
