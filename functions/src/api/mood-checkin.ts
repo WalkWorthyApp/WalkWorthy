@@ -40,6 +40,7 @@ import {
   MOOD_CHECKIN_IP_LIMIT,
   MOOD_DAILY_AI_BUDGET,
   STANDARD_USER_LIMIT,
+  STANDARD_IP_LIMIT,
 } from '../shared/rate-limiter';
 import { getLogicalDateString, getDateStringInTimezone } from '../shared/time';
 
@@ -176,14 +177,9 @@ export const moodCheckIn = onRequest(httpsOptions, async (req, res) => {
   const appCheckValid = await verifyAppCheck(req, res);
   if (!appCheckValid) return;
 
-  // IP-based rate limiting (before auth to protect against brute force)
-  const db = getDb();
-  const clientIp = getClientIp(req);
-  const ipResult = await checkRateLimit(db, `ip:${clientIp}:moodCheckIn`, MOOD_CHECKIN_IP_LIMIT);
-  if (!ipResult.allowed) {
-    sendRateLimitResponse(res, 'ip', ipResult.retryAfterSeconds, { endpoint: 'moodCheckIn' });
-    return;
-  }
+  // IP-based rate limiting is now split per-method inside `handlePostCheckIn`
+  // and `handleGetCheckIn` so cheap GET bursts (status / history) cannot drain
+  // the IP budget reserved for expensive POST traffic.
 
   // Route based on method
   switch (req.method) {
@@ -208,8 +204,18 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
   const db = getDb();
 
   try {
-    // User-based rate limiting
-    const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn`, MOOD_CHECKIN_USER_LIMIT);
+    // IP-based rate limiting for writes (separate bucket from reads so a GET
+    // burst from a shared NAT can't drain the POST budget).
+    const clientIp = getClientIp(req);
+    const ipRateResult = await checkRateLimit(db, `ip:${clientIp}:moodCheckIn:write`, MOOD_CHECKIN_IP_LIMIT);
+    if (!ipRateResult.allowed) {
+      sendRateLimitResponse(res, 'ip', ipRateResult.retryAfterSeconds, { endpoint: 'moodCheckIn' });
+      return;
+    }
+
+    // User-based rate limiting for writes. The `:write` suffix isolates the
+    // expensive AI-call bucket from cheap status/history GETs.
+    const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn:write`, MOOD_CHECKIN_USER_LIMIT);
     if (!userRateResult.allowed) {
       sendRateLimitResponse(res, 'user', userRateResult.retryAfterSeconds, { userId, endpoint: 'moodCheckIn' });
       return;
@@ -488,8 +494,18 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
   const { userId } = authReq;
   const db = getDb();
 
-  // User-based rate limiting for GET
-  const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn`, STANDARD_USER_LIMIT);
+  // IP-based rate limiting for reads (separate `:read` bucket so cheap status
+  // and history fetches cannot drain the write budget).
+  const clientIp = getClientIp(req);
+  const ipRateResult = await checkRateLimit(db, `ip:${clientIp}:moodCheckIn:read`, STANDARD_IP_LIMIT);
+  if (!ipRateResult.allowed) {
+    sendRateLimitResponse(res, 'ip', ipRateResult.retryAfterSeconds, { endpoint: 'moodCheckIn' });
+    return;
+  }
+
+  // User-based rate limiting for reads. Separate from `:write` so GETs from
+  // scenePhase/onAppear handlers do not consume the AI-call budget.
+  const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn:read`, STANDARD_USER_LIMIT);
   if (!userRateResult.allowed) {
     sendRateLimitResponse(res, 'user', userRateResult.retryAfterSeconds, { userId, endpoint: 'moodCheckIn' });
     return;
