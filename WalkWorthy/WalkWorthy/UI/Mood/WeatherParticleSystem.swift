@@ -2,296 +2,241 @@
 //  WeatherParticleSystem.swift
 //  WalkWorthy
 //
-//  TimelineView + Canvas particle system for mood weather effects.
-//  Rain, lightning, waves, grass, and clouds driven by moodScore (0.0–1.0).
+//  TimelineView + Canvas precipitation layer for the mood weather scene.
+//  Depth-layered wind-blown rain and branched lightning with cloud
+//  illumination, driven by intensities from WeatherParameters.
 //
 
 import SwiftUI
 
 struct WeatherParticleSystem: View {
-    let moodScore: Double
+    let rainIntensity: Double       // 0–1
+    let lightningIntensity: Double  // 0–1
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        TimelineView(.animation) { timeline in
+        TimelineView(.animation(paused: reduceMotion)) { timeline in
             Canvas { context, size in
-                let time = timeline.date.timeIntervalSinceReferenceDate
+                // Frozen timestamp under Reduce Motion renders one static
+                // frame — rain streaks read like a photograph.
+                let time = reduceMotion ? 41.7 : timeline.date.timeIntervalSinceReferenceDate
 
-                drawRain(context: &context, size: size, time: time)
-                drawLightning(context: &context, size: size, time: time)
-                drawBeachWaves(context: &context, size: size, time: time)
-                drawClouds(context: &context, size: size, time: time)
-                drawGrass(context: &context, size: size, time: time)
+                if rainIntensity > 0.01 {
+                    drawRain(context: context, size: size, time: time)
+                }
+                // No lightning under Reduce Motion — flashing is also an
+                // accessibility concern, not just a motion one.
+                if lightningIntensity > 0.01 && !reduceMotion {
+                    drawLightning(context: context, size: size, time: time)
+                }
             }
         }
         .allowsHitTesting(false)
     }
 
-    // MARK: - Rain (moodScore 0.0–0.5, intensity peaks at 0.0)
+    // MARK: - Rain
 
-    private func drawRain(context: inout GraphicsContext, size: CGSize, time: Double) {
-        guard moodScore < 0.5 else { return }
-
-        // Intensity: 1.0 at score 0.0, fading to 0.0 at score 0.5
-        let intensity = max(0, 1.0 - moodScore / 0.5)
-        let particleCount = Int(60.0 * intensity)
-
-        for i in 0..<particleCount {
-            let seed = Self.rainSeeds[i % Self.rainSeeds.count]
-
-            // Horizontal position: fixed per particle, scattered across width
-            let x = seed.xFraction * size.width
-
-            // Vertical position: falls at varying speed, wraps around
-            let speed = seed.speed  // 200–400 pt/sec
-            let totalFall = time * speed + seed.yOffset * size.height
-            let y = totalFall.truncatingRemainder(dividingBy: Double(size.height))
-
-            let height = seed.length  // 8–15pt
-
-            var path = Path()
-            path.move(to: CGPoint(x: x, y: y))
-            path.addLine(to: CGPoint(x: x, y: y + height))
-
-            context.stroke(
-                path,
-                with: .color(.white.opacity(0.4 * intensity)),
-                lineWidth: 1
-            )
-        }
+    /// Three depth layers: far = slow/short/faint, near = fast/long/bold.
+    /// A shared wind angle makes the layers read as one storm.
+    private struct RainLayer {
+        let dropCount: Int
+        let minSpeed: Double
+        let maxSpeed: Double
+        let minLength: Double
+        let maxLength: Double
+        let lineWidth: CGFloat
+        let opacity: Double
     }
 
-    // MARK: - Lightning (moodScore 0.0–0.2)
+    private static let rainLayers: [RainLayer] = [
+        RainLayer(dropCount: 44, minSpeed: 320, maxSpeed: 430, minLength: 11, maxLength: 17, lineWidth: 0.8, opacity: 0.20),
+        RainLayer(dropCount: 36, minSpeed: 470, maxSpeed: 600, minLength: 18, maxLength: 26, lineWidth: 1.1, opacity: 0.32),
+        RainLayer(dropCount: 26, minSpeed: 640, maxSpeed: 820, minLength: 28, maxLength: 42, lineWidth: 1.6, opacity: 0.45),
+    ]
 
-    private func drawLightning(context: inout GraphicsContext, size: CGSize, time: Double) {
-        guard moodScore < 0.2 else { return }
+    /// Rain leans ~10° with the wind; streaks are drawn along their velocity.
+    private static let windSlope = 0.18
 
-        let intensity = max(0, 1.0 - moodScore / 0.2)
+    private func drawRain(context: GraphicsContext, size: CGSize, time: Double) {
+        let rainColor = Color(red: 0.78, green: 0.85, blue: 0.95)
 
-        // Flash cycle: bolt appears every ~3 seconds, visible for 0.15s
-        let cycleLength = 3.0
-        let flashDuration = 0.15
-        let phase = time.truncatingRemainder(dividingBy: cycleLength)
+        for (layerIndex, layer) in Self.rainLayers.enumerated() {
+            // sqrt keeps some far-layer depth alive at drizzle intensities.
+            let activeCount = Int(Double(layer.dropCount) * rainIntensity.squareRoot())
+            guard activeCount > 0 else { continue }
+            let opacity = layer.opacity * (0.6 + 0.4 * rainIntensity)
 
-        guard phase < flashDuration else { return }
+            for i in 0..<activeCount {
+                let seed = Self.dropSeeds[(i &+ layerIndex &* 17) % Self.dropSeeds.count]
+                let speed = scaled(layer.minSpeed + (layer.maxSpeed - layer.minSpeed) * seed.speedUnit)
+                let length = scaled(layer.minLength + (layer.maxLength - layer.minLength) * seed.lengthUnit)
 
-        // Brief screen flash
-        let flashRect = Path(CGRect(origin: .zero, size: size))
-        context.fill(flashRect, with: .color(.white.opacity(0.15 * intensity)))
+                // Fall and wrap within a band slightly taller than the view.
+                let band = size.height + length * 2
+                let travel = time * speed + seed.travelOffset * band
+                let y = travel.truncatingRemainder(dividingBy: band) - length
 
-        // Jagged bolt from near top-center downward
-        let boltStartX = size.width * 0.45
-        let boltStartY = size.height * 0.05
-        let segments = 6
-        let segmentHeight = scaled(30.0)
+                // Drift sideways with the wind as the drop falls; wrap on x.
+                let xBase = (seed.xFraction + Double(layerIndex) * 0.37) * size.width
+                let x = (xBase + y * Self.windSlope).truncatingRemainder(dividingBy: size.width)
+                let xWrapped = x < 0 ? x + size.width : x
 
-        var path = Path()
-        path.move(to: CGPoint(x: boltStartX, y: boltStartY))
+                let head = CGPoint(x: xWrapped, y: y)
+                let tail = CGPoint(x: xWrapped + Self.windSlope * length, y: y + length)
 
-        var currentX = boltStartX
-        var currentY = boltStartY
+                var path = Path()
+                path.move(to: head)
+                path.addLine(to: tail)
 
-        for seg in 0..<segments {
-            // Alternate zig-zag direction using deterministic offset
-            let zigDirection: Double = seg.isMultiple(of: 2) ? 1.0 : -1.0
-            let xOffset = zigDirection * Double(scaled(15) + scaled(CGFloat((seg * 7) % 20)))
-            currentX += xOffset
-            currentY += segmentHeight
-            path.addLine(to: CGPoint(x: currentX, y: currentY))
-        }
-
-        context.stroke(
-            path,
-            with: .color(Color(red: 1.0, green: 1.0, blue: 0.8).opacity(0.9 * intensity)),
-            lineWidth: 2
-        )
-    }
-
-    // MARK: - Beach Waves (moodScore 0.4–0.6)
-
-    private func drawBeachWaves(context: inout GraphicsContext, size: CGSize, time: Double) {
-        guard moodScore >= 0.4 && moodScore <= 0.6 else { return }
-
-        // Opacity peaks at 0.5
-        let proximity = 1.0 - abs(moodScore - 0.5) / 0.1
-        let opacity = max(0, min(1, proximity)) * 0.3
-
-        let waveCount = 3
-        for wave in 0..<waveCount {
-            let baseY = size.height * (0.65 + Double(wave) * 0.06)
-            let amplitude = 6.0 - Double(wave) * 1.5
-            let phaseOffset = time * 0.5 + Double(wave) * 1.2
-
-            var path = Path()
-            let steps = 40
-            for step in 0...steps {
-                let fraction = Double(step) / Double(steps)
-                let x = fraction * size.width
-                let y = baseY + sin(fraction * .pi * 4 + phaseOffset) * amplitude
-
-                if step == 0 {
-                    path.move(to: CGPoint(x: x, y: y))
+                let style = StrokeStyle(lineWidth: scaled(layer.lineWidth), lineCap: .round)
+                if layerIndex == 0 {
+                    // Far layer: solid strokes — cheaper, and the fade is
+                    // invisible at this scale anyway.
+                    context.stroke(path, with: .color(rainColor.opacity(opacity)), style: style)
                 } else {
-                    path.addLine(to: CGPoint(x: x, y: y))
+                    // Streak fades along its length — reads as motion blur,
+                    // brightest at the falling edge.
+                    context.stroke(
+                        path,
+                        with: .linearGradient(
+                            Gradient(colors: [rainColor.opacity(0), rainColor.opacity(opacity)]),
+                            startPoint: head,
+                            endPoint: tail
+                        ),
+                        style: style
+                    )
                 }
             }
-
-            context.stroke(
-                path,
-                with: .color(Color(red: 0.2, green: 0.7, blue: 0.8).opacity(opacity)),
-                lineWidth: 1.5
-            )
         }
     }
 
-    // MARK: - Cloud Drift (moodScore 0.5–1.0)
+    // MARK: - Lightning
 
-    private func drawClouds(context: inout GraphicsContext, size: CGSize, time: Double) {
-        guard moodScore >= 0.5 else { return }
+    private func drawLightning(context: GraphicsContext, size: CGSize, time: Double) {
+        let cycleLength = 4.0
+        let cycle = (time / cycleLength).rounded(.down)
+        // Roughly 1 in 5 cycles stays dark so strikes feel irregular.
+        guard Self.hash(cycle * 17.31) < 0.8 else { return }
 
-        // Opacity: 20% at neutral, 60% at very pleasant
-        let t = min(max((moodScore - 0.5) / 0.5, 0), 1)
-        let baseOpacity = 0.2 + t * 0.4
+        let phase = time - cycle * cycleLength
+        let brightness = Self.flickerEnvelope(phase) * lightningIntensity
+        guard brightness > 0.01 else { return }
 
-        for i in 0..<3 {
-            let seed = Self.cloudSeeds[i]
+        let origin = CGPoint(
+            x: (0.22 + Self.hash(cycle * 31.7 + 3.1) * 0.56) * size.width,
+            y: size.height * 0.04
+        )
 
-            // Drift slowly rightward, wrap
-            let speed = seed.speed  // ~15–25 pt/sec
-            let totalDrift = time * speed + seed.startX * size.width
-            let x = totalDrift.truncatingRemainder(dividingBy: size.width + scaled(120)) - scaled(60)
+        // Cloud illumination — a bloom centered on the strike origin rather
+        // than a flat full-screen wash.
+        context.fill(
+            Path(CGRect(origin: .zero, size: size)),
+            with: .radialGradient(
+                Gradient(colors: [Color.white.opacity(0.30 * brightness), .clear]),
+                center: origin,
+                startRadius: 0,
+                endRadius: size.width * 0.9
+            )
+        )
 
-            let y = seed.yFraction * size.height * 0.4
+        // The bolt itself only shows during the bright pulses.
+        guard phase < 0.26, brightness > 0.3 * lightningIntensity else { return }
 
-            // Cloud = overlapping circles
-            let r1 = seed.radius1
-            let r2 = seed.radius2
-            let r3 = seed.radius3
+        let bolt = Self.boltPath(cycle: cycle, origin: origin, size: size)
+        let boltColor = Color(red: 1.0, green: 1.0, blue: 0.88)
 
-            let cloudColor = Color.white.opacity(baseOpacity)
+        var wideGlow = context
+        wideGlow.addFilter(.blur(radius: scaled(7)))
+        wideGlow.stroke(bolt, with: .color(boltColor.opacity(0.7 * brightness)), lineWidth: scaled(6))
 
-            let circle1 = Path(ellipseIn: CGRect(x: x - r1, y: y - r1, width: r1 * 2, height: r1 * 2))
-            let circle2 = Path(ellipseIn: CGRect(x: x + r1 * 0.7 - r2, y: y - r2 * 0.5 - r2, width: r2 * 2, height: r2 * 2))
-            let circle3 = Path(ellipseIn: CGRect(x: x + r1 * 1.2 - r3, y: y - r3, width: r3 * 2, height: r3 * 2))
+        var innerGlow = context
+        innerGlow.addFilter(.blur(radius: scaled(2.5)))
+        innerGlow.stroke(bolt, with: .color(boltColor.opacity(0.9 * brightness)), lineWidth: scaled(2.6))
 
-            context.fill(circle1, with: .color(cloudColor))
-            context.fill(circle2, with: .color(cloudColor))
-            context.fill(circle3, with: .color(cloudColor))
+        context.stroke(bolt, with: .color(Color.white.opacity(brightness)), lineWidth: scaled(1.1))
+    }
+
+    /// Real lightning strobes: bright leader, brief dropout, a second return
+    /// stroke, then a slow afterglow decay over ~half a second.
+    private static func flickerEnvelope(_ phase: Double) -> Double {
+        switch phase {
+        case ..<0.07: return 1.0
+        case ..<0.12: return 0.25
+        case ..<0.20: return 0.85
+        case ..<0.55: return 0.85 * (1.0 - (phase - 0.20) / 0.35)
+        default: return 0.0
         }
     }
 
-    // MARK: - Grass Blades (moodScore 0.7–1.0, intensity peaks at 1.0)
+    /// Jagged main trunk with two short branches. Geometry is a pure
+    /// function of the cycle index, so each strike looks different but a
+    /// single strike is stable across frames.
+    private static func boltPath(cycle: Double, origin: CGPoint, size: CGSize) -> Path {
+        var path = Path()
+        let segments = 8
+        let segmentDrop = size.height * 0.5 / CGFloat(segments)
 
-    private func drawGrass(context: inout GraphicsContext, size: CGSize, time: Double) {
-        guard moodScore >= 0.7 else { return }
+        var point = origin
+        path.move(to: point)
+        var trunkPoints: [CGPoint] = [point]
 
-        let intensity = min(max((moodScore - 0.7) / 0.3, 0), 1)
-        let bladeCount = Int(40.0 * intensity)
-
-        for i in 0..<bladeCount {
-            let seed = Self.grassSeeds[i % Self.grassSeeds.count]
-
-            let baseX = seed.xFraction * size.width
-            let baseY = size.height
-            let height = seed.height  // 20–40pt
-
-            // Sway with sine wave
-            let swayAmount = scaled(8.0) * intensity
-            let sway = sin(time * 1.5 + seed.phaseOffset) * swayAmount
-
-            let tipX = baseX + sway
-            let tipY = baseY - height
-
-            // Control point for curve
-            let ctrlX = baseX + sway * 0.5
-            let ctrlY = baseY - height * 0.6
-
-            var path = Path()
-            path.move(to: CGPoint(x: baseX, y: baseY))
-            path.addQuadCurve(
-                to: CGPoint(x: tipX, y: tipY),
-                control: CGPoint(x: ctrlX, y: ctrlY)
-            )
-
-            let greenValue = 0.5 + seed.greenVariation * 0.3
-            context.stroke(
-                path,
-                with: .color(Color(red: 0.2, green: greenValue, blue: 0.15).opacity(0.7 * intensity)),
-                lineWidth: 1.5
-            )
+        for seg in 0..<segments {
+            let jitter = hash(cycle * 7.7 + Double(seg) * 13.3) - 0.5
+            point.x += jitter * scaled(52)
+            point.y += segmentDrop * (0.85 + 0.3 * hash(cycle * 3.3 + Double(seg) * 5.1))
+            path.addLine(to: point)
+            trunkPoints.append(point)
         }
+
+        for (branchIndex, sourceSegment) in [2, 5].enumerated() {
+            var branchPoint = trunkPoints[sourceSegment]
+            path.move(to: branchPoint)
+            let direction: CGFloat = hash(cycle * 11.1 + Double(branchIndex)) < 0.5 ? -1 : 1
+            for seg in 0..<3 {
+                let jitter = hash(cycle * 9.4 + Double(branchIndex * 10 + seg) * 3.7)
+                branchPoint.x += direction * scaled(14 + 18 * jitter)
+                branchPoint.y += segmentDrop * (0.5 + 0.4 * jitter)
+                path.addLine(to: branchPoint)
+            }
+        }
+
+        return path
     }
 
     // MARK: - Deterministic Seeds
 
-    /// Fixed seeds so particles don't jump on re-render.
-    private struct RainSeed {
+    private struct DropSeed {
         let xFraction: Double
-        let yOffset: Double
-        let speed: Double
-        let length: Double
+        let travelOffset: Double
+        let speedUnit: Double
+        let lengthUnit: Double
     }
 
-    private struct CloudSeed {
-        let startX: Double
-        let yFraction: Double
-        let speed: Double
-        let radius1: Double
-        let radius2: Double
-        let radius3: Double
+    /// Fixed seeds so drops don't jump between frames.
+    private static let dropSeeds: [DropSeed] = (0..<44).map { i in
+        let n = Double(i)
+        return DropSeed(
+            xFraction: hash(n * 12.9898),
+            travelOffset: hash(n * 78.233 + 1.0),
+            speedUnit: hash(n * 37.719 + 2.0),
+            lengthUnit: hash(n * 93.989 + 3.0)
+        )
     }
 
-    private struct GrassSeed {
-        let xFraction: Double
-        let height: Double
-        let phaseOffset: Double
-        let greenVariation: Double
+    /// Deterministic hash → [0, 1). Same trick as the shader's noise hash.
+    private static func hash(_ n: Double) -> Double {
+        let s = sin(n + 311.7) * 43758.5453
+        return s - s.rounded(.down)
     }
-
-    // Pre-computed deterministic seeds — avoids random in render loop
-    private static let rainSeeds: [RainSeed] = {
-        var seeds: [RainSeed] = []
-        for i in 0..<60 {
-            let hash = Double(((i &* 2654435761) & 0xFFFF))  // simple hash
-            let xFrac = Double(i) / 60.0 + (hash / 65535.0) * 0.015
-            let yOff = (hash.truncatingRemainder(dividingBy: 100)) / 100.0
-            let speed = scaled(200.0) + (hash.truncatingRemainder(dividingBy: scaled(200)))
-            let length = scaled(8.0) + (hash.truncatingRemainder(dividingBy: scaled(7)))
-            seeds.append(RainSeed(xFraction: xFrac, yOffset: yOff, speed: speed, length: length))
-        }
-        return seeds
-    }()
-
-    private static let cloudSeeds: [CloudSeed] = [
-        CloudSeed(startX: 0.1, yFraction: 0.15, speed: scaled(15), radius1: scaled(20), radius2: scaled(16), radius3: scaled(14)),
-        CloudSeed(startX: 0.5, yFraction: 0.25, speed: scaled(20), radius1: scaled(25), radius2: scaled(18), radius3: scaled(20)),
-        CloudSeed(startX: 0.8, yFraction: 0.10, speed: scaled(12), radius1: scaled(18), radius2: scaled(22), radius3: scaled(15)),
-    ]
-
-    private static let grassSeeds: [GrassSeed] = {
-        var seeds: [GrassSeed] = []
-        for i in 0..<40 {
-            let hash = Double(((i &* 2654435761) & 0xFFFF))
-            let xFrac = Double(i) / 40.0 + (hash / 65535.0) * 0.02
-            let height = scaled(20.0) + (hash.truncatingRemainder(dividingBy: scaled(20)))
-            let phase = Double(i) * 0.7 + (hash / 65535.0) * 2.0
-            let greenVar = (hash.truncatingRemainder(dividingBy: 100)) / 100.0
-            seeds.append(GrassSeed(xFraction: xFrac, height: height, phaseOffset: phase, greenVariation: greenVar))
-        }
-        return seeds
-    }()
 }
 
-#Preview("Rain & Lightning") {
-    WeatherParticleSystem(moodScore: 0.1)
-        .background(Color(red: 0.1, green: 0.04, blue: 0.18))
+#Preview("Storm") {
+    WeatherParticleSystem(rainIntensity: 1.0, lightningIntensity: 1.0)
+        .background(Color(red: 0.06, green: 0.07, blue: 0.12))
 }
 
-#Preview("Beach Waves") {
-    WeatherParticleSystem(moodScore: 0.5)
-        .background(Color(red: 0.16, green: 0.5, blue: 0.72))
-}
-
-#Preview("Grass & Clouds") {
-    WeatherParticleSystem(moodScore: 0.9)
-        .background(Color(red: 0.53, green: 0.81, blue: 0.92))
+#Preview("Light Rain") {
+    WeatherParticleSystem(rainIntensity: 0.4, lightningIntensity: 0.0)
+        .background(Color(red: 0.25, green: 0.30, blue: 0.36))
 }

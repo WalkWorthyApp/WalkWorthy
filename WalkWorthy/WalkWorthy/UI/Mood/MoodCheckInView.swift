@@ -35,8 +35,11 @@ struct MoodCheckInView: View {
     /// On-device representation of an in-progress check-in. Persisted per-user
     /// and per-check-in-type so a network failure mid-wizard doesn't erase the
     /// user's selections. Cleared on successful submission.
+    ///
+    /// The slider position is deliberately NOT persisted: the wizard always
+    /// reopens on the slider step, and the mood should start at dead-center
+    /// neutral each time rather than wherever the user last left it.
     private struct Draft: Codable {
-        var sliderValue: Double
         var selectedTags: [String]
         var selectedCategories: [String]
         var followUpScore: Int
@@ -86,7 +89,6 @@ struct MoodCheckInView: View {
             // UserDefaults write per edit — and avoids needing to plumb
             // "save draft" callbacks through every step view.
             .onChange(of: step) { _, _ in saveDraft() }
-            .onChange(of: sliderValue) { _, _ in saveDraft() }
             .onChange(of: selectedTags) { _, _ in saveDraft() }
             .onChange(of: selectedCategories) { _, _ in saveDraft() }
             .onChange(of: followUpScore) { _, _ in saveDraft() }
@@ -263,7 +265,6 @@ struct MoodCheckInView: View {
         guard step != .cinematic, let key = draftKey() else { return }
 
         let draft = Draft(
-            sliderValue: sliderValue,
             selectedTags: selectedTags,
             selectedCategories: selectedCategories,
             followUpScore: followUpScore,
@@ -286,7 +287,6 @@ struct MoodCheckInView: View {
               let draft = try? Self.draftDecoder.decode(Draft.self, from: data)
         else { return }
 
-        sliderValue = draft.sliderValue
         selectedTags = draft.selectedTags
         selectedCategories = draft.selectedCategories
         followUpScore = draft.followUpScore

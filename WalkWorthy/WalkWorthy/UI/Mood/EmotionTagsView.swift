@@ -56,7 +56,7 @@ struct EmotionTagsView: View {
                                 ChipButton(
                                     label: tag,
                                     isSelected: selectedTags.contains(tag),
-                                    selectedColor: chipColor(for: moodLevel)
+                                    selectedColor: TimeOfDayTheme.current.accent
                                 ) {
                                     toggleTag(tag)
                                 }
@@ -75,7 +75,7 @@ struct EmotionTagsView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, scaled(14))
-                        .background(chipColor(for: moodLevel))
+                        .background(TimeOfDayTheme.current.accent)
                         .cornerRadius(scaled(30))
                 }
                 .padding(.horizontal, scaled(24))
@@ -127,17 +127,6 @@ func moodLevelToScore(_ level: MoodLevel) -> Double {
     case .neutral: return 0.5
     case .pleasant: return 0.7
     case .veryPleasant: return 0.9
-    }
-}
-
-/// Returns the chip fill color for a given mood level.
-func chipColor(for level: MoodLevel) -> Color {
-    switch level {
-    case .veryUnpleasant: return Color(red: 0.45, green: 0.25, blue: 0.60) // purple
-    case .unpleasant:     return Color(red: 0.44, green: 0.50, blue: 0.56) // slate
-    case .neutral:        return Color(red: 0.25, green: 0.60, blue: 0.58) // teal
-    case .pleasant:       return Color(red: 0.85, green: 0.65, blue: 0.20) // amber
-    case .veryPleasant:   return Color(red: 0.42, green: 0.68, blue: 0.30) // green
     }
 }
 

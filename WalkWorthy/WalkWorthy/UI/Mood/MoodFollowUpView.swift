@@ -66,7 +66,7 @@ struct MoodFollowUpView: View {
                                         .foregroundColor(isSelected ? .white : .primary)
                                         .background(
                                             RoundedRectangle(cornerRadius: scaled(12))
-                                                .fill(isSelected ? chipColor(for: moodLevel) : Color.clear)
+                                                .fill(isSelected ? TimeOfDayTheme.current.accent : Color.clear)
                                         )
                                         .overlay(
                                             RoundedRectangle(cornerRadius: scaled(12))
@@ -120,7 +120,7 @@ struct MoodFollowUpView: View {
                         .padding(.vertical, scaled(14))
                         .background(
                             followUpScore > 0
-                                ? chipColor(for: moodLevel)
+                                ? TimeOfDayTheme.current.accent
                                 : Color.secondary.opacity(0.3)
                         )
                         .cornerRadius(scaled(30))
