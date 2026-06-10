@@ -41,7 +41,9 @@ struct WeatherParameters {
         // Tuned for clearly visible drift (Apple Weather pace): ~35 pt/s in a
         // storm down to ~7 pt/s for fair-weather wisps on a 393pt screen.
         windSpeed = Self.lerp([0.180, 0.120, 0.085, 0.055, 0.035], at: t)
-        rainIntensity = Self.lerp([1.00, 0.55, 0.10, 0.00, 0.00], at: t)
+        // Zero by neutral — sqrt-based drop counts amplify small intensities,
+        // so even a 0.1 "drizzle" here reads as real rain on screen.
+        rainIntensity = Self.lerp([1.00, 0.55, 0.00, 0.00, 0.00], at: t)
         lightningIntensity = Self.lerp([1.00, 0.00, 0.00, 0.00, 0.00], at: t)
         sunStrength = Self.lerp([0.00, 0.00, 0.10, 0.62, 1.00], at: t)
         sunElevation = Self.lerp([0.40, 0.38, 0.34, 0.22, 0.13], at: t)
