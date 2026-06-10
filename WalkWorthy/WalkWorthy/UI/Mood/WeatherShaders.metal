@@ -55,11 +55,17 @@ static inline float fbm(float2 p) {
                                   float coverage, float darkness, float scale,
                                   float windOffset, float verticalFade) {
     float2 uv = position / size.x;
-    float2 p = uv * scale + float2(windOffset, 0.0);
+    // Subtracting the offset moves the pattern rightward on screen — the
+    // same direction the rain streaks lean, so the whole scene shares one
+    // wind direction.
+    float2 p = uv * scale - float2(windOffset, 0.0);
 
     // Domain warp: sampling fbm through a second fbm gives billowy,
-    // organic cloud edges instead of uniform noise blobs.
-    float warp = fbm(p + float2(windOffset * 0.35, 0.0));
+    // organic cloud edges instead of uniform noise blobs. The warp field
+    // drifts at a different rate than the clouds (and slightly vertically),
+    // so shapes churn and evolve as the wind carries them instead of
+    // sliding past like a flat image.
+    float warp = fbm(p + float2(windOffset * 0.35, windOffset * 0.13));
     float n = fbm(p + float2(warp * 0.9, warp * 0.4));
 
     // Coverage slides the density threshold through the noise field.

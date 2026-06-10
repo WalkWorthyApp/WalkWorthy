@@ -38,7 +38,9 @@ struct WeatherParameters {
         nearCloudCoverage = Self.lerp([0.97, 0.90, 0.82, 0.42, 0.10], at: t)
         nearCloudDarkness = Self.lerp([0.95, 0.72, 0.45, 0.10, 0.00], at: t)
         cloudVerticalFade = Self.lerp([1.25, 1.15, 1.05, 0.78, 0.55], at: t)
-        windSpeed = Self.lerp([0.040, 0.026, 0.016, 0.012, 0.009], at: t)
+        // Tuned for clearly visible drift (Apple Weather pace): ~35 pt/s in a
+        // storm down to ~7 pt/s for fair-weather wisps on a 393pt screen.
+        windSpeed = Self.lerp([0.180, 0.120, 0.085, 0.055, 0.035], at: t)
         rainIntensity = Self.lerp([1.00, 0.55, 0.10, 0.00, 0.00], at: t)
         lightningIntensity = Self.lerp([1.00, 0.00, 0.00, 0.00, 0.00], at: t)
         sunStrength = Self.lerp([0.00, 0.00, 0.10, 0.62, 1.00], at: t)
