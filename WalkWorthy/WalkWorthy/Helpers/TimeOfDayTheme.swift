@@ -70,6 +70,16 @@ struct TimeOfDayTheme {
         }
     }
 
+    // Interactive accent (selected chips, primary buttons) — harmonized with
+    // each backdrop so controls feel lit by the same scene as the hero image.
+    var accent: Color {
+        switch timeOfDay {
+        case .morning: return Self.morningAccent
+        case .midday:  return Self.middayAccent
+        case .night:   return Self.nightAccent
+        }
+    }
+
     // MARK: - Palette (sRGB, tuned for dark-mode legibility)
 
     // Morning
@@ -83,6 +93,11 @@ struct TimeOfDayTheme {
     private static let middayGreenBottom = Color(red: 0.059, green: 0.118, blue: 0.090) // #0F1E17
     private static let middayCard        = Color(red: 0.106, green: 0.176, blue: 0.141) // #1B2D24
     private static let middayRecessed    = Color(red: 0.063, green: 0.114, blue: 0.086) // #101D16
+
+    // Accents
+    private static let morningAccent = Color(red: 0.788, green: 0.502, blue: 0.286) // #C98049 (sunrise amber)
+    private static let middayAccent  = Color(red: 0.302, green: 0.549, blue: 0.361) // #4D8C5C (meadow green)
+    private static let nightAccent   = Color(red: 0.329, green: 0.451, blue: 0.651) // #5473A6 (slate blue)
 }
 
 extension Color {

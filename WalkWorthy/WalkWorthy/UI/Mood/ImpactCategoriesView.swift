@@ -64,7 +64,7 @@ struct ImpactCategoriesView: View {
                                 ChipButton(
                                     label: category,
                                     isSelected: selectedCategories.contains(category),
-                                    selectedColor: chipColor(for: moodLevel)
+                                    selectedColor: TimeOfDayTheme.current.accent
                                 ) {
                                     toggleCategory(category)
                                 }
@@ -83,7 +83,7 @@ struct ImpactCategoriesView: View {
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, scaled(14))
-                        .background(chipColor(for: moodLevel))
+                        .background(TimeOfDayTheme.current.accent)
                         .cornerRadius(scaled(30))
                 }
                 .padding(.horizontal, scaled(24))
