@@ -144,6 +144,11 @@ struct ChipButton: View {
             Text(label)
                 .font(.subheadline)
                 .multilineTextAlignment(.center)
+                // Single-line pills: long labels ("Overwhelmed", "Disappointed")
+                // hyphen-break mid-word inside the grid cell on 402pt-wide
+                // iPhones. Shrink slightly instead of wrapping.
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .padding(.horizontal, scaled(14))
                 .padding(.vertical, scaled(8))
                 .frame(minWidth: 0)
