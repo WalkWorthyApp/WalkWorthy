@@ -103,7 +103,7 @@ private struct JournalListContent: View {
                     .background(Circle().fill(Color.accentColor))
                     .shadow(radius: scaled(4), y: scaled(2))
             }
-            .padding(.trailing, scaled(20))
+            .padding(.trailing, scaled(10))
             .padding(.bottom, scaled(24))
             .accessibilityLabel("New note")
         }
