@@ -234,7 +234,7 @@ struct MoodResponseView: View {
     var body: some View {
         ScrollView {
             MoodResponseContent(response: response, onDismiss: onDismiss)
-                .padding()
+                .padding(.vertical).padding(.horizontal, scaled(8))
         }
     }
 }

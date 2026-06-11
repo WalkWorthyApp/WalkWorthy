@@ -23,7 +23,7 @@ struct EmotionTagsView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundColor(.white)
             }
-            .padding(.horizontal, scaled(42))
+            .padding(.horizontal, scaled(21))
             .padding(.top, scaled(20))
 
             VStack(spacing: 0) {
@@ -62,7 +62,7 @@ struct EmotionTagsView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, scaled(24))
+                        .padding(.horizontal, scaled(12))
                     }
                     .padding(.bottom, scaled(24))
                 }
@@ -78,7 +78,7 @@ struct EmotionTagsView: View {
                         .background(TimeOfDayTheme.current.accent)
                         .cornerRadius(scaled(30))
                 }
-                .padding(.horizontal, scaled(24))
+                .padding(.horizontal, scaled(12))
                 .padding(.bottom, scaled(40))
             }
         }

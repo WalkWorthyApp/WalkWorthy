@@ -120,7 +120,7 @@ private struct MoodLogContent: View {
                     }
                     footer
                 }
-                .padding(.horizontal, scaled(20))
+                .padding(.horizontal, scaled(10))
                 .padding(.vertical, scaled(24))
             }
             .scrollContentBackground(.hidden)

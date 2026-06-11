@@ -54,7 +54,7 @@ struct HomeView: View {
                     // Quick actions
                     quickActions
                 }
-                .padding(.horizontal, scaled(24))
+                .padding(.horizontal, scaled(12))
                 .padding(.top, scaled(8))
                 .padding(.bottom, scaled(120))
             }

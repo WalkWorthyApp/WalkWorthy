@@ -66,7 +66,7 @@ struct OnboardingForm: View {
                     primaryButton
                 }
                 .padding(.vertical, scaled(32))
-                .padding(.horizontal, scaled(24))
+                .padding(.horizontal, scaled(12))
             }
             .scrollContentBackground(.hidden)
         }

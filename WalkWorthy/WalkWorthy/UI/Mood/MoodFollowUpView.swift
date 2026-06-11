@@ -25,7 +25,7 @@ struct MoodFollowUpView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundColor(.white)
             }
-            .padding(.horizontal, scaled(42))
+            .padding(.horizontal, scaled(21))
             .padding(.top, scaled(20))
 
             VStack(spacing: 0) {
@@ -79,7 +79,7 @@ struct MoodFollowUpView: View {
                                 .buttonStyle(.plain)
                             }
                         }
-                        .padding(.horizontal, scaled(24))
+                        .padding(.horizontal, scaled(12))
 
                         // Note section
                         Text("Anything you want to jot down?")
@@ -105,7 +105,7 @@ struct MoodFollowUpView: View {
                             RoundedRectangle(cornerRadius: scaled(12))
                                 .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
                         )
-                        .padding(.horizontal, scaled(24))
+                        .padding(.horizontal, scaled(12))
                     }
                     .padding(.bottom, scaled(24))
                 }
@@ -126,7 +126,7 @@ struct MoodFollowUpView: View {
                         .cornerRadius(scaled(30))
                 }
                 .disabled(followUpScore == 0)
-                .padding(.horizontal, scaled(24))
+                .padding(.horizontal, scaled(12))
                 .padding(.bottom, scaled(40))
             }
         }

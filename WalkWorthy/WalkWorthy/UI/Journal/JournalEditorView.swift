@@ -101,7 +101,7 @@ struct JournalEditorView: View {
                             .scrollContentBackground(.hidden)
                     }
                 }
-                .padding(.horizontal, scaled(32))
+                .padding(.horizontal, scaled(16))
                 .padding(.top, scaled(24))
                 .padding(.bottom, scaled(16))
             }
