@@ -169,7 +169,8 @@ struct MoodHistoryView: View {
                         daysToDisplay: daysToDisplay
                     )
                 }
-                .padding()
+                .padding(.vertical)
+                .padding(.horizontal, scaled(8))
             }
             .refreshable {
                 await loadHistoryAsync()

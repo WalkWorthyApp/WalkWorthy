@@ -17,10 +17,18 @@ struct DynamicBackgroundView: View {
             theme.backdrop
                 .ignoresSafeArea()
 
-            Image(theme.timeOfDay.imageName)
-                .resizable()
-                .scaledToFill()
+            // The fill image lives in an overlay so its cropped-off width never
+            // leaks into layout: a bare `.scaledToFill().frame(height:)` reports
+            // width = height × aspect (wider than the screen), which inflates
+            // the enclosing ZStack and pushes trailing-aligned siblings —
+            // like Journal's compose button — off the screen edge.
+            Color.clear
                 .frame(height: scaled(280))
+                .overlay(
+                    Image(theme.timeOfDay.imageName)
+                        .resizable()
+                        .scaledToFill()
+                )
                 .clipped()
                 .overlay(
                     LinearGradient(

@@ -80,7 +80,7 @@ struct CinematicTransitionView: View {
                     if let result = response {
                         ScrollView {
                             MoodResponseContent(response: result, onDismiss: onDone)
-                                .padding(.horizontal, scaled(16))
+                                .padding(.horizontal, scaled(8))
                                 .padding(.top, scaled(16))
                                 .padding(.bottom, scaled(40))
                                 .frame(maxWidth: .infinity)

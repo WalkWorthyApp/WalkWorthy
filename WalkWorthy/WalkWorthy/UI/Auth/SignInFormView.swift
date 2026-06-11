@@ -53,7 +53,7 @@ struct SignInFormView: View {
                 legalConsentText
             }
         }
-        .padding(.horizontal, scaled(24))
+        .padding(.horizontal, scaled(12))
         .padding(.vertical, scaled(16))
         .task {
             // Wait for SwiftUI to settle keyboard/focus before requesting email focus.

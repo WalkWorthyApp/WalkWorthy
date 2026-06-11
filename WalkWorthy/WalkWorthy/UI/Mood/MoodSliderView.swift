@@ -42,7 +42,7 @@ struct MoodSliderView: View {
                 // Mood slider
                 Slider(value: $sliderValue, in: 0...1)
                     .accentColor(.white)
-                    .padding(.horizontal, scaled(24))
+                    .padding(.horizontal, scaled(12))
                     .onChange(of: sliderValue) {
                         checkHapticSnap()
                     }
@@ -55,7 +55,7 @@ struct MoodSliderView: View {
                 }
                 .font(.caption)
                 .foregroundColor(.white.opacity(0.8))
-                .padding(.horizontal, scaled(24))
+                .padding(.horizontal, scaled(12))
                 .padding(.top, scaled(4))
 
                 // Next button
@@ -68,7 +68,7 @@ struct MoodSliderView: View {
                         .background(Color.white)
                         .cornerRadius(scaled(30))
                 }
-                .padding(.horizontal, scaled(24))
+                .padding(.horizontal, scaled(12))
                 .padding(.top, scaled(24))
                 .padding(.bottom, scaled(40))
             }
