@@ -1,6 +1,6 @@
 # WalkWorthy
 
-WalkWorthy is a Scripture-based encouragement app for students. It combines mood tracking with AI-generated, personalized verse-based encouragement. The project includes a SwiftUI iOS app and a Firebase Cloud Functions backend.
+WalkWorthy is a Scripture-based encouragement app for Christians. It combines mood tracking with AI-generated, personalized verse-based encouragement. The project includes a SwiftUI iOS app and a Firebase Cloud Functions backend.
 
 ## What's Inside
 
