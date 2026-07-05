@@ -34,6 +34,32 @@ export class GuardrailTripError extends Error {
   }
 }
 
+// ============================================================================
+// PII Guardrail
+// ============================================================================
+
+const PII_REGEX =
+  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|https?:\/\/\S+|(AKIA|ASI|SK|PK)[A-Z0-9]{16,}/gi;
+
+/**
+ * Output guardrail that trips when agent output contains email addresses,
+ * URLs, or credential-shaped strings. Shared by mood-agent and
+ * reflection-agent — `agentOutput` is `unknown` so it works with any
+ * output schema; the check just scans the serialized output.
+ */
+export const piiGuardrail = {
+  name: "pii_filter",
+  execute: async (args: { agentOutput: unknown }) => {
+    const text = JSON.stringify(args.agentOutput);
+    const triggered = PII_REGEX.test(text);
+    PII_REGEX.lastIndex = 0;
+    return {
+      tripwireTriggered: triggered,
+      outputInfo: triggered ? { reason: "Sensitive data detected" } : undefined,
+    };
+  },
+};
+
 /**
  * Sleep for the given number of milliseconds.
  */

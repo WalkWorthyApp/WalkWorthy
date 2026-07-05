@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import UserNotifications
 
 struct SettingsView: View {
     @EnvironmentObject private var appState: AppState
@@ -466,34 +465,14 @@ struct NotificationSettingsView: View {
 
     private func checkAuthorizationAndSchedule() {
         Task {
-            let center = UNUserNotificationCenter.current()
-            let settings = await center.notificationSettings()
-
-            // If already authorized or provisional, just schedule
-            if settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional {
-                await MainActor.run {
-                    self.saveAndSchedule()
-                }
-                return
-            }
-
-            // If denied, show alert (unless it's notDetermined, in which we'll request)
-            if settings.authorizationStatus == .denied {
-                await MainActor.run {
-                    if let reminderType = self.pendingAuthorizationFor {
-                        self.disableToggle(for: reminderType)
-                    }
-                    self.showNotificationDeniedAlert = true
-                }
-                return
-            }
-
-            // For notDetermined, request authorization
-            let granted = try? await center.requestAuthorization(options: [.alert, .badge, .sound])
+            // Resolves the current permission state, prompting the user if it
+            // hasn't been determined yet.
+            let outcome = await NotificationScheduler.shared.resolveAuthorization()
             await MainActor.run {
-                if granted == true {
+                switch outcome {
+                case .authorized:
                     self.saveAndSchedule()
-                } else {
+                case .denied:
                     if let reminderType = self.pendingAuthorizationFor {
                         self.disableToggle(for: reminderType)
                     }
@@ -620,82 +599,49 @@ struct NotificationSettingsView: View {
     }
 
     private func scheduleReminders() async {
-        let center = UNUserNotificationCenter.current()
-
-        // Remove existing reminder notifications
-        center.removePendingNotificationRequests(withIdentifiers: [
-            StorageKeys.morningNotificationId,
-            StorageKeys.middayNotificationId,
-            StorageKeys.eveningNotificationId
-        ])
-
-        // Request authorization if needed
-        let settings = await center.notificationSettings()
-        guard settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional else {
-            return
-        }
-
         let calendar = Calendar.current
+        var reminders: [NotificationScheduler.DailyReminder] = []
 
-        // Schedule morning reminder
         if morningEnabled {
             let components = calendar.dateComponents([.hour, .minute], from: morningTime)
-            await scheduleDaily(
+            reminders.append(NotificationScheduler.DailyReminder(
                 id: StorageKeys.morningNotificationId,
                 title: "Morning Check-in",
                 body: "How are you feeling about today?",
                 hour: components.hour ?? 7,
                 minute: components.minute ?? 0
-            )
+            ))
         }
 
-        // Schedule midday reminder
         if middayEnabled {
             let components = calendar.dateComponents([.hour, .minute], from: middayTime)
-            await scheduleDaily(
+            reminders.append(NotificationScheduler.DailyReminder(
                 id: StorageKeys.middayNotificationId,
                 title: "Midday Check-in",
                 body: "How is your day going so far?",
                 hour: components.hour ?? 12,
                 minute: components.minute ?? 0
-            )
+            ))
         }
 
-        // Schedule evening reminder
         if eveningEnabled {
             let components = calendar.dateComponents([.hour, .minute], from: eveningTime)
-            await scheduleDaily(
+            reminders.append(NotificationScheduler.DailyReminder(
                 id: StorageKeys.eveningNotificationId,
                 title: "Evening Check-in",
                 body: "How was your day?",
                 hour: components.hour ?? 19,
                 minute: components.minute ?? 0
-            )
+            ))
         }
-    }
 
-    private func scheduleDaily(id: String, title: String, body: String, hour: Int, minute: Int) async {
-        let center = UNUserNotificationCenter.current()
-
-        let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
-        content.sound = .default
-
-        var dateComponents = DateComponents()
-        dateComponents.hour = hour
-        dateComponents.minute = minute
-
-        let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-        let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
-
-        do {
-            try await center.add(request)
-        } catch {
-            #if DEBUG
-            print("[NotificationSettingsView] Failed to schedule notification: \(error)")
-            #endif
-        }
+        // The scheduler always clears the old requests first so disabled
+        // reminders are removed even when nothing new is scheduled.
+        await NotificationScheduler.shared.replaceDailyReminders(reminders, clearing: [
+            StorageKeys.morningNotificationId,
+            StorageKeys.middayNotificationId,
+            StorageKeys.eveningNotificationId
+        ])
     }
 
     private static func defaultTime(hour: Int, minute: Int) -> Date {

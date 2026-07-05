@@ -626,10 +626,7 @@ private struct MoodLogJournalRow: View {
     }
 
     private var timeString: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        formatter.locale = Locale.current
-        return formatter.string(from: journal.createdAt)
+        moodLogTimeDisplayFormatter.string(from: journal.createdAt)
     }
 }
 
@@ -677,10 +674,7 @@ private struct MoodLogStandaloneJournalCard: View {
     }
 
     private var timeString: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "h:mm a"
-        formatter.locale = Locale.current
-        return formatter.string(from: journal.createdAt)
+        moodLogTimeDisplayFormatter.string(from: journal.createdAt)
     }
 }
 

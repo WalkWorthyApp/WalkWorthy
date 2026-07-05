@@ -18,6 +18,7 @@ import {
   MOOD_MODEL,
   GuardrailTripError,
   isGuardrailTrip,
+  piiGuardrail,
   sleep,
   withTimeout,
 } from "./model-config";
@@ -87,6 +88,7 @@ function ensureAgent(apiKey: string): Agent<object, typeof reflectionOutputSchem
     // persist the request/response after generation; privacy-policy claim.
     modelSettings: { temperature: 0.6, topP: 1, maxTokens: 256, store: false },
     outputType: reflectionOutputSchema,
+    outputGuardrails: [piiGuardrail],
   });
 
   return cachedAgent;
