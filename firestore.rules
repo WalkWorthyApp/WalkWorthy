@@ -5,11 +5,9 @@ service cloud.firestore {
     // IMPORTANT: Admin SDK Bypass
     // Cloud Functions use the Admin SDK which BYPASSES these Firestore rules.
     // Rules only protect client-side reads/writes via SDKs (web, mobile, REST).
-    // Therefore, this ruleset supplements (not replaces) application-level validation:
-    // - Application code MUST hash tokens before storage (see shared/crypto.ts)
-    // - Application code MUST validate token format (see shared/crypto.ts)
-    // - Application code MUST implement TTL/rotation (90-day policy)
-    // - Application code MUST redact tokens from logs (see shared/crypto.ts)
+    // All writes go through Cloud Functions, so every path below is either
+    // owner-scoped read-only or fully denied for clients; app-level validation
+    // in functions/src is the write-side boundary.
 
     // Helper function to check if user is authenticated
     function isAuthenticated() {
@@ -30,19 +28,6 @@ service cloud.firestore {
       allow write: if false;
     }
     match /users/{userId}/profile/{rest=**} {
-      allow read, write: if false;
-    }
-
-    // Device registrations - push-notification token storage. The feature has
-    // not shipped (no registerDevice endpoint, no iOS caller), so client access
-    // is closed until it does. This was the only client-writable path in the
-    // ruleset, which made it a free doc-creation surface protecting nothing.
-    // The validated create/update ruleset (hashed-token allowlist, timestamp
-    // freshness, field immutability) plus its isRecentIso/containsSensitiveFields
-    // helpers are preserved in git history and specified in
-    // functions/NOTIFICATION_TOKEN_SECURITY.md - restore from there when the
-    // feature ships.
-    match /users/{userId}/devices/{deviceId} {
       allow read, write: if false;
     }
 

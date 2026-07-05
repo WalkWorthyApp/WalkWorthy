@@ -64,7 +64,6 @@ export function getAppCheckInstance(): AppCheck {
 export const COLLECTIONS = {
   users: 'users',
   profile: (userId: string) => `users/${userId}/profile`,
-  devices: (userId: string) => `users/${userId}/devices`,
   calendar: (userId: string) => `users/${userId}/calendar`,
   moodCheckIns: (userId: string) => `users/${userId}/moodCheckIns`,
   moodSummaries: (userId: string) => `users/${userId}/moodSummaries`,
