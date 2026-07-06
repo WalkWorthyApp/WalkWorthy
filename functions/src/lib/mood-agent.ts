@@ -26,6 +26,7 @@ import {
   MOOD_MODEL,
   GuardrailTripError,
   isGuardrailTrip,
+  piiGuardrail,
   sleep,
   withTimeout,
 } from "./model-config";
@@ -82,26 +83,6 @@ const ajv = new Ajv({ allErrors: true, removeAdditional: false });
 const validateEncouragement = ajv.compile<AIEncouragementResponse>(
   encouragementJsonSchema,
 );
-
-// ============================================================================
-// PII Guardrail
-// ============================================================================
-
-const PII_REGEX =
-  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|https?:\/\/\S+|(AKIA|ASI|SK|PK)[A-Z0-9]{16,}/gi;
-
-const piiGuardrail = {
-  name: "pii_filter",
-  execute: async (args: { agentOutput: AIEncouragementResponse }) => {
-    const text = JSON.stringify(args.agentOutput);
-    const triggered = PII_REGEX.test(text);
-    PII_REGEX.lastIndex = 0;
-    return {
-      tripwireTriggered: triggered,
-      outputInfo: triggered ? { reason: "Sensitive data detected" } : undefined,
-    };
-  },
-};
 
 // ============================================================================
 // System Prompt - Friend-like, Warm, Conversational
@@ -307,6 +288,10 @@ export async function runMoodAgent(
   logger.info("[MoodAgent] Agent created");
 
   const { moodSpectrumData } = input;
+  // The free-text `note` is intentionally NOT input-guardrailed: the tightly
+  // bounded output schema (regex verseRef, enum translation, length caps) plus
+  // the PII output guardrail are the mitigation for prompt injection. Don't
+  // loosen the output schema without adding input-side scanning.
   const payload = {
     profile: sanitizeProfile(input.profile),
     translationPreference: normalizeTranslation(input.translationPreference),

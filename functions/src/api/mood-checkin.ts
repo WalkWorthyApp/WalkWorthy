@@ -522,6 +522,17 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
     const startDateParam = req.query.startDate as string | undefined;
     const endDateParam = req.query.endDate as string | undefined;
 
+    // Reject non-numeric history params explicitly instead of letting NaN
+    // silently fall through to the "today" branch below.
+    if (historyDays !== undefined && Number.isNaN(historyDays)) {
+      res.status(400).json({ error: "Invalid history value. Expected a positive integer." });
+      return;
+    }
+    if (fullHistoryDays !== undefined && Number.isNaN(fullHistoryDays)) {
+      res.status(400).json({ error: "Invalid fullHistory value. Expected a positive integer." });
+      return;
+    }
+
     const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
     if (startDateParam && !ISO_DATE_RE.test(startDateParam)) {
       res.status(400).json({ error: "Invalid startDate format. Expected YYYY-MM-DD." });

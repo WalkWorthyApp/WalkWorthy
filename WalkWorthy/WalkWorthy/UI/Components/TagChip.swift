@@ -17,6 +17,11 @@ struct TagChip: View {
         Button(action: trigger) {
             Text(label)
                 .font(.callout.weight(.semibold))
+                // Single-line pills: long labels (including user-typed custom
+                // hobbies) hyphen-break mid-word inside the grid cell on
+                // 402pt-wide iPhones. Shrink slightly instead of wrapping.
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
                 .padding(.horizontal, scaled(16))
                 .padding(.vertical, scaled(10))
                 .frame(minWidth: scaled(90))

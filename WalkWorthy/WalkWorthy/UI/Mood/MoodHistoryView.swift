@@ -25,30 +25,35 @@ private let isoDateFormatter: DateFormatter = {
 private let dayOfWeekFormatter: DateFormatter = {
     let f = DateFormatter()
     f.dateFormat = "E"
+    f.locale = Locale(identifier: "en_US_POSIX")
     return f
 }()
 
 private let dayNumberFormatter: DateFormatter = {
     let f = DateFormatter()
     f.dateFormat = "d"
+    f.locale = Locale(identifier: "en_US_POSIX")
     return f
 }()
 
 private let monthDayFormatter: DateFormatter = {
     let f = DateFormatter()
     f.dateFormat = "MMM d"
+    f.locale = Locale(identifier: "en_US_POSIX")
     return f
 }()
 
 private let displayDateFormatter: DateFormatter = {
     let f = DateFormatter()
     f.dateFormat = "EEEE, MMM d"
+    f.locale = Locale(identifier: "en_US_POSIX")
     return f
 }()
 
 private let monthYearFormatter: DateFormatter = {
     let f = DateFormatter()
     f.dateFormat = "MMMM yyyy"
+    f.locale = Locale(identifier: "en_US_POSIX")
     return f
 }()
 

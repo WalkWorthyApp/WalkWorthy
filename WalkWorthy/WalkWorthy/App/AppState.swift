@@ -63,7 +63,6 @@ final class AppState: ObservableObject {
     @Published var journalError: String?
 
     private let apiClient: any EncouragementAPI
-    private let notificationScheduler: NotificationScheduler
     private let defaults: UserDefaults
     private let config: Config
     private let authSession: FirebaseAuthSession
@@ -78,7 +77,7 @@ final class AppState: ObservableObject {
     /// actor. Each new sign-out cancels any prior in-flight task.
     private var signOutTask: Task<Void, Never>?
     /// Timestamp of the last successful mood-status fetch. Used by
-    /// `loadMoodStatus(forceRefresh:)` to throttle redundant fetches while
+    /// `loadMoodStatus()` to throttle redundant fetches while
     /// still honoring the ScenePhase.active trigger after the staleness
     /// window elapses.
     private var lastMoodStatusFetch: Date?
@@ -104,17 +103,14 @@ final class AppState: ObservableObject {
         config: Config? = nil,
         apiClient: any EncouragementAPI,
         authSession: FirebaseAuthSession,
-        notificationScheduler: NotificationScheduler? = nil,
         defaults: UserDefaults = .standard,
         modelContainer: ModelContainer
     ) {
         let resolvedConfig = config ?? Config.shared
-        let resolvedScheduler = notificationScheduler ?? NotificationScheduler.shared
 
         self.config = resolvedConfig
         self.apiClient = apiClient
         self.authSession = authSession
-        self.notificationScheduler = resolvedScheduler
         self.defaults = defaults
         self.modelContainer = modelContainer
         self.isAuthenticated = false
@@ -773,11 +769,10 @@ final class AppState: ObservableObject {
             journalEntries = []
             return
         }
-        var descriptor = FetchDescriptor<JournalEntry>(
+        let descriptor = FetchDescriptor<JournalEntry>(
             predicate: journalPredicate(dateFilter: date),
             sortBy: [SortDescriptor(\.createdAt, order: .reverse)]
         )
-        descriptor.fetchLimit = nil
         do {
             journalEntries = try modelContext.fetch(descriptor)
         } catch {

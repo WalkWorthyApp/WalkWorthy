@@ -31,6 +31,8 @@ DerivedData/
 GoogleService-Info.plist
 users.json
 firebase-debug.log
+firestore-debug.log
+ui-debug.log
 FIREBASE_AUTH_MIGRATION.md
 WalkWorthy/FIREBASE_SDK_SETUP.md
 claude.md

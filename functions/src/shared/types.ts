@@ -180,39 +180,6 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
   };
 }
 
-/**
- * Device registration input from client.
- *
- * SECURITY NOTES:
- * - notificationToken is SENSITIVE DATA (APNs/FCM device token)
- * - NEVER log notificationToken in plain text
- * - ALWAYS hash before storing in database
- * - Tokens should be validated before acceptance
- * - Implement token rotation (90-day retention policy)
- * - Delete tokens on app uninstall or user opt-out
- * - Ensure compliance with APNs/FCM policies
- * - Obtain user consent before storing tokens
- */
-export interface DeviceRegistrationInput {
-  deviceId: string;
-  platform: 'ios' | 'android';
-  appVersion?: string;
-  /**
-   * Push notification token (APNs for iOS, FCM for Android).
-   *
-   * SECURITY: This field contains sensitive device-specific data.
-   * - Must be hashed using hashNotificationToken() before storage
-   * - Must be redacted in logs using redactSensitiveFields()
-   * - Must be validated using isValidNotificationToken()
-   * - Must be deleted on uninstall/opt-out
-   * - Subject to 90-day retention policy
-   *
-   * @see hashNotificationToken in shared/crypto.ts
-   * @see registerDevice in shared/device.ts
-   */
-  notificationToken?: string;
-}
-
 export interface EncouragementPayload {
   id: string;
   ref: string;
