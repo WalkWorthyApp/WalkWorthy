@@ -12,6 +12,7 @@ import assert from "node:assert/strict";
 import {
   containsPii,
   assertNoProfileEcho,
+  isCleanStoredAiContent,
   GuardrailTripError,
 } from "../lib/model-config";
 import { collectProfileValues } from "../lib/profile-sanitize";
@@ -124,6 +125,29 @@ test("assertNoProfileEcho handles regex special characters in values", () => {
     () => assertNoProfileEcho({ message: "your C++ (competitive) skills" }, ["C++ (competitive)"]),
     GuardrailTripError,
   );
+});
+
+// ============================================================================
+// isCleanStoredAiContent — re-screening of cached/persisted responses
+// ============================================================================
+
+test("isCleanStoredAiContent passes clean stored content", () => {
+  const stored = {
+    reflection: "This week held both rain and light; God walked through both with you.",
+    generatedAt: "2026-07-05T18:00:00Z",
+    date: "2026-07-05",
+  };
+  assert.equal(isCleanStoredAiContent(stored, ["engineering", "varsity soccer"]), true);
+});
+
+test("isCleanStoredAiContent fails stored content with a profile echo", () => {
+  const stored = { reflection: "Your nursing studies mirror Galatians 6:2." };
+  assert.equal(isCleanStoredAiContent(stored, ["nursing"]), false);
+});
+
+test("isCleanStoredAiContent fails stored content with regex-class PII", () => {
+  const stored = { message: "reach out to pastor@example.com" };
+  assert.equal(isCleanStoredAiContent(stored, []), false);
 });
 
 // ============================================================================

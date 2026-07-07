@@ -87,6 +87,21 @@ export function assertNoProfileEcho(
   output: unknown,
   profileValues: readonly string[],
 ): void {
+  const matchedLengths = findProfileEchoLengths(output, profileValues);
+  if (matchedLengths.length > 0) {
+    logger.warn("Profile echo detected in agent output; blocking response", {
+      matchedCount: matchedLengths.length,
+      matchedLengths,
+    });
+    throw new GuardrailTripError("Agent output echoed profile data");
+  }
+}
+
+/** Lengths of profile values found verbatim in the serialized output. */
+function findProfileEchoLengths(
+  output: unknown,
+  profileValues: readonly string[],
+): number[] {
   const haystack = JSON.stringify(output ?? null);
   const matchedLengths: number[] = [];
   for (const value of profileValues) {
@@ -104,13 +119,25 @@ export function assertNoProfileEcho(
       matchedLengths.push(needle.length);
     }
   }
-  if (matchedLengths.length > 0) {
-    logger.warn("Profile echo detected in agent output; blocking response", {
-      matchedCount: matchedLengths.length,
-      matchedLengths,
-    });
-    throw new GuardrailTripError("Agent output echoed profile data");
-  }
+  return matchedLengths;
+}
+
+/**
+ * Screen previously-persisted AI content against the CURRENT guardrails
+ * before re-serving it. Stored responses can predate the echo-check (or, for
+ * older reflections, any guardrail at all), so cache/duplicate fast-paths
+ * must not assume persisted content already passed. Screens against the
+ * caller's current profile values — a best-effort scrub, since the values
+ * sent at generation time aren't recorded. Returns true when clean.
+ */
+export function isCleanStoredAiContent(
+  content: unknown,
+  profileValues: readonly string[],
+): boolean {
+  return (
+    !containsPii(JSON.stringify(content ?? null)) &&
+    findProfileEchoLengths(content, profileValues).length === 0
+  );
 }
 
 /**

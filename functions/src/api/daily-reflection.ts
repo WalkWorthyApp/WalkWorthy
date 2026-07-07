@@ -12,6 +12,8 @@ import type { Request, Response } from "express";
 import { getDb, COLLECTIONS, initializeFirebase } from "../shared/firebase";
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from "../shared/auth";
 import { runReflectionAgent } from "../lib/reflection-agent";
+import { isCleanStoredAiContent } from "../lib/model-config";
+import { collectProfileValues, sanitizeProfile } from "../lib/profile-sanitize";
 import { getUserProfileOnce } from "../shared/profile";
 import { getLogicalDateString, shiftLogicalDate } from "../shared/time";
 import type { UserProfilePayload } from "../lib/profile-sanitize";
@@ -97,8 +99,16 @@ async function handleGet(req: Request, res: Response): Promise<void> {
     const cached = await cacheRef.get();
 
     if (cached.exists) {
-      logger.info("dailyReflection: cache hit", { userId, today });
-      return successResponse(res, cached.data());
+      // Re-screen before serving: cached reflections can predate the profile
+      // echo-check (older ones predate any guardrail at all). A failed screen
+      // drops the cache entry and falls through to regeneration below.
+      const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
+      if (isCleanStoredAiContent(cached.data(), profileValues)) {
+        logger.info("dailyReflection: cache hit", { userId, today });
+        return successResponse(res, cached.data());
+      }
+      logger.warn("dailyReflection: cached reflection failed guardrail screen; regenerating", { userId, today });
+      await cacheRef.delete();
     }
 
     // Window end is the anchor day; start is 6 days before (7-day inclusive window).
