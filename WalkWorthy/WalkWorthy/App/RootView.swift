@@ -28,6 +28,11 @@ struct RootView: View {
             } else if appState.requiresAuthenticationGate {
                 TitleScreenView()
                     .transition(.opacity)
+            } else if appState.needsEmailVerification {
+                // Email/password accounts must verify before entering the app
+                // (the backend also rejects unverified tokens with 403).
+                EmailVerificationView()
+                    .transition(.opacity)
             } else if appState.onboardingCompleted {
                 MainTabView()
                     .transition(.asymmetric(insertion: .move(edge: .trailing), removal: .opacity))
@@ -44,6 +49,7 @@ struct RootView: View {
         .preferredColorScheme((appState.isCheckingAuth || appState.configurationError != nil) ? nil : .dark)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.isCheckingAuth)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.onboardingCompleted)
+        .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.needsEmailVerification)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.requiresAuthenticationGate)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.configurationError)
     }

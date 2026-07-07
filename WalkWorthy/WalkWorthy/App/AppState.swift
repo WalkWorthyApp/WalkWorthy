@@ -42,6 +42,11 @@ final class AppState: ObservableObject {
     /// stores NO PII — only a boolean. Cleared on sign-out.
     @Published private(set) var hasCompletedProfileSetup: Bool = false
     @Published private(set) var authenticatedUserSub: String?
+    /// True while the signed-in email/password account hasn't verified its
+    /// address. RootView blocks the main UI with EmailVerificationView and
+    /// the backend independently rejects unverified tokens with 403
+    /// EMAIL_UNVERIFIED. Always false for Sign in with Apple accounts.
+    @Published private(set) var needsEmailVerification: Bool = false
     @Published var isAuthenticated: Bool {
         didSet {
             if !isAuthenticated {
@@ -342,6 +347,7 @@ final class AppState: ObservableObject {
                     // Load UID + user-scoped prefs (onboardingCompleted, translation,
                     // etc). No network — reads Auth.auth().currentUser.uid + UserDefaults.
                     await self.refreshAuthenticatedUser()
+                    self.needsEmailVerification = await self.authSession.needsEmailVerification(reload: false)
                     // Fast path: returning user who's completed onboarding. UI can
                     // render MainTabView immediately using cached prefs; profile +
                     // daily reflection hydrate in the background so the splash
@@ -366,6 +372,7 @@ final class AppState: ObservableObject {
                     self.checkAndFetchDailyReflection()
                 } else {
                     self.isAuthenticated = false
+                    self.needsEmailVerification = false
                     self.setAuthenticatedUserSub(nil)
                 }
                 self.isCheckingAuth = false
@@ -387,6 +394,7 @@ final class AppState: ObservableObject {
             isAuthenticated = true
             authenticationNotice = nil
             await refreshAuthenticatedUser()
+            needsEmailVerification = await authSession.needsEmailVerification(reload: false)
             await refreshProfileFromBackend()
             if currentProfile != nil {
                 markOnboardingComplete()
@@ -406,6 +414,19 @@ final class AppState: ObservableObject {
             isAuthenticated = true
             authenticationNotice = nil
             await refreshAuthenticatedUser()
+            // New password accounts must verify their address before using
+            // the app (RootView gate + backend 403). Send the email now;
+            // failures aren't fatal — the gate screen offers a resend.
+            do {
+                try await authSession.sendEmailVerification()
+            } catch {
+                #if DEBUG
+                print("[AppState] sendEmailVerification failed: \(error)")
+                #else
+                Crashlytics.crashlytics().record(error: error)
+                #endif
+            }
+            needsEmailVerification = await authSession.needsEmailVerification(reload: false)
             await refreshProfileFromBackend()
             checkAndFetchDailyReflection()
         } catch {
@@ -590,6 +611,27 @@ final class AppState: ObservableObject {
 
     var requiresAuthenticationGate: Bool {
         !isAuthenticated
+    }
+
+    /// Resends the verification email for the signed-in password account.
+    func resendVerificationEmail() async throws {
+        try await authSession.sendEmailVerification()
+    }
+
+    /// Email address of the signed-in user, for display on the verification
+    /// gate. Not persisted anywhere client-side.
+    func currentUserEmail() async -> String? {
+        await authSession.currentUserEmail()
+    }
+
+    /// Re-checks verification after the user says they've clicked the link.
+    /// On success, forces a bearer-token refresh so the next API call carries
+    /// email_verified=true (the backend rejects stale unverified tokens).
+    func refreshEmailVerificationStatus() async {
+        needsEmailVerification = await authSession.needsEmailVerification(reload: true)
+        if !needsEmailVerification {
+            _ = try? await authSession.validBearerToken(forcingRefresh: true)
+        }
     }
 
     private func setAuthenticatedUserSub(_ sub: String?) {
