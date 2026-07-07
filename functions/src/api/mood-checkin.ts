@@ -565,8 +565,11 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    // Screen values for re-serving stored AI responses (see isCleanStoredAiContent).
+    const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
+
     if (fullHistoryDays && fullHistoryDays > 0) {
-      return handleGetFullHistory(userId, Math.min(fullHistoryDays, 31), db, timezone, res, startDateParam, endDateParam);
+      return handleGetFullHistory(userId, Math.min(fullHistoryDays, 31), db, timezone, res, profileValues, startDateParam, endDateParam);
     }
 
     if (historyDays && historyDays > 0) {
@@ -604,11 +607,22 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
         .get();
 
       if (checkInDoc.exists) {
-        return successResponse(res, {
-          status: 'completed',
-          checkIn: checkInDoc.data() as MoodCheckIn,
-          summary,
+        const storedCheckIn = checkInDoc.data() as MoodCheckIn;
+        // Re-screen the stored response before serving (it may predate the
+        // current guardrails). On failure, fall through to pending — the
+        // re-submitted check-in then regenerates via the POST screen path.
+        if (isCleanStoredAiContent(storedCheckIn.aiResponse, profileValues)) {
+          return successResponse(res, {
+            status: 'completed',
+            checkIn: storedCheckIn,
+            summary,
+          });
+        }
+        logger.warn('Stored check-in response failed guardrail screen on read; returning pending', {
+          userId,
+          checkInId: storedCheckIn.id,
         });
+        // Fall through to return pending status
       } else {
         // Summary indicates completion but document not found - log inconsistency
         logger.warn('Summary indicates completed check-in but document not found', {
@@ -703,7 +717,7 @@ async function handleGetHistory(userId: string, days: number, db: FirebaseFirest
  * max 3 per day) to cap the query size at days * 3. Within a day the iOS
  * client reorders by check-in type (morning → midday → evening).
  */
-async function handleGetFullHistory(userId: string, days: number, db: FirebaseFirestore.Firestore, timezone: string, res: Response, startDateOverride?: string, endDateOverride?: string): Promise<void> {
+async function handleGetFullHistory(userId: string, days: number, db: FirebaseFirestore.Firestore, timezone: string, res: Response, profileValues: readonly string[], startDateOverride?: string, endDateOverride?: string): Promise<void> {
   try {
     const now = new Date();
     const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
@@ -724,9 +738,22 @@ async function handleGetFullHistory(userId: string, days: number, db: FirebaseFi
       .limit(days * 3) // morning/midday/evening per day is the upper bound
       .get();
 
-    const checkIns: MoodCheckIn[] = checkInsQuery.docs.map(
+    const allCheckIns: MoodCheckIn[] = checkInsQuery.docs.map(
       (doc) => doc.data() as MoodCheckIn,
     );
+
+    // Re-screen stored responses before serving (they may predate the
+    // current guardrails); entries failing the screen are omitted from the
+    // log rather than served with unscreened content.
+    const checkIns = allCheckIns.filter(
+      (c) => isCleanStoredAiContent(c.aiResponse, profileValues),
+    );
+    if (checkIns.length < allCheckIns.length) {
+      logger.warn('Omitted stored check-ins that failed guardrail screen', {
+        userId,
+        omitted: allCheckIns.length - checkIns.length,
+      });
+    }
 
     logger.info('Mood full history retrieved', {
       userId,
