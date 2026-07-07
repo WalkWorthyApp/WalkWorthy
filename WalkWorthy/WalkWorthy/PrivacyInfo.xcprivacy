@@ -95,6 +95,21 @@
                 <string>NSPrivacyCollectedDataTypePurposePersonalization</string>
             </array>
         </dict>
+        <!-- Firebase Analytics: anonymous feature-usage events, opt-out in
+             Settings, collection disabled until the AI/analytics consent
+             screen is accepted. Not used for tracking. -->
+        <dict>
+            <key>NSPrivacyCollectedDataType</key>
+            <string>NSPrivacyCollectedDataTypeProductInteraction</string>
+            <key>NSPrivacyCollectedDataTypeLinked</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypeTracking</key>
+            <false/>
+            <key>NSPrivacyCollectedDataTypePurposes</key>
+            <array>
+                <string>NSPrivacyCollectedDataTypePurposeAnalytics</string>
+            </array>
+        </dict>
     </array>
 </dict>
 </plist>

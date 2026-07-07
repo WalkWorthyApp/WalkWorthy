@@ -71,6 +71,21 @@ struct MoodCheckInView: View {
     // MARK: - Body
 
     var body: some View {
+        // AI-consent gate (Guideline 5.1.2(i)): check-in data goes to OpenAI,
+        // so the very first check-in starts with the consent screen. Declining
+        // dismisses the wizard without sending anything. Once granted, the
+        // flag flips and this body re-evaluates straight into the wizard.
+        if appState.aiConsentGiven {
+            checkInFlow
+        } else {
+            AIConsentView(
+                onContinue: { appState.setAIConsentGiven(true) },
+                onDecline: onComplete
+            )
+        }
+    }
+
+    private var checkInFlow: some View {
         stepContent
             .animation(.easeInOut(duration: 0.35), value: step)
             .onAppear {

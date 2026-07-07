@@ -12,7 +12,7 @@
     <header class="doc-header">
         <a class="doc-home" href="/">WalkWorthy</a>
         <h1>Privacy Policy</h1>
-        <p class="doc-meta">Effective date: <time datetime="2026-04-21">April 21, 2026</time></p>
+        <p class="doc-meta">Effective date: <time datetime="2026-07-06">July 6, 2026</time></p>
     </header>
 
     <section>
@@ -109,18 +109,28 @@
         <ul>
             <li>
                 <strong>Google Firebase</strong> (Google Cloud) — hosts our database, authenticates
-                your account, stores mood and profile data, sends push notifications, and verifies
-                device integrity. Data is stored on Google Cloud infrastructure in the United
+                your account, stores mood and profile data, and verifies device integrity.
+                Reminder notifications are scheduled locally on your device and never touch our
+                servers. Data is stored on Google Cloud infrastructure in the United
                 States. See
                 <a href="https://firebase.google.com/support/privacy" target="_blank" rel="noopener">Firebase's Privacy and Security page</a>.
             </li>
             <li>
                 <strong>OpenAI</strong> — when you submit a mood check-in or request a daily
                 reflection, we send the structured signals (mood score, emotion tags, profile
-                context) to OpenAI so it can generate a personalized Scripture-based response. We
-                have configured our OpenAI project for Zero Data Retention, which means OpenAI
-                does not retain this data after generating the response. We do not send your email
-                address, first name, Firebase UID, or journal entries to OpenAI.
+                context) to OpenAI so it can generate a personalized Scripture-based response.
+                The app asks for your explicit consent before your first check-in, and nothing is
+                sent to OpenAI until you agree. We have configured our OpenAI project for Zero
+                Data Retention, which means OpenAI does not retain this data after generating the
+                response. We do not send your email address, first name, Firebase UID, or journal
+                entries to OpenAI.
+            </li>
+            <li>
+                <strong>Firebase Analytics</strong> — with your permission, we count anonymous
+                feature usage (for example, "a check-in was completed") to understand which parts
+                of the app matter. Analytics events never include your check-in content, notes,
+                or profile details, and you can turn this off anytime in Settings → AI &amp; Your
+                Data.
             </li>
             <li>
                 <strong>Apple</strong> — if you sign in with your Apple ID, Apple handles the

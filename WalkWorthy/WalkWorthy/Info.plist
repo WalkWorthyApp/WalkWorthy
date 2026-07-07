@@ -2,6 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Analytics collection stays OFF until the user passes the AI/analytics
+	     consent screen; AppState.applyAnalyticsCollectionState() enables it. -->
+	<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>
+	<false/>
 	<key>UIAppFonts</key>
 	<array>
 		<string>Newsreader-Regular.ttf</string>
