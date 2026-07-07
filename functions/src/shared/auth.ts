@@ -67,6 +67,26 @@ export async function requireAuth(
     return null;
   }
 
+  // Email/password accounts must verify their address before using the API.
+  // Federated providers (e.g. Sign in with Apple) verify emails upstream, so
+  // only the "password" provider is gated here.
+  if (
+    decodedToken.firebase.sign_in_provider === "password" &&
+    decodedToken.email_verified !== true
+  ) {
+    logger.info("Rejecting unverified email/password account", {
+      userId: decodedToken.uid,
+    });
+    errorResponse(
+      res,
+      403,
+      "Email verification required",
+      undefined,
+      "EMAIL_UNVERIFIED"
+    );
+    return null;
+  }
+
   // Attach user info to request
   const authReq = req as AuthenticatedRequest;
   authReq.user = decodedToken;
@@ -106,20 +126,35 @@ export async function verifyAppCheck(
 }
 
 /**
+ * Machine-readable error codes the iOS client can branch on.
+ */
+export type ApiErrorCode = "EMAIL_UNVERIFIED";
+
+/**
  * Standard error response format
  */
 export function errorResponse(
   res: Response,
   status: number,
   message: string,
-  details?: unknown
+  details?: unknown,
+  code?: ApiErrorCode
 ) {
-  const response: { error: string; message: string; details?: unknown } = {
+  const response: {
+    error: string;
+    message: string;
+    details?: unknown;
+    code?: ApiErrorCode;
+  } = {
     error:
       http.STATUS_CODES[status] ||
       (status >= 500 ? "Internal Server Error" : "Error"),
     message,
   };
+
+  if (code) {
+    response.code = code;
+  }
 
   if (details && process.env.NODE_ENV === "development") {
     response.details = details;

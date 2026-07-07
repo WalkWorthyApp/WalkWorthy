@@ -18,6 +18,7 @@ import type {
   MoodSpectrumData,
 } from "../shared/types";
 import {
+  collectProfileValues,
   sanitizeProfile,
   sanitizeText,
   type UserProfilePayload,
@@ -25,6 +26,7 @@ import {
 import {
   MOOD_MODEL,
   GuardrailTripError,
+  assertNoProfileEcho,
   isGuardrailTrip,
   piiGuardrail,
   sleep,
@@ -321,10 +323,15 @@ export async function runMoodAgent(
       logger.info("[MoodAgent] Calling OpenAI agent...");
       const result = await withTimeout((signal) => run(agent, serializedInput, { signal }));
       logger.info("[MoodAgent] Agent returned response");
-      return parseEncouragement(
+      const parsed = parseEncouragement(
         result.finalOutput,
         payload.translationPreference,
       );
+      // Deterministic echo-check: block a response that repeats the user's
+      // own profile strings back (the regex guardrail can't know them).
+      // Throws GuardrailTripError — caught below and rethrown without retry.
+      assertNoProfileEcho(parsed, collectProfileValues(payload.profile));
+      return parsed;
     } catch (err) {
       lastError = err;
       // Guardrail trips are deterministic — retrying will produce the same

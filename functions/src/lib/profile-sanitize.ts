@@ -41,6 +41,41 @@ export function sanitizeText(text: string, max = 400): string {
 }
 
 /**
+ * Preset hobby vocabulary from the iOS onboarding picker (Hobby enum in
+ * EncouragementModels.swift). These are generic devotional/lifestyle words —
+ * "worship" or "serving" legitimately appear in Scripture-based encouragement
+ * prose, so echo-checking them would cause routine false-positive guardrail
+ * trips. Only user-TYPED custom hobbies (which can be arbitrarily specific
+ * and identifying) are echo-checked.
+ */
+const PRESET_HOBBIES: ReadonlySet<string> = new Set([
+  'worship', 'serving', 'music', 'athletics',
+  'art', 'reading', 'mentoring', 'outdoors',
+]);
+
+/**
+ * Collect the profile strings that get sent to the AI agents, for use with
+ * assertNoProfileEcho(). Operates on the SANITIZED profile so the checked
+ * values are exactly what the model saw. firstName is never sent to agents,
+ * so it is not collected here; preset hobby words are excluded (see above).
+ */
+export function collectProfileValues(
+  profile: UserProfilePayload | null,
+): string[] {
+  if (!profile) return [];
+  const customHobbies = (profile.hobbies ?? []).filter(
+    (h) => typeof h === 'string' && !PRESET_HOBBIES.has(h.trim().toLowerCase()),
+  );
+  return [
+    profile.major,
+    profile.occupation,
+    profile.gender,
+    profile.ageRange,
+    ...customHobbies,
+  ].filter((v): v is string => typeof v === "string" && v.trim().length > 0);
+}
+
+/**
  * Sanitize a user profile for safe inclusion in AI agent input.
  *
  * Validates sensitive enum fields (gender, ageRange) and caps free-form

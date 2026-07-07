@@ -11,12 +11,14 @@ import { z } from "zod";
 import { logger } from "firebase-functions/v2";
 import type { DailyMoodSummary } from "../shared/types";
 import {
+  collectProfileValues,
   sanitizeProfile,
   type UserProfilePayload,
 } from "./profile-sanitize";
 import {
   MOOD_MODEL,
   GuardrailTripError,
+  assertNoProfileEcho,
   isGuardrailTrip,
   piiGuardrail,
   sleep,
@@ -161,7 +163,13 @@ export async function runReflectionAgent(
         throw new Error("Empty reflection returned");
       }
 
-      return parsed.reflection.trim();
+      const reflection = parsed.reflection.trim();
+      // Deterministic echo-check: block a reflection that repeats the user's
+      // own profile strings back. Checked against the sanitized profile —
+      // the same values buildPrompt() sent to the model. Throws
+      // GuardrailTripError — caught below and rethrown without retry.
+      assertNoProfileEcho(reflection, collectProfileValues(sanitizeProfile(profile)));
+      return reflection;
     } catch (err) {
       lastError = err;
       if (isGuardrailTrip(err)) {
