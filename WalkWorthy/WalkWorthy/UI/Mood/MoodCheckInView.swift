@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import FirebaseAnalytics
 
 struct MoodCheckInView: View {
     let checkInType: CheckInType
@@ -204,6 +205,8 @@ struct MoodCheckInView: View {
                 )
                 let response = try await appState.submitMoodCheckIn(request)
                 try Task.checkCancellation()
+                // Type only (morning/midday/evening) — no mood data in analytics.
+                Analytics.logEvent("mood_checkin_completed", parameters: ["check_in_type": checkInType.rawValue])
 
                 if !noteValue.isEmpty {
                     // Journal creation is best-effort. Surface a failure as a

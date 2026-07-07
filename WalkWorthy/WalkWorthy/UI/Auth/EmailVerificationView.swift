@@ -27,7 +27,7 @@ struct EmailVerificationView: View {
 
                 VStack(alignment: .leading, spacing: scaled(14)) {
                     Label("Verify your email", systemImage: "envelope.badge")
-                        .font(.newsreaderSemiBoldItalic(fixedSize: scaled(28)))
+                        .font(.newsreaderSemiBoldItalic(size: scaled(28)))
                         .accessibilityAddTraits(.isHeader)
 
                     Text("We sent a verification link to \(email ?? "your email address"). Tap the link, then come back here.")

@@ -204,7 +204,7 @@ struct MoodHistoryView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("Mood History")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
+                    .font(.newsreaderSemiBoldItalic(size: scaled(20)))
             }
         }
         .onAppear {
@@ -283,12 +283,13 @@ struct MoodHistoryView: View {
                     Image(systemName: "chevron.left")
                         .font(.subheadline.weight(.semibold))
                 }
+                .accessibilityLabel("Previous period")
 
                 Spacer()
 
                 VStack(alignment: .center, spacing: scaled(4)) {
                     Text(overviewTitle)
-                        .font(.newsreaderSemiBoldItalic(fixedSize: scaled(19)))
+                        .font(.newsreaderSemiBoldItalic(size: scaled(19)))
 
                     Text(dateRangeString)
                         .font(.caption)
@@ -305,6 +306,7 @@ struct MoodHistoryView: View {
                     Image(systemName: "chevron.right")
                         .font(.subheadline.weight(.semibold))
                 }
+                .accessibilityLabel("Next period")
                 .disabled(periodOffset == 0)
                 .opacity(periodOffset == 0 ? 0.3 : 1)
             }
@@ -543,23 +545,23 @@ struct MoodHistoryView: View {
         VStack(alignment: .leading, spacing: scaled(16)) {
             HStack {
                 Text("Latest Encouragement")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(17)))
+                    .font(.newsreaderSemiBoldItalic(size: scaled(17)))
 
                 Spacer()
 
                 Text(checkIn.aiResponse.verseRef)
-                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(13)))
+                    .font(.newsreaderSemiBoldItalic(size: scaled(13)))
                     .foregroundColor(.accentColor)
             }
 
             Text(checkIn.aiResponse.message)
-                .font(.newsreader(fixedSize: scaled(15)))
+                .font(.newsreader(size: scaled(15)))
                 .foregroundColor(.secondary)
 
             Divider()
 
             Text(checkIn.aiResponse.verseText)
-                .font(.newsreader(fixedSize: scaled(15)))
+                .font(.newsreader(size: scaled(15)))
                 .lineSpacing(scaled(3))
                 .foregroundColor(.primary)
         }

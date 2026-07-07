@@ -52,21 +52,21 @@ struct DailyVerseCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("Verse of the Day")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(15)))
+                    .font(.newsreaderSemiBoldItalic(size: scaled(15)))
             }
 
             Text(todaysVerse.text)
-                .font(.newsreader(fixedSize: scaled(17)))
+                .font(.newsreader(size: scaled(17)))
                 .foregroundStyle(.primary)
                 .lineSpacing(scaled(4))
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: scaled(6)) {
                 Text("— \(todaysVerse.ref)")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(13)))
+                    .font(.newsreaderSemiBoldItalic(size: scaled(13)))
                     .foregroundStyle(.secondary)
                 Text("·  ESV")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(12)))
+                    .font(.newsreaderSemiBoldItalic(size: scaled(12)))
                     .foregroundStyle(.secondary.opacity(0.7))
             }
         }

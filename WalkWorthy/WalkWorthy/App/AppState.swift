@@ -393,6 +393,7 @@ final class AppState: ObservableObject {
             try await authSession.signIn(email: email, password: password)
             isAuthenticated = true
             authenticationNotice = nil
+            Analytics.logEvent(AnalyticsEventLogin, parameters: [AnalyticsParameterMethod: "password"])
             await refreshAuthenticatedUser()
             needsEmailVerification = await authSession.needsEmailVerification(reload: false)
             await refreshProfileFromBackend()
@@ -413,6 +414,7 @@ final class AppState: ObservableObject {
             try await authSession.createAccount(email: email, password: password)
             isAuthenticated = true
             authenticationNotice = nil
+            Analytics.logEvent(AnalyticsEventSignUp, parameters: [AnalyticsParameterMethod: "password"])
             await refreshAuthenticatedUser()
             // New password accounts must verify their address before using
             // the app (RootView gate + backend 403). Send the email now;
@@ -454,6 +456,7 @@ final class AppState: ObservableObject {
                                                   fullName: fullName)
             isAuthenticated = true
             authenticationNotice = nil
+            Analytics.logEvent(AnalyticsEventLogin, parameters: [AnalyticsParameterMethod: "apple"])
             await refreshAuthenticatedUser()
             await refreshProfileFromBackend()
             if currentProfile != nil {
@@ -901,6 +904,8 @@ final class AppState: ObservableObject {
         modelContext.insert(entry)
         try modelContext.save()
         journalEntries.insert(entry, at: 0)
+        // Count only — journal text never leaves the device.
+        Analytics.logEvent("journal_entry_created", parameters: nil)
         return entry
     }
 
@@ -1044,6 +1049,7 @@ final class AppState: ObservableObject {
         let today = Self.isoDateFormatter.string(from: Self.logicalDate())
         if let cached = loadCachedReflection(for: today) {
             dailyReflection = cached
+            Analytics.logEvent("reflection_viewed", parameters: ["source": "cache"])
             return
         }
         reflectionFetchTask?.cancel()
@@ -1052,6 +1058,7 @@ final class AppState: ObservableObject {
                 let result = try await apiClient.fetchDailyReflection()
                 self.dailyReflection = result
                 self.cacheReflection(result)
+                Analytics.logEvent("reflection_viewed", parameters: ["source": "network"])
             } catch {
                 #if DEBUG
                 print("[AppState] Daily reflection fetch failed: \(error)")

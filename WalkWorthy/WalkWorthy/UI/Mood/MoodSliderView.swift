@@ -26,6 +26,7 @@ struct MoodSliderView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundColor(.white)
             }
+            .accessibilityLabel("Back")
             .padding(.horizontal, scaled(20))
             .padding(.top, scaled(20))
 
@@ -34,29 +35,34 @@ struct MoodSliderView: View {
 
                 // Current mood level label
                 Text(currentMoodLevel.displayName)
-                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(36)))
+                    .font(.newsreaderSemiBoldItalic(size: scaled(36)))
                     .foregroundColor(.white)
                     .animation(.easeInOut, value: sliderValue)
                     .padding(.bottom, scaled(16))
 
-                // Mood slider
-                Slider(value: $sliderValue, in: 0...1)
-                    .accentColor(.white)
-                    .padding(.horizontal, scaled(12))
-                    .onChange(of: sliderValue) {
-                        checkHapticSnap()
-                    }
+                // Mood slider — width-capped so the bar reads as a compact
+                // control instead of spanning edge to edge; range labels
+                // shrink with it since they describe the track's ends.
+                VStack(spacing: 0) {
+                    Slider(value: $sliderValue, in: 0...1)
+                        .accentColor(.white)
+                        .onChange(of: sliderValue) {
+                            checkHapticSnap()
+                        }
+                        .accessibilityLabel("Mood level")
+                        .accessibilityValue(currentMoodLevel.displayName)
 
-                // Range labels
-                HStack {
-                    Text("Very Unpleasant")
-                    Spacer()
-                    Text("Very Pleasant")
+                    HStack {
+                        Text("Very Unpleasant")
+                        Spacer()
+                        Text("Very Pleasant")
+                    }
+                    .font(.caption)
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(.top, scaled(4))
                 }
-                .font(.caption)
-                .foregroundColor(.white.opacity(0.8))
+                .frame(maxWidth: scaled(300))
                 .padding(.horizontal, scaled(12))
-                .padding(.top, scaled(4))
 
                 // Next button
                 Button(action: onNext) {

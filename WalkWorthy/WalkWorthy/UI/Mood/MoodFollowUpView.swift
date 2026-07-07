@@ -25,6 +25,7 @@ struct MoodFollowUpView: View {
                     .font(.title3.weight(.semibold))
                     .foregroundColor(.white)
             }
+            .accessibilityLabel("Back")
             .padding(.horizontal, scaled(21))
             .padding(.top, scaled(20))
 
@@ -37,10 +38,10 @@ struct MoodFollowUpView: View {
                     MoodWeatherBackground(moodScore: moodLevelToScore(moodLevel), isCompact: true)
 
                     Text(moodLevel.displayName)
-                        .font(Font.newsreaderSemiBoldItalic(fixedSize: scaled(26)))
+                        .font(Font.newsreaderSemiBoldItalic(size: scaled(26)))
 
                     Text(checkInType.followUpQuestion)
-                        .font(Font.newsreader(fixedSize: scaled(17)))
+                        .font(Font.newsreader(size: scaled(17)))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, scaled(16))

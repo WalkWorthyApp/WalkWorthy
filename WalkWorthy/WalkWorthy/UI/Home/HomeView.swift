@@ -63,7 +63,7 @@ struct HomeView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 Text("WalkWorthy")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
+                    .font(.newsreaderSemiBoldItalic(size: scaled(20)))
             }
         }
         .onAppear {
@@ -108,7 +108,7 @@ struct HomeView: View {
     private var greetingHeader: some View {
         VStack(alignment: .leading, spacing: scaled(16)) {
             Text(timeBasedGreeting)
-                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(40)))
+                .font(.newsreaderSemiBoldItalic(size: scaled(40)))
                 .foregroundStyle(.primary)
 
             Text(motivationalSubtitle)
@@ -209,7 +209,7 @@ struct HomeView: View {
                 // Text
                 VStack(alignment: .leading, spacing: scaled(4)) {
                     Text(type.displayName + " Check-in")
-                        .font(.newsreaderSemiBoldItalic(fixedSize: scaled(17)))
+                        .font(.newsreaderSemiBoldItalic(size: scaled(17)))
                         .foregroundColor(.primary)
 
                     Text("How are you feeling?")
@@ -243,7 +243,7 @@ struct HomeView: View {
     private var todayProgressCard: some View {
         VStack(alignment: .leading, spacing: scaled(16)) {
             Text("Today's Check-ins")
-                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(17)))
+                .font(.newsreaderSemiBoldItalic(size: scaled(17)))
 
             HStack(spacing: scaled(16)) {
                 checkInStatusPill(type: .morning, completed: appState.currentMoodStatus?.summary?.morning != nil)
@@ -337,7 +337,7 @@ private struct NameBackfillBanner: View {
 
             VStack(alignment: .leading, spacing: scaled(2)) {
                 Text("Add your name")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(17)))
+                    .font(.newsreaderSemiBoldItalic(size: scaled(17)))
                     .foregroundColor(.primary)
                 Text("Get a personal greeting on Home.")
                     .font(.subheadline)
@@ -363,6 +363,6 @@ private struct NameBackfillBanner: View {
         .contentShape(Rectangle())
         .onTapGesture(perform: onAdd)
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Double-tap to add your first name.")
+        .accessibilityHint("Double-tap to add your display name.")
     }
 }

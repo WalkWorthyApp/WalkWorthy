@@ -27,7 +27,7 @@ struct AIConsentView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: scaled(20)) {
                     Text("Before your first check-in")
-                        .font(.newsreaderSemiBoldItalic(fixedSize: scaled(30)))
+                        .font(.newsreaderSemiBoldItalic(size: scaled(30)))
                         .foregroundStyle(.white)
                         .padding(.top, scaled(24))
                         .accessibilityAddTraits(.isHeader)

@@ -30,7 +30,7 @@ struct ConfigurationErrorView: View {
                     .accessibilityHidden(true)
 
                 Text("Something went wrong")
-                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(26)))
+                    .font(.newsreaderSemiBoldItalic(size: scaled(26)))
                     .multilineTextAlignment(.center)
 
                 Text(message)
