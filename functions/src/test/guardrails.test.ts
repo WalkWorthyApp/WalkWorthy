@@ -167,8 +167,6 @@ test("collectProfileValues includes identity fields and custom hobbies", () => {
   const values = collectProfileValues(baseProfile);
   assert.ok(values.includes("Nurse"));
   assert.ok(values.includes("Nursing"));
-  assert.ok(values.includes("female"));
-  assert.ok(values.includes("18-24"));
   assert.ok(values.includes("competitive fencing"));
 });
 
@@ -176,6 +174,25 @@ test("collectProfileValues excludes preset hobby vocabulary", () => {
   const values = collectProfileValues(baseProfile);
   assert.equal(values.includes("Worship"), false);
   assert.equal(values.includes("Music"), false);
+});
+
+test("collectProfileValues excludes generic demographic enums (gender, ageRange)", () => {
+  const values = collectProfileValues(baseProfile);
+  assert.equal(values.includes("female"), false);
+  assert.equal(values.includes("18-24"), false);
+});
+
+test("Scripture containing demographic tokens passes for a female 18-24 user", () => {
+  // Regression for the Codex review false positives: Genesis 1:27 contains
+  // "male and female"; the verse range "Romans 8:18-24" contains "18-24".
+  const output = {
+    message: "You are seen and known.",
+    verseRef: "Romans 8:18-24",
+    verseText: "So God created man in his own image... male and female he created them.",
+  };
+  const values = collectProfileValues(baseProfile);
+  assert.doesNotThrow(() => assertNoProfileEcho(output, values));
+  assert.equal(isCleanStoredAiContent(output, values), true);
 });
 
 test("collectProfileValues returns empty for null profile", () => {

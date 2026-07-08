@@ -239,7 +239,9 @@ struct SettingsView: View {
 /// the Firebase session is older than the sensitive-operation window.
 /// Firebase requires `user.reauthenticate(with:)` for destructive actions;
 /// the backend also enforces a token-freshness check on `/deleteAccount`.
-private struct ReauthenticationSheet: View {
+/// Internal (not private) so EmailVerificationView can reuse it for the
+/// pre-verification delete-account path.
+struct ReauthenticationSheet: View {
     /// Called once re-authentication succeeds. The sheet dismisses itself
     /// before invoking this closure so the caller can immediately present
     /// the next UI step (a progress indicator on the destructive action).

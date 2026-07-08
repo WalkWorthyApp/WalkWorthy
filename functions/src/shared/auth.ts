@@ -54,11 +54,16 @@ export async function verifyAuthToken(
  *
  * @param req - Express request
  * @param res - Express response
+ * @param options - `allowUnverified` skips the email-verification gate;
+ *   reserved for endpoints that must stay reachable pre-verification
+ *   (account deletion — App Store Guideline 5.1.1(v) requires deletion to
+ *   be available to every signed-in user, verified or not).
  * @returns AuthenticatedRequest if valid, null if unauthorized (response already sent)
  */
 export async function requireAuth(
   req: Request,
-  res: Response
+  res: Response,
+  options?: { allowUnverified?: boolean }
 ): Promise<AuthenticatedRequest | null> {
   const decodedToken = await verifyAuthToken(req);
 
@@ -71,6 +76,7 @@ export async function requireAuth(
   // Federated providers (e.g. Sign in with Apple) verify emails upstream, so
   // only the "password" provider is gated here.
   if (
+    options?.allowUnverified !== true &&
     decodedToken.firebase.sign_in_provider === "password" &&
     decodedToken.email_verified !== true
   ) {

@@ -56,8 +56,19 @@ const PRESET_HOBBIES: ReadonlySet<string> = new Set([
 /**
  * Collect the profile strings that get sent to the AI agents, for use with
  * assertNoProfileEcho(). Operates on the SANITIZED profile so the checked
- * values are exactly what the model saw. firstName is never sent to agents,
- * so it is not collected here; preset hobby words are excluded (see above).
+ * values are exactly what the model saw.
+ *
+ * Deliberately EXCLUDED from the echo check:
+ * - firstName — never sent to agents in the first place.
+ * - Preset hobby words — generic devotional vocabulary (see above).
+ * - gender and ageRange — tiny fixed enums whose tokens legitimately occur
+ *   in Scripture output: Genesis 1:27 contains "male and female", and a
+ *   verse range like "Romans 8:18-24" contains "18-24". Echo-checking them
+ *   turns valid encouragements into user-visible failures while revealing
+ *   nothing identifying. The system prompts still forbid referencing them.
+ *
+ * What remains checked: major, occupation, and user-typed custom hobbies —
+ * the free-text values that can actually identify someone.
  */
 export function collectProfileValues(
   profile: UserProfilePayload | null,
@@ -69,8 +80,6 @@ export function collectProfileValues(
   return [
     profile.major,
     profile.occupation,
-    profile.gender,
-    profile.ageRange,
     ...customHobbies,
   ].filter((v): v is string => typeof v === "string" && v.trim().length > 0);
 }
