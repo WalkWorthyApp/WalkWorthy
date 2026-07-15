@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import FirebaseAnalytics
 
 struct MoodCheckInView: View {
     let checkInType: CheckInType
@@ -71,6 +72,21 @@ struct MoodCheckInView: View {
     // MARK: - Body
 
     var body: some View {
+        // AI-consent gate (Guideline 5.1.2(i)): check-in data goes to OpenAI,
+        // so the very first check-in starts with the consent screen. Declining
+        // dismisses the wizard without sending anything. Once granted, the
+        // flag flips and this body re-evaluates straight into the wizard.
+        if appState.aiConsentGiven {
+            checkInFlow
+        } else {
+            AIConsentView(
+                onContinue: { appState.setAIConsentGiven(true) },
+                onDecline: onComplete
+            )
+        }
+    }
+
+    private var checkInFlow: some View {
         stepContent
             .animation(.easeInOut(duration: 0.35), value: step)
             .onAppear {
@@ -189,6 +205,8 @@ struct MoodCheckInView: View {
                 )
                 let response = try await appState.submitMoodCheckIn(request)
                 try Task.checkCancellation()
+                // Type only (morning/midday/evening) — no mood data in analytics.
+                Analytics.logEvent("mood_checkin_completed", parameters: ["check_in_type": checkInType.rawValue])
 
                 if !noteValue.isEmpty {
                     // Journal creation is best-effort. Surface a failure as a

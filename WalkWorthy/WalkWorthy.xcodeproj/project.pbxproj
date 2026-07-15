@@ -10,6 +10,7 @@
 		2FCA27BD2F01E38F002FFC6A /* FirebaseAuth in Frameworks */ = {isa = PBXBuildFile; productRef = 2FCA27BC2F01E38F002FFC6A /* FirebaseAuth */; };
 		2FCA27BF2F01E38F002FFC6A /* FirebaseAppCheck in Frameworks */ = {isa = PBXBuildFile; productRef = 2FCA27BE2F01E38F002FFC6A /* FirebaseAppCheck */; };
 		2FCA27C12F01E38F002FFC6A /* FirebaseCrashlytics in Frameworks */ = {isa = PBXBuildFile; productRef = 2FCA27C02F01E38F002FFC6A /* FirebaseCrashlytics */; };
+		2FCA27C82F01E38F002FFC6A /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 2FCA27C72F01E38F002FFC6A /* FirebaseAnalytics */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -45,6 +46,7 @@
 				2FCA27BD2F01E38F002FFC6A /* FirebaseAuth in Frameworks */,
 				2FCA27BF2F01E38F002FFC6A /* FirebaseAppCheck in Frameworks */,
 				2FCA27C12F01E38F002FFC6A /* FirebaseCrashlytics in Frameworks */,
+				2FCA27C82F01E38F002FFC6A /* FirebaseAnalytics in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -99,6 +101,7 @@
 				2FCA27BC2F01E38F002FFC6A /* FirebaseAuth */,
 				2FCA27BE2F01E38F002FFC6A /* FirebaseAppCheck */,
 				2FCA27C02F01E38F002FFC6A /* FirebaseCrashlytics */,
+				2FCA27C72F01E38F002FFC6A /* FirebaseAnalytics */,
 			);
 			productName = WalkWorthy;
 			productReference = 2F5AB6162E90FD8F00333B8C /* WalkWorthy.app */;
@@ -431,6 +434,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 2F3DAE502F01D37B00B35947 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
 			productName = FirebaseCrashlytics;
+		};
+		2FCA27C72F01E38F002FFC6A /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 2F3DAE502F01D37B00B35947 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

@@ -78,6 +78,25 @@ actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
         _ = try await Auth.auth().createUser(withEmail: email, password: password)
     }
 
+    func sendEmailVerification() async throws {
+        guard let user = Auth.auth().currentUser else {
+            throw AuthError.notAuthenticated
+        }
+        try await user.sendEmailVerification()
+    }
+
+    /// True when the signed-in account uses the email/password provider and
+    /// the address hasn't been verified yet. Federated providers (Sign in
+    /// with Apple) return false — their emails are verified upstream. Pass
+    /// `reload: true` after the user taps "I've verified" so the check sees
+    /// fresh server state instead of the cached user.
+    func needsEmailVerification(reload: Bool) async -> Bool {
+        guard let user = Auth.auth().currentUser else { return false }
+        if reload { try? await user.reload() }
+        let usesPassword = user.providerData.contains { $0.providerID == "password" }
+        return usesPassword && !user.isEmailVerified
+    }
+
     /// Exchanges an Apple identity token + raw nonce for a Firebase session.
     ///
     /// Used by both the view-model-driven `SignInWithAppleButton` path

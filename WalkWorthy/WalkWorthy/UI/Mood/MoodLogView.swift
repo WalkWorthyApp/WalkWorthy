@@ -197,7 +197,7 @@ private struct MoodLogContent: View {
                 .font(.system(size: scaled(36)))
                 .foregroundStyle(.secondary)
             Text("No check-ins yet")
-                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
+                .font(.newsreaderSemiBoldItalic(size: scaled(20)))
             Text("Your log will appear here after your first check-in.")
                 .font(.body)
                 .foregroundStyle(.secondary)
@@ -338,7 +338,7 @@ private struct MoodLogDaySection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: scaled(12)) {
             Text(dayHeaderText)
-                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(20)))
+                .font(.newsreaderSemiBoldItalic(size: scaled(20)))
                 .foregroundStyle(.primary)
 
             ForEach(day.entries) { entry in
@@ -433,7 +433,7 @@ private struct MoodLogCheckInCard: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(typeEnum?.displayName ?? checkIn.checkInType.capitalized)
-                    .font(.newsreaderSemiBoldItalic(fixedSize: scaled(17)))
+                    .font(.newsreaderSemiBoldItalic(size: scaled(17)))
                     .foregroundStyle(.primary)
                 if !displayTime.isEmpty {
                     Text(displayTime)
@@ -544,13 +544,13 @@ private struct MoodLogCheckInCard: View {
                 .fixedSize(horizontal: false, vertical: true)
 
             Text(checkIn.aiResponse.verseText)
-                .font(.newsreader(fixedSize: scaled(15)))
+                .font(.newsreader(size: scaled(15)))
                 .foregroundStyle(.primary)
                 .lineSpacing(scaled(3))
                 .fixedSize(horizontal: false, vertical: true)
 
             Text("— \(checkIn.aiResponse.verseRef) · \(checkIn.aiResponse.translation)")
-                .font(.newsreaderSemiBoldItalic(fixedSize: scaled(12)))
+                .font(.newsreaderSemiBoldItalic(size: scaled(12)))
                 .foregroundStyle(.secondary)
         }
         .padding(.top, scaled(4))

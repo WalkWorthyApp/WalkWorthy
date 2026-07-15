@@ -85,8 +85,12 @@ export const deleteAccount = onRequest(httpsOptions, async (req, res) => {
     return;
   }
 
-  // Authenticate — userId comes ONLY from the verified token.
-  const authReq = await requireAuth(req, res);
+  // Authenticate — userId comes ONLY from the verified token. Unverified
+  // email/password accounts are allowed here: account deletion must remain
+  // reachable for every signed-in user (App Store Guideline 5.1.1(v)), and
+  // an unverified user who can't receive the verification email would
+  // otherwise be permanently unable to delete their account.
+  const authReq = await requireAuth(req, res, { allowUnverified: true });
   if (!authReq) return;
   const { userId } = authReq;
 

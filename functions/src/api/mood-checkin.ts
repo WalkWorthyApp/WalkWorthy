@@ -15,6 +15,8 @@ import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from '../shared/auth';
 import { getUserProfileOnce } from '../shared/profile';
 import { runMoodAgent, UserProfilePayload, MoodAgentInput } from '../lib/mood-agent';
+import { isCleanStoredAiContent } from '../lib/model-config';
+import { collectProfileValues, sanitizeProfile } from '../lib/profile-sanitize';
 import {
   validateCheckInType,
   validateMoodSpectrumData,
@@ -263,7 +265,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
 
     // Step 1: Check for existing check-in inside transaction to avoid redundant AI calls under concurrency
     // Returns either: { type: 'existing', data } | { type: 'update', data } | { type: 'create' }
-    const transactionResult = await db.runTransaction(async (transaction) => {
+    let transactionResult = await db.runTransaction(async (transaction) => {
       const existingDoc = await transaction.get(checkInRef);
       if (existingDoc.exists) {
         const existingData = existingDoc.data() as MoodCheckIn;
@@ -286,15 +288,28 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       return { type: 'create' as const };
     });
 
-    // Fast-path: Return existing response if same mood
+    // Fast-path: Return existing response if same mood — but only after
+    // re-screening it against the CURRENT guardrails. Stored responses can
+    // predate the profile echo-check, so a failed screen falls through to
+    // regeneration (same flow as a mood update) instead of re-serving.
+    let regenerateScreenedCheckIn = false;
     if (transactionResult.type === 'existing') {
-      return successResponse(res, {
+      const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
+      if (isCleanStoredAiContent(transactionResult.data.aiResponse, profileValues)) {
+        return successResponse(res, {
+          checkInId: transactionResult.data.id,
+          aiResponse: transactionResult.data.aiResponse,
+          createdAt: transactionResult.data.createdAt,
+          expiresAt: transactionResult.data.expiresAt,
+          isExisting: true,
+        });
+      }
+      logger.warn('Stored check-in response failed guardrail screen; regenerating', {
+        userId,
         checkInId: transactionResult.data.id,
-        aiResponse: transactionResult.data.aiResponse,
-        createdAt: transactionResult.data.createdAt,
-        expiresAt: transactionResult.data.expiresAt,
-        isExisting: true,
       });
+      regenerateScreenedCheckIn = true;
+      transactionResult = { type: 'update' as const, data: transactionResult.data };
     }
 
     // Reserve a slot in the daily AI budget BEFORE calling OpenAI. If the
@@ -360,9 +375,12 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       try {
         await db.runTransaction(async (transaction) => {
           // Optimistic concurrency check: if a concurrent request already wrote this check-in
-          // with the same mood, return that instead to avoid duplicate responses
+          // with the same mood, return that instead to avoid duplicate responses.
+          // Skipped when we're regenerating a response that failed the guardrail
+          // screen — the "existing identical" doc is exactly the dirty one we
+          // must overwrite, and this short-circuit would re-serve it.
           const existingCheckInDoc = await transaction.get(checkInRef);
-          if (existingCheckInDoc.exists) {
+          if (existingCheckInDoc.exists && !regenerateScreenedCheckIn) {
             const existingCheckInData = existingCheckInDoc.data() as MoodCheckIn;
             if (existingCheckInData.moodSpectrumData &&
                 existingCheckInData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&
@@ -547,8 +565,11 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
       return;
     }
 
+    // Screen values for re-serving stored AI responses (see isCleanStoredAiContent).
+    const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
+
     if (fullHistoryDays && fullHistoryDays > 0) {
-      return handleGetFullHistory(userId, Math.min(fullHistoryDays, 31), db, timezone, res, startDateParam, endDateParam);
+      return handleGetFullHistory(userId, Math.min(fullHistoryDays, 31), db, timezone, res, profileValues, startDateParam, endDateParam);
     }
 
     if (historyDays && historyDays > 0) {
@@ -586,11 +607,22 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
         .get();
 
       if (checkInDoc.exists) {
-        return successResponse(res, {
-          status: 'completed',
-          checkIn: checkInDoc.data() as MoodCheckIn,
-          summary,
+        const storedCheckIn = checkInDoc.data() as MoodCheckIn;
+        // Re-screen the stored response before serving (it may predate the
+        // current guardrails). On failure, fall through to pending — the
+        // re-submitted check-in then regenerates via the POST screen path.
+        if (isCleanStoredAiContent(storedCheckIn.aiResponse, profileValues)) {
+          return successResponse(res, {
+            status: 'completed',
+            checkIn: storedCheckIn,
+            summary,
+          });
+        }
+        logger.warn('Stored check-in response failed guardrail screen on read; returning pending', {
+          userId,
+          checkInId: storedCheckIn.id,
         });
+        // Fall through to return pending status
       } else {
         // Summary indicates completion but document not found - log inconsistency
         logger.warn('Summary indicates completed check-in but document not found', {
@@ -685,7 +717,7 @@ async function handleGetHistory(userId: string, days: number, db: FirebaseFirest
  * max 3 per day) to cap the query size at days * 3. Within a day the iOS
  * client reorders by check-in type (morning → midday → evening).
  */
-async function handleGetFullHistory(userId: string, days: number, db: FirebaseFirestore.Firestore, timezone: string, res: Response, startDateOverride?: string, endDateOverride?: string): Promise<void> {
+async function handleGetFullHistory(userId: string, days: number, db: FirebaseFirestore.Firestore, timezone: string, res: Response, profileValues: readonly string[], startDateOverride?: string, endDateOverride?: string): Promise<void> {
   try {
     const now = new Date();
     const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
@@ -706,9 +738,22 @@ async function handleGetFullHistory(userId: string, days: number, db: FirebaseFi
       .limit(days * 3) // morning/midday/evening per day is the upper bound
       .get();
 
-    const checkIns: MoodCheckIn[] = checkInsQuery.docs.map(
+    const allCheckIns: MoodCheckIn[] = checkInsQuery.docs.map(
       (doc) => doc.data() as MoodCheckIn,
     );
+
+    // Re-screen stored responses before serving (they may predate the
+    // current guardrails); entries failing the screen are omitted from the
+    // log rather than served with unscreened content.
+    const checkIns = allCheckIns.filter(
+      (c) => isCleanStoredAiContent(c.aiResponse, profileValues),
+    );
+    if (checkIns.length < allCheckIns.length) {
+      logger.warn('Omitted stored check-ins that failed guardrail screen', {
+        userId,
+        omitted: allCheckIns.length - checkIns.length,
+      });
+    }
 
     logger.info('Mood full history retrieved', {
       userId,

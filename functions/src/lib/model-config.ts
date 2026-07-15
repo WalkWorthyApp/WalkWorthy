@@ -5,6 +5,8 @@
  * to a newer model) a one-line change instead of hunting across agent files.
  */
 
+import { logger } from "firebase-functions/v2";
+
 /** Default model used by mood-agent and reflection-agent. */
 export const MOOD_MODEL = "gpt-4.1-nano" as const;
 
@@ -38,27 +40,105 @@ export class GuardrailTripError extends Error {
 // PII Guardrail
 // ============================================================================
 
+// Phone pattern: optional country code, then phone-like 3-3-4 digit grouping.
+// The mandatory 3-digit groups keep it from matching verse references
+// ("Philippians 4:6-7") and ISO dates/timestamps ("2026-07-05T18:00:00Z"),
+// whose digit runs are 1-2 or 4 digits — see guardrails.test.ts.
 const PII_REGEX =
-  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|https?:\/\/\S+|(AKIA|ASI|SK|PK)[A-Z0-9]{16,}/gi;
+  /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b|https?:\/\/\S+|(AKIA|ASI|SK|PK)[A-Z0-9]{16,}|(?:\+?\d{1,3}[-. ]?)?\(?\d{3}\)?[-. ]?\d{3}[-. ]?\d{4}/gi;
+
+/**
+ * Returns true when `text` contains an email address, URL, credential-shaped
+ * string, or phone number. Exported for unit testing; the guardrail below is
+ * the production consumer.
+ */
+export function containsPii(text: string): boolean {
+  const triggered = PII_REGEX.test(text);
+  PII_REGEX.lastIndex = 0;
+  return triggered;
+}
 
 /**
  * Output guardrail that trips when agent output contains email addresses,
- * URLs, or credential-shaped strings. Shared by mood-agent and
- * reflection-agent — `agentOutput` is `unknown` so it works with any
+ * URLs, phone numbers, or credential-shaped strings. Shared by mood-agent
+ * and reflection-agent — `agentOutput` is `unknown` so it works with any
  * output schema; the check just scans the serialized output.
  */
 export const piiGuardrail = {
   name: "pii_filter",
   execute: async (args: { agentOutput: unknown }) => {
-    const text = JSON.stringify(args.agentOutput);
-    const triggered = PII_REGEX.test(text);
-    PII_REGEX.lastIndex = 0;
+    const triggered = containsPii(JSON.stringify(args.agentOutput));
     return {
       tripwireTriggered: triggered,
       outputInfo: triggered ? { reason: "Sensitive data detected" } : undefined,
     };
   },
 };
+
+/**
+ * Throws GuardrailTripError when the serialized agent output contains any of
+ * the user's profile values verbatim (case-insensitive whole-word match).
+ * Complements the regex guardrail above, which cannot know user-specific
+ * strings like occupation or hobbies. Values shorter than 4 characters are
+ * skipped to avoid tripping on incidental substrings. Never logs the matched
+ * values themselves — only counts and lengths.
+ */
+export function assertNoProfileEcho(
+  output: unknown,
+  profileValues: readonly string[],
+): void {
+  const matchedLengths = findProfileEchoLengths(output, profileValues);
+  if (matchedLengths.length > 0) {
+    logger.warn("Profile echo detected in agent output; blocking response", {
+      matchedCount: matchedLengths.length,
+      matchedLengths,
+    });
+    throw new GuardrailTripError("Agent output echoed profile data");
+  }
+}
+
+/** Lengths of profile values found verbatim in the serialized output. */
+function findProfileEchoLengths(
+  output: unknown,
+  profileValues: readonly string[],
+): number[] {
+  const haystack = JSON.stringify(output ?? null);
+  const matchedLengths: number[] = [];
+  for (const value of profileValues) {
+    if (typeof value !== "string") continue;
+    const needle = value.trim();
+    if (needle.length < 4) continue;
+    // Whole-word match so e.g. gender "Male" can't trip on "female" and a
+    // value can't match inside an unrelated longer word. \b only works
+    // against word-character edges, so skip it where the value starts/ends
+    // with symbols (e.g. "C++ (competitive)").
+    const escaped = needle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const lead = /^\w/.test(needle) ? "\\b" : "";
+    const trail = /\w$/.test(needle) ? "\\b" : "";
+    if (new RegExp(`${lead}${escaped}${trail}`, "i").test(haystack)) {
+      matchedLengths.push(needle.length);
+    }
+  }
+  return matchedLengths;
+}
+
+/**
+ * Screen previously-persisted AI content against the CURRENT guardrails
+ * before re-serving it. Stored responses can predate the echo-check (or, for
+ * older reflections, any guardrail at all), so cache/duplicate fast-paths
+ * must not assume persisted content already passed. Screens against the
+ * caller's current profile values — a best-effort scrub, since the values
+ * sent at generation time aren't recorded. Returns true when clean.
+ */
+export function isCleanStoredAiContent(
+  content: unknown,
+  profileValues: readonly string[],
+): boolean {
+  return (
+    !containsPii(JSON.stringify(content ?? null)) &&
+    findProfileEchoLengths(content, profileValues).length === 0
+  );
+}
 
 /**
  * Sleep for the given number of milliseconds.

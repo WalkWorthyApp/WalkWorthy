@@ -30,7 +30,7 @@ struct TitleScreenView: View {
                         .shadow(color: .black.opacity(0.2), radius: scaled(16), x: 0, y: scaled(8))
 
                     Text("WalkWorthy")
-                        .font(.newsreaderSemiBoldItalic(fixedSize: scaled(34)))
+                        .font(.newsreaderSemiBoldItalic(size: scaled(34)))
                         .foregroundStyle(.white)
 
                     Text("For when life seems like rough waters, WalkWorthy knowing God is with you through the storm.")

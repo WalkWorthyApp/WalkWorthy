@@ -10,6 +10,7 @@ import SwiftUI
 import Combine
 import SwiftData
 import UserNotifications
+import FirebaseAnalytics
 import FirebaseCrashlytics
 
 @MainActor
@@ -17,6 +18,16 @@ final class AppState: ObservableObject {
     @Published var selectedTranslation: Translation
     @Published var onboardingCompleted: Bool
     @Published var useProfilePersonalization: Bool
+    /// User has seen the AI data-sharing consent screen and tapped Continue.
+    /// Required by App Review Guideline 5.1.2(i): mood data goes to OpenAI, so
+    /// the app must obtain explicit in-app consent before the first AI call.
+    /// Scoped per user; false blocks mood check-in AI + daily reflection fetch.
+    @Published private(set) var aiConsentGiven: Bool = false
+    /// Firebase Analytics collection toggle. Collection is disabled in
+    /// Info.plist (FIREBASE_ANALYTICS_COLLECTION_ENABLED = NO) and only turned
+    /// on at runtime once consent is given AND this flag is true, so no events
+    /// are collected before the user has seen the disclosure.
+    @Published private(set) var analyticsEnabled: Bool = true
     /// In-memory mirror of the backend profile for SwiftUI-observable access
     /// (HomeView greeting + tone-aware subtitle). Hydrated via
     /// `refreshProfileFromBackend()` at sign-in; nil before sign-in / after
@@ -31,6 +42,11 @@ final class AppState: ObservableObject {
     /// stores NO PII — only a boolean. Cleared on sign-out.
     @Published private(set) var hasCompletedProfileSetup: Bool = false
     @Published private(set) var authenticatedUserSub: String?
+    /// True while the signed-in email/password account hasn't verified its
+    /// address. RootView blocks the main UI with EmailVerificationView and
+    /// the backend independently rejects unverified tokens with 403
+    /// EMAIL_UNVERIFIED. Always false for Sign in with Apple accounts.
+    @Published private(set) var needsEmailVerification: Bool = false
     @Published var isAuthenticated: Bool {
         didSet {
             if !isAuthenticated {
@@ -94,6 +110,8 @@ final class AppState: ObservableObject {
     private static let userScopedKeys: Set<String> = [
         StorageKey.onboardingCompleted,
         StorageKey.useProfilePersonalization,
+        StorageKey.aiConsentGiven,
+        StorageKey.analyticsEnabled,
         StorageKey.translation,
         StorageKey.dismissedNameBackfill,
         StorageKey.hasCompletedProfileSetup,
@@ -275,6 +293,32 @@ final class AppState: ObservableObject {
         defaults.set(isOn, forKey: storageKey(StorageKey.useProfilePersonalization))
     }
 
+    /// Records the user's explicit consent to AI data sharing (App Review
+    /// Guideline 5.1.2(i)) after they've seen `AIConsentView`, and applies the
+    /// analytics preference disclosed on the same screen.
+    func setAIConsentGiven(_ given: Bool) {
+        aiConsentGiven = given
+        defaults.set(given, forKey: storageKey(StorageKey.aiConsentGiven))
+        applyAnalyticsCollectionState()
+        // The reflection fetch was blocked pre-consent; populate Home now.
+        if given {
+            checkAndFetchDailyReflection()
+        }
+    }
+
+    func setAnalyticsEnabled(_ isOn: Bool) {
+        analyticsEnabled = isOn
+        defaults.set(isOn, forKey: storageKey(StorageKey.analyticsEnabled))
+        applyAnalyticsCollectionState()
+    }
+
+    /// Collection stays off (Info.plist FIREBASE_ANALYTICS_COLLECTION_ENABLED
+    /// = NO) until the user has seen the consent screen AND left analytics on —
+    /// no events are ever collected pre-consent.
+    private func applyAnalyticsCollectionState() {
+        Analytics.setAnalyticsCollectionEnabled(aiConsentGiven && analyticsEnabled)
+    }
+
     /// Record the user's dismissal of the "add your first name" banner on Home.
     /// Scoped per-user; persists across app launches.
     func setNameBackfillDismissed(_ isDismissed: Bool) {
@@ -303,6 +347,7 @@ final class AppState: ObservableObject {
                     // Load UID + user-scoped prefs (onboardingCompleted, translation,
                     // etc). No network — reads Auth.auth().currentUser.uid + UserDefaults.
                     await self.refreshAuthenticatedUser()
+                    self.needsEmailVerification = await self.authSession.needsEmailVerification(reload: false)
                     // Fast path: returning user who's completed onboarding. UI can
                     // render MainTabView immediately using cached prefs; profile +
                     // daily reflection hydrate in the background so the splash
@@ -327,6 +372,7 @@ final class AppState: ObservableObject {
                     self.checkAndFetchDailyReflection()
                 } else {
                     self.isAuthenticated = false
+                    self.needsEmailVerification = false
                     self.setAuthenticatedUserSub(nil)
                 }
                 self.isCheckingAuth = false
@@ -347,7 +393,9 @@ final class AppState: ObservableObject {
             try await authSession.signIn(email: email, password: password)
             isAuthenticated = true
             authenticationNotice = nil
+            Analytics.logEvent(AnalyticsEventLogin, parameters: [AnalyticsParameterMethod: "password"])
             await refreshAuthenticatedUser()
+            needsEmailVerification = await authSession.needsEmailVerification(reload: false)
             await refreshProfileFromBackend()
             if currentProfile != nil {
                 markOnboardingComplete()
@@ -366,7 +414,21 @@ final class AppState: ObservableObject {
             try await authSession.createAccount(email: email, password: password)
             isAuthenticated = true
             authenticationNotice = nil
+            Analytics.logEvent(AnalyticsEventSignUp, parameters: [AnalyticsParameterMethod: "password"])
             await refreshAuthenticatedUser()
+            // New password accounts must verify their address before using
+            // the app (RootView gate + backend 403). Send the email now;
+            // failures aren't fatal — the gate screen offers a resend.
+            do {
+                try await authSession.sendEmailVerification()
+            } catch {
+                #if DEBUG
+                print("[AppState] sendEmailVerification failed: \(error)")
+                #else
+                Crashlytics.crashlytics().record(error: error)
+                #endif
+            }
+            needsEmailVerification = await authSession.needsEmailVerification(reload: false)
             await refreshProfileFromBackend()
             checkAndFetchDailyReflection()
         } catch {
@@ -394,6 +456,7 @@ final class AppState: ObservableObject {
                                                   fullName: fullName)
             isAuthenticated = true
             authenticationNotice = nil
+            Analytics.logEvent(AnalyticsEventLogin, parameters: [AnalyticsParameterMethod: "apple"])
             await refreshAuthenticatedUser()
             await refreshProfileFromBackend()
             if currentProfile != nil {
@@ -553,6 +616,27 @@ final class AppState: ObservableObject {
         !isAuthenticated
     }
 
+    /// Resends the verification email for the signed-in password account.
+    func resendVerificationEmail() async throws {
+        try await authSession.sendEmailVerification()
+    }
+
+    /// Email address of the signed-in user, for display on the verification
+    /// gate. Not persisted anywhere client-side.
+    func currentUserEmail() async -> String? {
+        await authSession.currentUserEmail()
+    }
+
+    /// Re-checks verification after the user says they've clicked the link.
+    /// On success, forces a bearer-token refresh so the next API call carries
+    /// email_verified=true (the backend rejects stale unverified tokens).
+    func refreshEmailVerificationStatus() async {
+        needsEmailVerification = await authSession.needsEmailVerification(reload: true)
+        if !needsEmailVerification {
+            _ = try? await authSession.validBearerToken(forcingRefresh: true)
+        }
+    }
+
     private func setAuthenticatedUserSub(_ sub: String?) {
         if authenticatedUserSub == sub {
             return
@@ -590,15 +674,21 @@ final class AppState: ObservableObject {
         if authenticatedUserSub == nil {
             onboardingCompleted = false
             useProfilePersonalization = true
+            aiConsentGiven = false
+            analyticsEnabled = true
             selectedTranslation = config.defaultTranslation
             currentProfile = nil
             nameBackfillDismissed = false
             hasCompletedProfileSetup = false
+            applyAnalyticsCollectionState()
             return
         }
 
         onboardingCompleted = defaults.bool(forKey: storageKey(StorageKey.onboardingCompleted))
         useProfilePersonalization = defaults.object(forKey: storageKey(StorageKey.useProfilePersonalization)) as? Bool ?? true
+        aiConsentGiven = defaults.bool(forKey: storageKey(StorageKey.aiConsentGiven))
+        analyticsEnabled = defaults.object(forKey: storageKey(StorageKey.analyticsEnabled)) as? Bool ?? true
+        applyAnalyticsCollectionState()
         selectedTranslation = Translation(rawValue: defaults.string(forKey: storageKey(StorageKey.translation)) ?? "") ?? config.defaultTranslation
 
         // Profile PII is no longer cached in UserDefaults — hydrate via
@@ -814,6 +904,8 @@ final class AppState: ObservableObject {
         modelContext.insert(entry)
         try modelContext.save()
         journalEntries.insert(entry, at: 0)
+        // Count only — journal text never leaves the device.
+        Analytics.logEvent("journal_entry_created", parameters: nil)
         return entry
     }
 
@@ -951,9 +1043,13 @@ final class AppState: ObservableObject {
 
     func checkAndFetchDailyReflection() {
         guard isAuthenticated else { return }
+        // Reflections are AI-generated from mood summaries — no fetch until
+        // the user has given AI consent (Guideline 5.1.2(i)).
+        guard aiConsentGiven else { return }
         let today = Self.isoDateFormatter.string(from: Self.logicalDate())
         if let cached = loadCachedReflection(for: today) {
             dailyReflection = cached
+            Analytics.logEvent("reflection_viewed", parameters: ["source": "cache"])
             return
         }
         reflectionFetchTask?.cancel()
@@ -962,6 +1058,7 @@ final class AppState: ObservableObject {
                 let result = try await apiClient.fetchDailyReflection()
                 self.dailyReflection = result
                 self.cacheReflection(result)
+                Analytics.logEvent("reflection_viewed", parameters: ["source": "network"])
             } catch {
                 #if DEBUG
                 print("[AppState] Daily reflection fetch failed: \(error)")
@@ -997,6 +1094,8 @@ extension AppState {
     enum StorageKey {
         static let onboardingCompleted = "walkworthy.onboardingCompleted"
         static let useProfilePersonalization = "walkworthy.settings.useProfilePersonalization"
+        static let aiConsentGiven = "walkworthy.ai.consentGiven"
+        static let analyticsEnabled = "walkworthy.settings.analyticsEnabled"
         static let translation = "walkworthy.settings.translation"
         static let dismissedNameBackfill = "walkworthy.dismissed.nameBackfill"
         static let hasCompletedProfileSetup = "walkworthy.profile.hasCompletedSetup"
