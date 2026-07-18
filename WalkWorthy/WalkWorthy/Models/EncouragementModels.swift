@@ -8,7 +8,13 @@
 import Foundation
 
 protocol EncouragementAPI {
-    func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws
+    /// Sends a partial profile update (backend PATCH is a merge) and returns
+    /// the fully merged profile document from the response so callers can
+    /// persist the authoritative post-merge state (e.g. snapshot cache).
+    /// Returns nil when the response body can't be decoded — the PATCH itself
+    /// still succeeded in that case.
+    @discardableResult
+    func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws -> RemoteUserProfileResponse?
     /// Fetch the authenticated user's profile from the backend. Returns nil
     /// when the backend has no profile on file yet (pre-onboarding).
     func fetchUserProfile() async throws -> RemoteUserProfileResponse?

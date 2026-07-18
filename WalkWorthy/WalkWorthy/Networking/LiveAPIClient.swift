@@ -76,13 +76,27 @@ final class LiveAPIClient: EncouragementAPI {
 
     // MARK: - EncouragementAPI
 
-    func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws {
-        try await sendExpectingNoContent(
-            path: "userProfile",
-            method: "PATCH",
-            body: payload,
-            endpointKind: .nonAI
-        )
+    @discardableResult
+    func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws -> RemoteUserProfileResponse? {
+        // The backend PATCH merges the update server-side and returns the
+        // fully merged document in the same `{ profile: {...} }` envelope as
+        // GET. A decode failure is non-fatal — the PATCH already succeeded —
+        // so return nil instead of throwing and let callers skip the snapshot.
+        do {
+            let envelope: UserProfileEnvelope = try await performRequest(
+                path: "userProfile",
+                method: "PATCH",
+                body: payload,
+                endpointKind: .nonAI,
+                decode: UserProfileEnvelope.self
+            )
+            return envelope.profile
+        } catch APIError.decodingFailed {
+            #if DEBUG
+            print("[LiveAPIClient] PATCH userProfile succeeded but response decode failed")
+            #endif
+            return nil
+        }
     }
 
     func fetchUserProfile() async throws -> RemoteUserProfileResponse? {
@@ -321,21 +335,6 @@ final class LiveAPIClient: EncouragementAPI {
             )
             return try await send(retryRequest, decode: type)
         }
-    }
-
-    private func sendExpectingNoContent<Body: Encodable>(
-        path: String,
-        method: String,
-        body: Body,
-        endpointKind: EndpointKind
-    ) async throws {
-        let _: EmptyPayload = try await performRequest(
-            path: path,
-            method: method,
-            body: body,
-            endpointKind: endpointKind,
-            decode: EmptyPayload.self
-        )
     }
 
     private func makeRequest(

@@ -226,7 +226,7 @@ final class AppState: ObservableObject {
                     setHasCompletedProfileSetup(true)
                 }
                 if let sub = authenticatedUserSub {
-                    Task { await SnapshotStore.shared.write(response, kind: .profile, userSub: sub) }
+                    await SnapshotStore.shared.write(response, kind: .profile, userSub: sub)
                 }
             } else {
                 currentProfile = nil
@@ -678,9 +678,7 @@ final class AppState: ObservableObject {
         do {
             let sub = try await authSession.currentUserSub()
             setAuthenticatedUserSub(sub)
-            if let sub = authenticatedUserSub {
-                hydrateFromSnapshots(userSub: sub)
-            }
+            hydrateFromSnapshots(userSub: sub)
         } catch {
             setAuthenticatedUserSub(nil)
         }
@@ -763,21 +761,17 @@ final class AppState: ObservableObject {
         )
 
         do {
-            try await apiClient.updateUserProfile(payload)
-            if let sub = authenticatedUserSub {
-                let snapshotPayload = RemoteUserProfileResponse(
-                    ageRange: payload.ageRange,
-                    firstName: payload.firstName,
-                    occupation: payload.occupation,
-                    major: payload.major,
-                    gender: payload.gender,
-                    hobbies: payload.hobbies,
-                    optInTailored: payload.optInTailored,
-                    translationPreference: payload.translationPreference,
-                    timezone: payload.timezone,
-                    checkInTimes: payload.checkInTimes
-                )
-                Task { await SnapshotStore.shared.write(snapshotPayload, kind: .profile, userSub: sub) }
+            // Snapshot the merged document the backend returns — NOT the
+            // request payload. The PATCH is a server-side merge, so any field
+            // this request omitted (e.g. nil firstName) is preserved remotely;
+            // snapshotting the request would record it as nil and hydrate a
+            // blank greeting on the next cold launch. `currentProfile` is
+            // deliberately left untouched here: it was already set
+            // optimistically by `updateProfile()`, and this debounced PATCH
+            // may land after newer in-memory edits.
+            let updated = try await apiClient.updateUserProfile(payload)
+            if let sub = authenticatedUserSub, let updated {
+                await SnapshotStore.shared.write(updated, kind: .profile, userSub: sub)
             }
         } catch {
             #if DEBUG
