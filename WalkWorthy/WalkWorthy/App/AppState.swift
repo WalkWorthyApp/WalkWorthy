@@ -225,6 +225,9 @@ final class AppState: ObservableObject {
                 if !trimmedFirstName.isEmpty {
                     setHasCompletedProfileSetup(true)
                 }
+                if let sub = authenticatedUserSub {
+                    Task { await SnapshotStore.shared.write(response, kind: .profile, userSub: sub) }
+                }
             } else {
                 currentProfile = nil
             }
@@ -232,6 +235,20 @@ final class AppState: ObservableObject {
             #if DEBUG
             print("[AppState] Failed to fetch profile from backend: \(error)")
             #endif
+        }
+    }
+
+    /// Synchronously hydrates server-backed @Published properties from the
+    /// on-disk SnapshotStore so views render instantly on sign-in. Called
+    /// from `refreshAuthenticatedUser` before any network fetch. Per-property
+    /// hydration is best-effort: a missing/corrupt snapshot leaves the current
+    /// in-memory value untouched, so the existing async fetch path still fills
+    /// it in without regression.
+    private func hydrateFromSnapshots(userSub: String) {
+        if let snapshot: Snapshot<RemoteUserProfileResponse> = SnapshotStore.shared.readSync(
+            RemoteUserProfileResponse.self, kind: .profile, userSub: userSub
+        ) {
+            currentProfile = Self.profile(from: snapshot.payload)
         }
     }
 
@@ -661,6 +678,9 @@ final class AppState: ObservableObject {
         do {
             let sub = try await authSession.currentUserSub()
             setAuthenticatedUserSub(sub)
+            if let sub = authenticatedUserSub {
+                hydrateFromSnapshots(userSub: sub)
+            }
         } catch {
             setAuthenticatedUserSub(nil)
         }
@@ -744,6 +764,21 @@ final class AppState: ObservableObject {
 
         do {
             try await apiClient.updateUserProfile(payload)
+            if let sub = authenticatedUserSub {
+                let snapshotPayload = RemoteUserProfileResponse(
+                    ageRange: payload.ageRange,
+                    firstName: payload.firstName,
+                    occupation: payload.occupation,
+                    major: payload.major,
+                    gender: payload.gender,
+                    hobbies: payload.hobbies,
+                    optInTailored: payload.optInTailored,
+                    translationPreference: payload.translationPreference,
+                    timezone: payload.timezone,
+                    checkInTimes: payload.checkInTimes
+                )
+                Task { await SnapshotStore.shared.write(snapshotPayload, kind: .profile, userSub: sub) }
+            }
         } catch {
             #if DEBUG
             print("[AppState] Failed to sync profile: \(error)")

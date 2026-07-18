@@ -46,7 +46,14 @@ struct RemoteUserProfileRequest: Codable {
 /// Mirror of the backend `UserProfile` document. All fields are optional
 /// because the user may not have completed onboarding yet or may not have
 /// populated every field. Decoded from `GET /userProfile`.
-struct RemoteUserProfileResponse: Codable {
+///
+/// Marked `nonisolated` because the project defaults actor isolation to
+/// `@MainActor` (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`); without this,
+/// the type's `Codable` conformance would be main-actor-isolated, which
+/// breaks its use as the `T: Codable & Sendable` payload for the
+/// deliberately off-main-actor `SnapshotStore.readSync`/`write` (mirrors the
+/// same annotation on `Snapshot`/`SnapshotKind` in SnapshotStore.swift).
+nonisolated struct RemoteUserProfileResponse: Codable {
     var ageRange: String?
     var firstName: String?
     var occupation: String?
