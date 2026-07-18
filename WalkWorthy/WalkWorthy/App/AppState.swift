@@ -250,6 +250,13 @@ final class AppState: ObservableObject {
         ) {
             currentProfile = Self.profile(from: snapshot.payload)
         }
+
+        let today = Self.isoDateFormatter.string(from: Self.logicalDate())
+        if let snapshot: Snapshot<DailyReflection> = SnapshotStore.shared.readSync(
+            DailyReflection.self, kind: .dailyReflection, userSub: userSub, dateSuffix: today
+        ) {
+            dailyReflection = snapshot.payload
+        }
     }
 
     /// Maps an `age range` bucket (e.g. "25-34") to the midpoint so the
@@ -1034,26 +1041,33 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func dailyReflectionCacheKey(for date: String) -> String {
-        guard let userSub = authenticatedUserSub else { return "" }
-        return "\(StorageKey.dailyReflectionPrefix)::\(userSub)::\(date)"
-    }
-
     private func loadCachedReflection(for date: String) -> DailyReflection? {
-        let key = dailyReflectionCacheKey(for: date)
-        guard !key.isEmpty,
-              let data = defaults.data(forKey: key),
+        guard let userSub = authenticatedUserSub else { return nil }
+
+        // Prefer the new SnapshotStore.
+        if let snapshot: Snapshot<DailyReflection> = SnapshotStore.shared.readSync(
+            DailyReflection.self, kind: .dailyReflection, userSub: userSub, dateSuffix: date
+        ) {
+            return snapshot.payload
+        }
+
+        // Legacy path: migrate the old UserDefaults key on first read. Removing
+        // the key makes the migration self-terminating; past-date reflections
+        // are never read again and the sign-out sweep still clears the prefix.
+        let legacyKey = "\(StorageKey.dailyReflectionPrefix)::\(userSub)::\(date)"
+        guard let data = defaults.data(forKey: legacyKey),
               let reflection = try? Self.reflectionDecoder.decode(DailyReflection.self, from: data)
         else { return nil }
+        Task { await SnapshotStore.shared.write(reflection, kind: .dailyReflection, userSub: userSub, dateSuffix: date) }
+        defaults.removeObject(forKey: legacyKey)
         return reflection
     }
 
-    private func cacheReflection(_ reflection: DailyReflection) {
-        let key = dailyReflectionCacheKey(for: reflection.date)
-        guard !key.isEmpty,
-              let data = try? Self.reflectionEncoder.encode(reflection)
-        else { return }
-        defaults.set(data, forKey: key)
+    private func cacheReflection(_ reflection: DailyReflection) async {
+        guard let userSub = authenticatedUserSub else { return }
+        await SnapshotStore.shared.write(
+            reflection, kind: .dailyReflection, userSub: userSub, dateSuffix: reflection.date
+        )
     }
 
     /// Removes every cached daily-reflection key that belongs to the current
@@ -1066,6 +1080,13 @@ final class AppState: ObservableObject {
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
             defaults.removeObject(forKey: key)
         }
+        // deleteAll removes the WHOLE user snapshot directory (all kinds, not
+        // just the reflection), which is the intended sign-out posture — every
+        // on-disk snapshot for this user should be gone before another account
+        // can sign in on this device. Task 8 will rename this method to
+        // reflect its broader scope; not renamed here to keep this task's
+        // diff focused on the reflection cache migration.
+        Task { await SnapshotStore.shared.deleteAll(for: userSub) }
     }
 
     private static func logicalDate() -> Date {
@@ -1090,7 +1111,7 @@ final class AppState: ObservableObject {
             do {
                 let result = try await apiClient.fetchDailyReflection()
                 self.dailyReflection = result
-                self.cacheReflection(result)
+                await self.cacheReflection(result)
                 Analytics.logEvent("reflection_viewed", parameters: ["source": "network"])
             } catch {
                 #if DEBUG

@@ -242,7 +242,14 @@ struct MoodLogResponse: Codable {
 
 // MARK: - Daily Reflection
 
-struct DailyReflection: Codable, Equatable {
+/// Marked `nonisolated` because the project defaults actor isolation to
+/// `@MainActor` (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`); without this,
+/// the type's `Codable` conformance would be main-actor-isolated, which
+/// breaks its use as the `T: Codable & Sendable` payload for the
+/// deliberately off-main-actor `SnapshotStore.readSync`/`write` (mirrors the
+/// same annotation on `RemoteUserProfileResponse` in EncouragementModels.swift
+/// and on `Snapshot`/`SnapshotKind` in SnapshotStore.swift).
+nonisolated struct DailyReflection: Codable, Equatable {
     let reflection: String
     let generatedAt: String
     let date: String        // "yyyy-MM-dd"
