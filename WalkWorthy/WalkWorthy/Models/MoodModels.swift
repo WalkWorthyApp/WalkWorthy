@@ -178,7 +178,14 @@ struct MoodCheckIn: Codable, Identifiable, Equatable {
     }
 }
 
-struct CheckInSummary: Codable, Equatable {
+/// Marked `nonisolated` because the project defaults actor isolation to
+/// `@MainActor` (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`); without this,
+/// the type's `Codable` conformance would be main-actor-isolated, which
+/// breaks its use (as part of `DailyMoodSummary`) as the `T: Codable &
+/// Sendable` payload for the deliberately off-main-actor
+/// `SnapshotStore.readSync`/`write` (mirrors the same annotation on
+/// `MoodStatusResponse`/`DailyReflection` below).
+nonisolated struct CheckInSummary: Codable, Equatable {
     let checkInId: String
     let moodLevel: String?       // nil for old check-ins (used primaryMood)
     let respondedAt: String
@@ -189,7 +196,13 @@ struct CheckInSummary: Codable, Equatable {
     }
 }
 
-struct DailyMoodSummary: Codable, Identifiable, Equatable {
+/// Marked `nonisolated` because the project defaults actor isolation to
+/// `@MainActor` (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`); without this,
+/// the type's `Codable` conformance would be main-actor-isolated, which
+/// breaks its use as the `T: Codable & Sendable` payload (via `[DailyMoodSummary]`)
+/// for the deliberately off-main-actor `SnapshotStore.readSync`/`write`
+/// (mirrors the same annotation on `MoodStatusResponse`/`DailyReflection` below).
+nonisolated struct DailyMoodSummary: Codable, Identifiable, Equatable {
     let date: String
     let morning: CheckInSummary?
     let midday: CheckInSummary?

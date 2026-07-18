@@ -208,6 +208,13 @@ struct MoodHistoryView: View {
             }
         }
         .onAppear {
+            // Seed the week grid from the last-known snapshot before the
+            // network call so cold launch renders bars instantly. Only for
+            // the default (7-day, offset 0) window — other windows always
+            // fetch fresh.
+            if selectedRange == .days(7) && periodOffset == 0 && summaries.isEmpty {
+                summaries = appState.weekSummary
+            }
             loadHistory()
             Task { await appState.loadMoodStatus() }
         }
@@ -608,10 +615,19 @@ struct MoodHistoryView: View {
                 startDate: startDate,
                 endDate: endDate
             )
+            let fetched = response.summaries
             await MainActor.run {
-                summaries = response.summaries
+                summaries = fetched
                 errorMessage = nil
                 isLoading = false
+            }
+            // Only cache the default window so range-picker changes don't
+            // overwrite the "instant launch" snapshot with a non-week view.
+            if selectedRange == .days(7) && periodOffset == 0 {
+                await MainActor.run { appState.weekSummary = fetched }
+                if let sub = appState.authenticatedUserSub {
+                    await SnapshotStore.shared.write(fetched, kind: .weekSummary, userSub: sub)
+                }
             }
         } catch {
             let errorDescription = error.localizedDescription

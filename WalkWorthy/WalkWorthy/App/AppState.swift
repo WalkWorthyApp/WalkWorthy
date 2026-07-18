@@ -70,6 +70,11 @@ final class AppState: ObservableObject {
     @Published var currentMoodStatus: MoodStatusResponse?
     @Published var latestMoodResponse: MoodCheckInResponse?
     @Published var dailyReflection: DailyReflection?
+    /// Last-known 7-day mood summary for the current user. Snapshotted so the
+    /// MoodHistoryView week grid renders instantly on cold launch. Only the
+    /// default (last 7 days ending today) window is cached — range picker
+    /// changes always fetch fresh.
+    @Published var weekSummary: [DailyMoodSummary] = []
 
     // MARK: - Journal State
     @Published var journalEntries: [JournalEntry] = []
@@ -262,6 +267,16 @@ final class AppState: ObservableObject {
             DailyReflection.self, kind: .dailyReflection, userSub: userSub, dateSuffix: today
         ) {
             dailyReflection = snapshot.payload
+        }
+
+        // Not date-scoped: a day-old week grid is still a valid approximation
+        // of the week and the view refetches immediately on appear; unlike
+        // moodStatus, nothing actionable/submittable derives from a stale
+        // summary.
+        if let snapshot: Snapshot<[DailyMoodSummary]> = SnapshotStore.shared.readSync(
+            [DailyMoodSummary].self, kind: .weekSummary, userSub: userSub
+        ) {
+            weekSummary = snapshot.payload
         }
     }
 
@@ -623,6 +638,7 @@ final class AppState: ObservableObject {
         dailyReflection = nil
         latestMoodResponse = nil
         currentMoodStatus = nil
+        weekSummary = []
         lastMoodStatusFetch = nil
 
         // Remove all cached daily-reflection blobs for the outgoing user.
@@ -891,6 +907,7 @@ final class AppState: ObservableObject {
         currentMoodStatus = nil
         latestMoodResponse = nil
         dailyReflection = nil
+        weekSummary = []
         lastMoodStatusFetch = nil
     }
 
