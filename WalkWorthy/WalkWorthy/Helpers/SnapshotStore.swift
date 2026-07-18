@@ -55,6 +55,17 @@ actor SnapshotStore {
     /// Pending debounced write tasks keyed by absolute file URL, so a burst of
     /// writes to the same snapshot collapses into one disk touch.
     private var pendingWrites: [URL: Task<Void, Never>] = [:]
+    /// Monotonic per-URL write generation. `performWrite` only proceeds (and
+    /// only clears `pendingWrites`) when it still holds the newest generation
+    /// for its URL, so a stale task whose cancellation raced with the actor
+    /// hop cannot clobber a newer pending entry. Never reset — resetting
+    /// would allow generation reuse and reintroduce the race.
+    private var writeGeneration: [URL: UInt64] = [:]
+    /// Tombstones set by `deleteAll` so an in-flight write that already
+    /// passed its cancellation check cannot recreate a deleted user's
+    /// directory. Cleared by the next `write` for that user (legitimate only
+    /// after a fresh sign-in).
+    private var deletedUsers: Set<String> = []
 
     init(fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -68,7 +79,7 @@ actor SnapshotStore {
     /// Synchronous read used during AppState hydration on the main actor.
     /// Never throws. Any error (missing file, corrupt JSON, schema mismatch)
     /// is treated as a cache miss and returns nil.
-    nonisolated func readSync<T: Codable>(
+    nonisolated func readSync<T: Codable & Sendable>(
         _ type: T.Type,
         kind: SnapshotKind,
         userSub: String,
@@ -96,7 +107,7 @@ actor SnapshotStore {
 
     /// Debounced write: bursts within 250ms collapse into one atomic rename.
     /// Fire-and-forget from the caller's perspective.
-    func write<T: Codable>(
+    func write<T: Codable & Sendable>(
         _ payload: T,
         kind: SnapshotKind,
         userSub: String,
@@ -105,16 +116,41 @@ actor SnapshotStore {
         guard let url = Self.snapshotURL(kind: kind, userSub: userSub, dateSuffix: dateSuffix) else {
             return
         }
+        // A fresh write for this user makes any earlier deleteAll tombstone
+        // obsolete (the only legitimate post-delete write is a new sign-in).
+        deletedUsers.remove(userSub)
+        let generation = (writeGeneration[url] ?? 0) &+ 1
+        writeGeneration[url] = generation
         pendingWrites[url]?.cancel()
         pendingWrites[url] = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(250))
             if Task.isCancelled { return }
-            await self?.performWrite(payload: payload, url: url, kind: kind)
+            await self?.performWrite(
+                payload: payload,
+                url: url,
+                kind: kind,
+                userSub: userSub,
+                generation: generation
+            )
         }
     }
 
-    private func performWrite<T: Codable>(payload: T, url: URL, kind: SnapshotKind) {
+    private func performWrite<T: Codable & Sendable>(
+        payload: T,
+        url: URL,
+        kind: SnapshotKind,
+        userSub: String,
+        generation: UInt64
+    ) {
+        // Superseded by a newer write for this URL: our cancellation raced
+        // with the actor hop. Bail without touching the newer pending entry.
+        guard writeGeneration[url] == generation else { return }
         pendingWrites[url] = nil
+        // deleteAll ran after this write was queued — honor the deletion
+        // rather than recreating the user's snapshot directory.
+        guard !deletedUsers.contains(userSub) else { return }
+        // Cancellation may have landed after the sleep-side check.
+        if Task.isCancelled { return }
         let snapshot = Snapshot(
             payload: payload,
             capturedAt: Date(),
@@ -143,13 +179,18 @@ actor SnapshotStore {
     // MARK: - Delete (sign-out / account delete)
 
     func deleteAll(for userSub: String) {
-        // Cancel any queued writes for this user first so they can't recreate
-        // the directory after we delete it.
-        for (url, task) in pendingWrites where url.pathComponents.contains(userSub) {
+        // Tombstone first: an in-flight write that already passed its
+        // cancellation check will see this in performWrite and abort instead
+        // of recreating the directory. Cleared by the next write() for this
+        // user (i.e. a fresh sign-in).
+        deletedUsers.insert(userSub)
+        guard let dir = Self.userDirectory(userSub: userSub) else { return }
+        // Cancel any queued writes for this user so they can't recreate the
+        // directory after we delete it.
+        for (url, task) in pendingWrites where url.deletingLastPathComponent().path == dir.path {
             task.cancel()
             pendingWrites[url] = nil
         }
-        guard let dir = Self.userDirectory(userSub: userSub) else { return }
         try? fileManager.removeItem(at: dir)
     }
 
@@ -211,10 +252,18 @@ extension SnapshotStore {
             return
         }
 
-        // deleteAll clears the directory
+        // deleteAll clears the directory, and a write queued BEFORE deleteAll
+        // must not recreate any data afterwards (cancellation + tombstone).
+        await store.write(Fake(a: "bye", b: 7), kind: .profile, userSub: sub)
         await store.deleteAll(for: sub)
         if store.readSync(Fake.self, kind: .profile, userSub: sub) != nil {
             print("[SnapshotStore] self-check FAILED: deleteAll left data behind")
+            return
+        }
+        // Wait past the debounce window; the queued write must stay dead.
+        try? await Task.sleep(for: .milliseconds(400))
+        if store.readSync(Fake.self, kind: .profile, userSub: sub) != nil {
+            print("[SnapshotStore] self-check FAILED: queued write recreated data after deleteAll")
             return
         }
 
