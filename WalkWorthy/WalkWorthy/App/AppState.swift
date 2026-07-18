@@ -250,13 +250,14 @@ final class AppState: ObservableObject {
             currentProfile = Self.profile(from: snapshot.payload)
         }
 
+        let today = Self.isoDateFormatter.string(from: Self.logicalDate())
+
         if let snapshot: Snapshot<MoodStatusResponse> = SnapshotStore.shared.readSync(
-            MoodStatusResponse.self, kind: .moodStatus, userSub: userSub
+            MoodStatusResponse.self, kind: .moodStatus, userSub: userSub, dateSuffix: today
         ) {
             currentMoodStatus = snapshot.payload
         }
 
-        let today = Self.isoDateFormatter.string(from: Self.logicalDate())
         if let snapshot: Snapshot<DailyReflection> = SnapshotStore.shared.readSync(
             DailyReflection.self, kind: .dailyReflection, userSub: userSub, dateSuffix: today
         ) {
@@ -837,7 +838,11 @@ final class AppState: ObservableObject {
             currentMoodStatus = status
             lastMoodStatusFetch = Date()
             if let sub = authenticatedUserSub {
-                await SnapshotStore.shared.write(status, kind: .moodStatus, userSub: sub)
+                // Date-scoped: the check-in type is a time-of-day claim, so the
+                // snapshot's validity is day-bounded — a previous-day snapshot
+                // must not hydrate (prevents stale-card wrong-type submissions).
+                let today = Self.isoDateFormatter.string(from: Self.logicalDate())
+                await SnapshotStore.shared.write(status, kind: .moodStatus, userSub: sub, dateSuffix: today)
             }
         } catch {
             #if DEBUG
