@@ -138,6 +138,10 @@ final class AppState: ObservableObject {
         self.onboardingCompleted = false
 
         reloadUserScopedPreferences()
+
+        #if DEBUG
+        Task.detached { await SnapshotStore.runSelfCheck() }
+        #endif
     }
 
     func markOnboardingComplete() {
