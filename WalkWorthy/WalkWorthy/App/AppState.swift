@@ -106,7 +106,6 @@ final class AppState: ObservableObject {
         return f
     }()
     private static let reflectionDecoder = JSONDecoder()
-    private static let reflectionEncoder = JSONEncoder()
     private static let userScopedKeys: Set<String> = [
         StorageKey.onboardingCompleted,
         StorageKey.useProfilePersonalization,
@@ -249,6 +248,12 @@ final class AppState: ObservableObject {
             RemoteUserProfileResponse.self, kind: .profile, userSub: userSub
         ) {
             currentProfile = Self.profile(from: snapshot.payload)
+        }
+
+        if let snapshot: Snapshot<MoodStatusResponse> = SnapshotStore.shared.readSync(
+            MoodStatusResponse.self, kind: .moodStatus, userSub: userSub
+        ) {
+            currentMoodStatus = snapshot.payload
         }
 
         let today = Self.isoDateFormatter.string(from: Self.logicalDate())
@@ -831,6 +836,9 @@ final class AppState: ObservableObject {
             let status = try await apiClient.fetchMoodStatus()
             currentMoodStatus = status
             lastMoodStatusFetch = Date()
+            if let sub = authenticatedUserSub {
+                await SnapshotStore.shared.write(status, kind: .moodStatus, userSub: sub)
+            }
         } catch {
             #if DEBUG
             print("[AppState] Failed to load mood status: \(error)")
@@ -845,6 +853,10 @@ final class AppState: ObservableObject {
 
         let response = try await apiClient.submitMoodCheckIn(request)
         latestMoodResponse = response
+        // Intentionally do NOT write a nil snapshot here — the disk snapshot
+        // is the last-known server view and should stay until the async
+        // loadMoodStatus() below refreshes it. This keeps a cold launch mid-
+        // submit from rendering blank check-in cards.
         currentMoodStatus = nil
         // Invalidate the staleness window so the next `loadMoodStatus()` call
         // refetches instead of returning the now-outdated cached status.
