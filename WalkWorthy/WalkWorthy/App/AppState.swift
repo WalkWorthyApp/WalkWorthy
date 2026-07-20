@@ -100,6 +100,11 @@ final class AppState: ObservableObject {
     private let authSession: FirebaseAuthSession
     private var isObservingAuth = false
     private var reflectionFetchTask: Task<Void, Never>?
+    /// Background profile fetch spawned by the auth listener. The listener can
+    /// fire more than once per session (foreground, token refresh); each new
+    /// fire cancels the previous fetch so stale results never pile up or land
+    /// after a sign-out/account switch.
+    private var profileRefreshTask: Task<Void, Never>?
     /// Debounced profile PATCH. Cancelled on each `syncProfile` call and on
     /// sign-out so rapid edits collapse into a single network round-trip and
     /// stale writes never land after the user has signed out.
@@ -228,9 +233,14 @@ final class AppState: ObservableObject {
     /// sees the last in-memory value (nil on a cold launch). Called at
     /// sign-in and after auth state changes.
     func refreshProfileFromBackend() async {
-        guard isAuthenticated else { return }
+        guard isAuthenticated, let requestSub = authenticatedUserSub else { return }
         do {
             let response = try await apiClient.fetchUserProfile()
+            // User switched accounts while the fetch was in flight — discard.
+            // Applying the stale result would leak the previous user's PII into
+            // the new user's in-memory profile and on-disk snapshot.
+            guard authenticatedUserSub == requestSub else { return }
+            guard !Task.isCancelled else { return }
             if let response {
                 let profile = Self.profile(from: response)
                 currentProfile = profile
@@ -240,9 +250,7 @@ final class AppState: ObservableObject {
                 if !trimmedFirstName.isEmpty {
                     setHasCompletedProfileSetup(true)
                 }
-                if let sub = authenticatedUserSub {
-                    await SnapshotStore.shared.write(response, kind: .profile, userSub: sub)
-                }
+                await SnapshotStore.shared.write(response, kind: .profile, userSub: requestSub)
             } else {
                 currentProfile = nil
             }
@@ -418,9 +426,15 @@ final class AppState: ObservableObject {
                     // doesn't block on network round-trips.
                     if self.onboardingCompleted {
                         self.isCheckingAuth = false
-                        Task { @MainActor [weak self] in
+                        let expectedSub = self.authenticatedUserSub
+                        self.profileRefreshTask?.cancel()
+                        self.profileRefreshTask = Task { @MainActor [weak self] in
                             guard let self else { return }
                             await self.refreshProfileFromBackend()
+                            // Account switched while the fetch was in flight —
+                            // don't kick off a reflection fetch for the wrong
+                            // user's consent state.
+                            guard self.isAuthenticated, self.authenticatedUserSub == expectedSub else { return }
                             self.checkAndFetchDailyReflection()
                         }
                         return
@@ -433,10 +447,15 @@ final class AppState: ObservableObject {
                     // (design spec: instant launch > avoiding a brief
                     // OnboardingForm flash on fresh devices).
                     self.isCheckingAuth = false
-                    Task { @MainActor [weak self] in
+                    let expectedSub = self.authenticatedUserSub
+                    self.profileRefreshTask?.cancel()
+                    self.profileRefreshTask = Task { @MainActor [weak self] in
                         guard let self else { return }
                         await self.refreshProfileFromBackend()
-                        guard self.isAuthenticated else { return }
+                        // Account switched (or signed out) while the fetch was
+                        // in flight — never mark onboarding complete for a user
+                        // whose profile we didn't actually fetch.
+                        guard self.isAuthenticated, self.authenticatedUserSub == expectedSub else { return }
                         if self.currentProfile != nil {
                             self.markOnboardingComplete()
                         }
@@ -612,6 +631,8 @@ final class AppState: ObservableObject {
         // the backend has deleted the user.
         reflectionFetchTask?.cancel()
         reflectionFetchTask = nil
+        profileRefreshTask?.cancel()
+        profileRefreshTask = nil
         profileSyncTask?.cancel()
         profileSyncTask = nil
 
@@ -652,6 +673,8 @@ final class AppState: ObservableObject {
         // cancellation; nothing here blocks.
         reflectionFetchTask?.cancel()
         reflectionFetchTask = nil
+        profileRefreshTask?.cancel()
+        profileRefreshTask = nil
         profileSyncTask?.cancel()
         profileSyncTask = nil
 
