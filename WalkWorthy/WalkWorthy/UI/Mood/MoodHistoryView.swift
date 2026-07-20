@@ -616,7 +616,11 @@ struct MoodHistoryView: View {
                 daysToFetch = count
             case .thisMonth:
                 guard let startDate = isoDateFormatter.date(from: window.startDate) else {
-                    await MainActor.run { isLoading = false }
+                    await MainActor.run {
+                        if requestedRange == selectedRange && requestedOffset == periodOffset {
+                            isLoading = false
+                        }
+                    }
                     return
                 }
                 daysToFetch = daysInCurrentMonth(for: startDate)
@@ -633,14 +637,17 @@ struct MoodHistoryView: View {
             )
             let fetched = response.summaries
             await MainActor.run {
-                // Only display the response if the user is still on the window
-                // it was requested for — a stale response must not overwrite
-                // the grid the user is now looking at.
+                // Only touch view state if the user is still on the window this
+                // response was requested for — a stale response must not
+                // overwrite the grid, clear a newer fetch's error banner, or
+                // drop a newer fetch's spinner. Safe because every window
+                // change calls loadHistory(), so a newer fetch always owns the
+                // live window's state.
                 if requestedRange == selectedRange && requestedOffset == periodOffset {
                     summaries = fetched
+                    errorMessage = nil
+                    isLoading = false
                 }
-                errorMessage = nil
-                isLoading = false
             }
             // Only cache the default window so range-picker changes don't
             // overwrite the "instant launch" snapshot with a non-week view.
@@ -658,8 +665,13 @@ struct MoodHistoryView: View {
             #endif
 
             await MainActor.run {
-                errorMessage = errorDescription
-                isLoading = false
+                // Same staleness guard as the success path: a failed stale
+                // fetch must not paint an error banner over the window the
+                // user is now viewing.
+                if requestedRange == selectedRange && requestedOffset == periodOffset {
+                    errorMessage = errorDescription
+                    isLoading = false
+                }
             }
         }
     }
