@@ -63,8 +63,9 @@ actor SnapshotStore {
     private var writeGeneration: [URL: UInt64] = [:]
     /// Tombstones set by `deleteAll` so an in-flight write that already
     /// passed its cancellation check cannot recreate a deleted user's
-    /// directory. Cleared by the next `write` for that user (legitimate only
-    /// after a fresh sign-in).
+    /// directory. Only `beginSession(for:)` lifts a tombstone — `write()`
+    /// itself never clears one, so a queued/in-flight write from the
+    /// departed session can't resurrect the directory.
     private var deletedUsers: Set<String> = []
 
     init(fileManager: FileManager = .default) {
@@ -116,9 +117,6 @@ actor SnapshotStore {
         guard let url = Self.snapshotURL(kind: kind, userSub: userSub, dateSuffix: dateSuffix) else {
             return
         }
-        // A fresh write for this user makes any earlier deleteAll tombstone
-        // obsolete (the only legitimate post-delete write is a new sign-in).
-        deletedUsers.remove(userSub)
         let generation = (writeGeneration[url] ?? 0) &+ 1
         writeGeneration[url] = generation
         pendingWrites[url]?.cancel()
@@ -181,8 +179,8 @@ actor SnapshotStore {
     func deleteAll(for userSub: String) {
         // Tombstone first: an in-flight write that already passed its
         // cancellation check will see this in performWrite and abort instead
-        // of recreating the directory. Cleared by the next write() for this
-        // user (i.e. a fresh sign-in).
+        // of recreating the directory. Only beginSession(for:) lifts this
+        // tombstone (i.e. a fresh sign-in) — write() no longer clears it.
         deletedUsers.insert(userSub)
         guard let dir = Self.userDirectory(userSub: userSub) else { return }
         // Cancel any queued writes for this user so they can't recreate the
@@ -192,6 +190,14 @@ actor SnapshotStore {
             pendingWrites[url] = nil
         }
         try? fileManager.removeItem(at: dir)
+    }
+
+    /// Re-enables writes for a user after a fresh sign-in. deleteAll(for:)
+    /// tombstones the sub so queued/in-flight writes from the departed
+    /// session can't recreate the directory; only an explicit new session
+    /// may lift the tombstone.
+    func beginSession(for userSub: String) {
+        deletedUsers.remove(userSub)
     }
 
     // MARK: - Paths
@@ -266,6 +272,29 @@ extension SnapshotStore {
             print("[SnapshotStore] self-check FAILED: queued write recreated data after deleteAll")
             return
         }
+
+        // A brand-new write() call after deleteAll — with no beginSession —
+        // must also stay dead. write() no longer lifts the tombstone itself;
+        // only an explicit new session (beginSession) may.
+        await store.write(Fake(a: "ghost", b: 1), kind: .profile, userSub: sub)
+        try? await Task.sleep(for: .milliseconds(400))
+        if store.readSync(Fake.self, kind: .profile, userSub: sub) != nil {
+            print("[SnapshotStore] self-check FAILED: write after deleteAll resurrected data without beginSession")
+            return
+        }
+
+        // Simulate a fresh sign-in: beginSession lifts the tombstone, and a
+        // subsequent write for the same sub should succeed again.
+        await store.beginSession(for: sub)
+        await store.write(Fake(a: "reborn", b: 2), kind: .profile, userSub: sub)
+        try? await Task.sleep(for: .milliseconds(400))
+        guard let revived: Snapshot<Fake> = store.readSync(Fake.self, kind: .profile, userSub: sub),
+              revived.payload == Fake(a: "reborn", b: 2) else {
+            print("[SnapshotStore] self-check FAILED: write after beginSession did not persist")
+            await store.deleteAll(for: sub)
+            return
+        }
+        await store.deleteAll(for: sub)
 
         print("[SnapshotStore] self-check OK")
     }

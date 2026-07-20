@@ -627,6 +627,12 @@ final class AppState: ObservableObject {
             removeUserScopedDefaults(for: sub)
         }
 
+        // Remove all on-disk caches for the deleted user (legacy reflection
+        // keys + the SnapshotStore directory). Must run before
+        // authenticatedUserSub is cleared (via the auth listener observing
+        // the server-side deletion) since it needs the current sub.
+        clearOnDiskUserCaches()
+
         // Cancel any in-flight sync tasks so a stale PATCH doesn't land after
         // the backend has deleted the user.
         reflectionFetchTask?.cancel()
@@ -688,11 +694,12 @@ final class AppState: ObservableObject {
         moodLogFirstPage = []
         lastMoodStatusFetch = nil
 
-        // Remove all cached daily-reflection blobs for the outgoing user.
-        // The keys are scoped by Firebase sub so they're user-specific;
-        // clearing them eagerly prevents accidental reuse after a shared
-        // device is handed to someone else.
-        clearCachedReflectionsForCurrentUser()
+        // Remove all on-disk caches for the outgoing user (legacy reflection
+        // keys + the SnapshotStore directory). Scoped by Firebase sub so
+        // clearing eagerly prevents accidental reuse after a shared device is
+        // handed to someone else. Must run before setAuthenticatedUserSub(nil)
+        // (via the auth listener) since it needs the current sub.
+        clearOnDiskUserCaches()
 
         // Wipe any pending local reminders so the next account doesn't
         // inherit a stranger's notification schedule. The new user will
@@ -754,6 +761,10 @@ final class AppState: ObservableObject {
         do {
             let sub = try await authSession.currentUserSub()
             setAuthenticatedUserSub(sub)
+            // Lift any deleteAll tombstone from a prior session for this sub
+            // before hydrating — this is the one legitimate way a new
+            // session may resurrect on-disk snapshot writes.
+            await SnapshotStore.shared.beginSession(for: sub)
             hydrateFromSnapshots(userSub: sub)
         } catch {
             setAuthenticatedUserSub(nil)
@@ -1152,22 +1163,16 @@ final class AppState: ObservableObject {
         )
     }
 
-    /// Removes every cached daily-reflection key that belongs to the current
-    /// authenticated user. Called at sign-out so the next user on the same
-    /// device never sees a stranger's reflection. The matching key prefix
-    /// is `walkworthy.dailyReflection::<userSub>::`.
-    private func clearCachedReflectionsForCurrentUser() {
+    /// Removes every on-disk cache scoped to the current authenticated user —
+    /// the legacy UserDefaults reflection keys and the SnapshotStore
+    /// directory. Called at sign-out and account deletion so the next user on
+    /// this device never sees a stranger's data.
+    private func clearOnDiskUserCaches() {
         guard let userSub = authenticatedUserSub else { return }
         let prefix = "\(StorageKey.dailyReflectionPrefix)::\(userSub)::"
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
             defaults.removeObject(forKey: key)
         }
-        // deleteAll removes the WHOLE user snapshot directory (all kinds, not
-        // just the reflection), which is the intended sign-out posture — every
-        // on-disk snapshot for this user should be gone before another account
-        // can sign in on this device. Task 8 will rename this method to
-        // reflect its broader scope; not renamed here to keep this task's
-        // diff focused on the reflection cache migration.
         Task { await SnapshotStore.shared.deleteAll(for: userSub) }
     }
 
