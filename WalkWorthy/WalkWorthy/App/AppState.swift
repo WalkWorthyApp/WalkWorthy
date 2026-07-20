@@ -78,6 +78,13 @@ final class AppState: ObservableObject {
     /// First page (up to 14 items) of the mood check-in log, snapshotted so
     /// Settings → Check-in Log renders without a `ProgressView` on cold launch.
     /// Pages 2+ are not cached — they still fetch on demand.
+    ///
+    /// Unlike the other snapshot-backed properties, this is NOT hydrated by
+    /// `hydrateFromSnapshots` — it's the largest snapshot (check-ins carry
+    /// full AI response text) and backs a Settings deep-dive screen most
+    /// sessions never open, so `MoodLogView.loadFirstPage()` lazily reads it
+    /// from `SnapshotStore` on first visit instead of paying the sync decode
+    /// on the cold-launch path.
     @Published var moodLogFirstPage: [MoodCheckIn] = []
 
     // MARK: - Journal State
@@ -283,14 +290,9 @@ final class AppState: ObservableObject {
             weekSummary = snapshot.payload
         }
 
-        // Not date-scoped: the check-in log is append-only history, so a
-        // day-old first page is still valid; MoodLogView refetches on appear
-        // and nothing submittable derives from this snapshot.
-        if let snapshot: Snapshot<[MoodCheckIn]> = SnapshotStore.shared.readSync(
-            [MoodCheckIn].self, kind: .moodLogFirstPage, userSub: userSub
-        ) {
-            moodLogFirstPage = snapshot.payload
-        }
+        // `moodLogFirstPage` is deliberately NOT hydrated here — see its
+        // doc comment; MoodLogView lazily reads that snapshot on first visit
+        // to keep the biggest decode off the launch path.
     }
 
     /// Maps an `age range` bucket (e.g. "25-34") to the midpoint so the
