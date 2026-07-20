@@ -425,21 +425,29 @@ final class AppState: ObservableObject {
                         }
                         return
                     }
-                    // Slow path: first sign-in or cleared app data. Need the
-                    // backend profile to decide onboarding vs. main app; blocking
-                    // here prevents an OnboardingForm flash for returning users
-                    // whose scoped pref is missing.
-                    await self.refreshProfileFromBackend()
-                    if self.currentProfile != nil {
-                        self.markOnboardingComplete()
+                    // No local onboarding pref (first sign-in on this device or
+                    // cleared app data). Don't block the splash on the profile
+                    // fetch — show OnboardingForm immediately; if the fetch
+                    // confirms a returning user, markOnboardingComplete() flips
+                    // RootView to MainTabView mid-session. Deliberate trade-off
+                    // (design spec: instant launch > avoiding a brief
+                    // OnboardingForm flash on fresh devices).
+                    self.isCheckingAuth = false
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        await self.refreshProfileFromBackend()
+                        guard self.isAuthenticated else { return }
+                        if self.currentProfile != nil {
+                            self.markOnboardingComplete()
+                        }
+                        self.checkAndFetchDailyReflection()
                     }
-                    self.checkAndFetchDailyReflection()
                 } else {
                     self.isAuthenticated = false
                     self.needsEmailVerification = false
                     self.setAuthenticatedUserSub(nil)
+                    self.isCheckingAuth = false
                 }
-                self.isCheckingAuth = false
             }
         }
         // Fallback: unblock UI if Firebase hasn't responded within 10 seconds.
