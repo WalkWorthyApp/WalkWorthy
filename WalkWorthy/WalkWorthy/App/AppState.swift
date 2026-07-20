@@ -625,13 +625,13 @@ final class AppState: ObservableObject {
         // reminder prefs). The account is gone — these keys should not linger.
         if let sub = departingSub {
             removeUserScopedDefaults(for: sub)
+            // Remove all on-disk caches for the deleted user (legacy
+            // reflection keys + the SnapshotStore directory). Uses the sub
+            // captured BEFORE the backend await — the auth listener may have
+            // already observed the server-side deletion and nil'd
+            // authenticatedUserSub by now.
+            clearOnDiskUserCaches(for: sub)
         }
-
-        // Remove all on-disk caches for the deleted user (legacy reflection
-        // keys + the SnapshotStore directory). Must run before
-        // authenticatedUserSub is cleared (via the auth listener observing
-        // the server-side deletion) since it needs the current sub.
-        clearOnDiskUserCaches()
 
         // Cancel any in-flight sync tasks so a stale PATCH doesn't land after
         // the backend has deleted the user.
@@ -697,9 +697,12 @@ final class AppState: ObservableObject {
         // Remove all on-disk caches for the outgoing user (legacy reflection
         // keys + the SnapshotStore directory). Scoped by Firebase sub so
         // clearing eagerly prevents accidental reuse after a shared device is
-        // handed to someone else. Must run before setAuthenticatedUserSub(nil)
-        // (via the auth listener) since it needs the current sub.
-        clearOnDiskUserCaches()
+        // handed to someone else. Capture the sub locally: if it's already
+        // nil (never authenticated), skip cleanup but continue the rest of
+        // the sign-out teardown as before.
+        if let departingSub = authenticatedUserSub {
+            clearOnDiskUserCaches(for: departingSub)
+        }
 
         // Wipe any pending local reminders so the next account doesn't
         // inherit a stranger's notification schedule. The new user will
@@ -1163,16 +1166,20 @@ final class AppState: ObservableObject {
         )
     }
 
-    /// Removes every on-disk cache scoped to the current authenticated user —
-    /// the legacy UserDefaults reflection keys and the SnapshotStore
-    /// directory. Called at sign-out and account deletion so the next user on
-    /// this device never sees a stranger's data.
-    private func clearOnDiskUserCaches() {
-        guard let userSub = authenticatedUserSub else { return }
+    /// Removes every on-disk cache scoped to the given user — the legacy
+    /// UserDefaults reflection keys and the SnapshotStore directory. Called
+    /// at sign-out and account deletion so the next user on this device
+    /// never sees a stranger's data. Takes the sub explicitly (captured by
+    /// the caller before any suspension point) so a concurrent auth-listener
+    /// nil-ing of `authenticatedUserSub` can't turn cleanup into a no-op.
+    private func clearOnDiskUserCaches(for userSub: String) {
         let prefix = "\(StorageKey.dailyReflectionPrefix)::\(userSub)::"
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
             defaults.removeObject(forKey: key)
         }
+        // Ordering assumption: this actor job is enqueued immediately at
+        // sign-out, seconds before any re-sign-in's beginSession could run;
+        // worst case is in-memory-only and self-heals on relaunch.
         Task { await SnapshotStore.shared.deleteAll(for: userSub) }
     }
 
