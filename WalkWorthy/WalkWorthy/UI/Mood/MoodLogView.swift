@@ -317,6 +317,10 @@ private struct MoodLogContent: View {
             hasMore = true
         }
 
+        // Capture the account that owns this fetch before the await, so a
+        // sign-out + another sign-in mid-fetch can't persist this user's log
+        // into the next user's cache (publishMoodLogFirstPage re-checks it).
+        let requestSub = appState.authenticatedUserSub
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -332,11 +336,10 @@ private struct MoodLogContent: View {
             loadedPages = 1
 
             // Publish to AppState + snapshot so the next cold launch renders
-            // instantly.
+            // instantly. Guarded on the captured account.
             let page = Array(response.checkIns.prefix(Self.pageSize))
-            appState.moodLogFirstPage = page
-            if let sub = appState.authenticatedUserSub {
-                await SnapshotStore.shared.write(page, kind: .moodLogFirstPage, userSub: sub)
+            if let requestSub {
+                await appState.publishMoodLogFirstPage(page, requestSub: requestSub)
             }
         } catch {
             #if DEBUG

@@ -607,6 +607,10 @@ struct MoodHistoryView: View {
         let requestedRange = selectedRange
         let requestedOffset = periodOffset
         let window = window(for: requestedRange, offset: requestedOffset)
+        // Capture the account that owns this fetch, too. If it changes before
+        // the response lands (sign-out + another sign-in), publishWeekSummary
+        // drops the result so one user's summary can't land in another's cache.
+        let requestSub = appState.authenticatedUserSub
 
         do {
             // Compute days to fetch based on the requested range
@@ -652,11 +656,11 @@ struct MoodHistoryView: View {
             // Only cache the default window so range-picker changes don't
             // overwrite the "instant launch" snapshot with a non-week view.
             // Guarded on the CAPTURED window, not live @State — see above.
-            if requestedRange == .days(7) && requestedOffset == 0 {
-                await MainActor.run { appState.weekSummary = fetched }
-                if let sub = appState.authenticatedUserSub {
-                    await SnapshotStore.shared.write(fetched, kind: .weekSummary, userSub: sub)
-                }
+            // publishWeekSummary re-checks the account so an in-flight fetch
+            // from a signed-out user can't persist into the next user's cache.
+            if requestedRange == .days(7) && requestedOffset == 0,
+               let requestSub {
+                await appState.publishWeekSummary(fetched, requestSub: requestSub)
             }
         } catch {
             let errorDescription = error.localizedDescription

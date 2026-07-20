@@ -828,7 +828,7 @@ final class AppState: ObservableObject {
     }
 
     private func sendProfileUpdate(_ profile: OnboardingProfile) async {
-        guard isAuthenticated else { return }
+        guard isAuthenticated, let requestSub = authenticatedUserSub else { return }
         let trimmedFirstName = profile.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOccupation = profile.occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = profile.major.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -860,8 +860,11 @@ final class AppState: ObservableObject {
             // optimistically by `updateProfile()`, and this debounced PATCH
             // may land after newer in-memory edits.
             let updated = try await apiClient.updateUserProfile(payload)
-            if let sub = authenticatedUserSub, let updated {
-                await SnapshotStore.shared.write(updated, kind: .profile, userSub: sub)
+            // User switched accounts while the PATCH was in flight — don't
+            // persist this user's merged profile into the new user's snapshot.
+            guard authenticatedUserSub == requestSub else { return }
+            if let updated {
+                await SnapshotStore.shared.write(updated, kind: .profile, userSub: requestSub)
             }
         } catch {
             #if DEBUG
@@ -904,7 +907,7 @@ final class AppState: ObservableObject {
     private static let moodStatusStaleness: TimeInterval = 60
 
     func loadMoodStatus() async {
-        guard isAuthenticated else { return }
+        guard isAuthenticated, let requestSub = authenticatedUserSub else { return }
         if let lastFetch = lastMoodStatusFetch,
            Date().timeIntervalSince(lastFetch) < Self.moodStatusStaleness {
             return
@@ -912,15 +915,17 @@ final class AppState: ObservableObject {
 
         do {
             let status = try await apiClient.fetchMoodStatus()
+            // User switched accounts while the fetch was in flight — discard.
+            // Applying the stale result would render the previous user's mood
+            // in the new user's session and persist it into their snapshot.
+            guard authenticatedUserSub == requestSub else { return }
             currentMoodStatus = status
             lastMoodStatusFetch = Date()
-            if let sub = authenticatedUserSub {
-                // Date-scoped: the check-in type is a time-of-day claim, so the
-                // snapshot's validity is day-bounded — a previous-day snapshot
-                // must not hydrate (prevents stale-card wrong-type submissions).
-                let today = Self.isoDateFormatter.string(from: Self.logicalDate())
-                await SnapshotStore.shared.write(status, kind: .moodStatus, userSub: sub, dateSuffix: today)
-            }
+            // Date-scoped: the check-in type is a time-of-day claim, so the
+            // snapshot's validity is day-bounded — a previous-day snapshot
+            // must not hydrate (prevents stale-card wrong-type submissions).
+            let today = Self.isoDateFormatter.string(from: Self.logicalDate())
+            await SnapshotStore.shared.write(status, kind: .moodStatus, userSub: requestSub, dateSuffix: today)
         } catch {
             #if DEBUG
             print("[AppState] Failed to load mood status: \(error)")
@@ -962,6 +967,26 @@ final class AppState: ObservableObject {
         guard isAuthenticated else { throw MoodError.notAuthenticated }
 
         return try await apiClient.fetchMoodLogFullHistory(days: days, endDate: endDate)
+    }
+
+    /// Publishes a freshly fetched 7-day summary and snapshots it — but only
+    /// if the account that requested the fetch is still signed in. The caller
+    /// (MoodHistoryView) captures `requestSub` before its fetch await; a
+    /// mismatch means the user switched accounts mid-fetch, so the stale
+    /// result must be dropped rather than persisted into the new user's
+    /// `@Published` state and on-disk snapshot.
+    func publishWeekSummary(_ summaries: [DailyMoodSummary], requestSub: String) async {
+        guard authenticatedUserSub == requestSub else { return }
+        weekSummary = summaries
+        await SnapshotStore.shared.write(summaries, kind: .weekSummary, userSub: requestSub)
+    }
+
+    /// Publishes a freshly fetched mood-log first page and snapshots it, with
+    /// the same cross-account guard as `publishWeekSummary(_:requestSub:)`.
+    func publishMoodLogFirstPage(_ page: [MoodCheckIn], requestSub: String) async {
+        guard authenticatedUserSub == requestSub else { return }
+        moodLogFirstPage = page
+        await SnapshotStore.shared.write(page, kind: .moodLogFirstPage, userSub: requestSub)
     }
 
     func clearMoodState() {
@@ -1201,9 +1226,13 @@ final class AppState: ObservableObject {
             return
         }
         reflectionFetchTask?.cancel()
+        let requestSub = authenticatedUserSub
         reflectionFetchTask = Task { @MainActor in
             do {
                 let result = try await apiClient.fetchDailyReflection()
+                // User switched accounts mid-fetch — applying A's reflection
+                // would render it in B's session and persist it to B's snapshot.
+                guard self.authenticatedUserSub == requestSub else { return }
                 self.dailyReflection = result
                 await self.cacheReflection(result)
                 Analytics.logEvent("reflection_viewed", parameters: ["source": "network"])
