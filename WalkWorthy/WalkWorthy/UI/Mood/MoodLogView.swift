@@ -128,7 +128,11 @@ private struct MoodLogContent: View {
         .navigationTitle("Check-in log")
         .toolbarTitleDisplayMode(.inline)
         .task {
-            if checkIns.isEmpty && !isLoading {
+            // Re-running .task on tab revisit is fine for a fresh first page,
+            // but must not clobber a multi-page session built up via
+            // loadOlder() — only auto-refetch page 1 when the user hasn't
+            // paged past it yet.
+            if oldestLoadedDate == nil || checkIns.count <= Self.pageSize {
                 await loadFirstPage()
             }
         }
@@ -282,6 +286,14 @@ private struct MoodLogContent: View {
     // MARK: Loading
 
     private func loadFirstPage() async {
+        // Seed from the last-known snapshot so the ProgressView doesn't flash
+        // on cold launch. The fetch below then replaces the whole first page.
+        if checkIns.isEmpty && !appState.moodLogFirstPage.isEmpty {
+            checkIns = appState.moodLogFirstPage
+            oldestLoadedDate = Self.dateString(daysAgo: Self.pageSize)
+            hasMore = true
+        }
+
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -293,6 +305,14 @@ private struct MoodLogContent: View {
             // be older data in Firestore — only mark hasMore=false when user has paged back
             // and explicitly gets an empty response.
             hasMore = true
+
+            // Publish to AppState + snapshot so the next cold launch renders
+            // instantly.
+            let page = Array(response.checkIns.prefix(Self.pageSize))
+            appState.moodLogFirstPage = page
+            if let sub = appState.authenticatedUserSub {
+                await SnapshotStore.shared.write(page, kind: .moodLogFirstPage, userSub: sub)
+            }
         } catch {
             #if DEBUG
             print("[MoodLogView] loadFirstPage failed: \(error)")

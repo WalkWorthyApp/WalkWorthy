@@ -75,6 +75,10 @@ final class AppState: ObservableObject {
     /// default (last 7 days ending today) window is cached — range picker
     /// changes always fetch fresh.
     @Published var weekSummary: [DailyMoodSummary] = []
+    /// First page (up to 14 items) of the mood check-in log, snapshotted so
+    /// Settings → Check-in Log renders without a `ProgressView` on cold launch.
+    /// Pages 2+ are not cached — they still fetch on demand.
+    @Published var moodLogFirstPage: [MoodCheckIn] = []
 
     // MARK: - Journal State
     @Published var journalEntries: [JournalEntry] = []
@@ -277,6 +281,15 @@ final class AppState: ObservableObject {
             [DailyMoodSummary].self, kind: .weekSummary, userSub: userSub
         ) {
             weekSummary = snapshot.payload
+        }
+
+        // Not date-scoped: the check-in log is append-only history, so a
+        // day-old first page is still valid; MoodLogView refetches on appear
+        // and nothing submittable derives from this snapshot.
+        if let snapshot: Snapshot<[MoodCheckIn]> = SnapshotStore.shared.readSync(
+            [MoodCheckIn].self, kind: .moodLogFirstPage, userSub: userSub
+        ) {
+            moodLogFirstPage = snapshot.payload
         }
     }
 
@@ -639,6 +652,7 @@ final class AppState: ObservableObject {
         latestMoodResponse = nil
         currentMoodStatus = nil
         weekSummary = []
+        moodLogFirstPage = []
         lastMoodStatusFetch = nil
 
         // Remove all cached daily-reflection blobs for the outgoing user.
@@ -908,6 +922,7 @@ final class AppState: ObservableObject {
         latestMoodResponse = nil
         dailyReflection = nil
         weekSummary = []
+        moodLogFirstPage = []
         lastMoodStatusFetch = nil
     }
 

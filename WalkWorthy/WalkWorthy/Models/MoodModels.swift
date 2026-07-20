@@ -110,7 +110,11 @@ enum MoodLevel: String, Codable, CaseIterable {
 
 // MARK: - Mood Spectrum Data
 
-struct MoodSpectrumData: Codable, Equatable {
+/// Marked `nonisolated` because the project defaults actor isolation to
+/// `@MainActor` (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`); without this,
+/// `MoodCheckIn.moodLevelEnum` (also `nonisolated`, see below) can't call
+/// this type's `moodLevelEnum` computed property from a nonisolated context.
+nonisolated struct MoodSpectrumData: Codable, Equatable {
     let moodScore: Int           // 1–10
     let moodLevel: String        // matches MoodLevel.rawValue, derived server-side
     let emotionTags: [String]    // selected emotion words
@@ -152,14 +156,26 @@ struct MoodCheckInResponse: Codable, Equatable {
     let isExisting: Bool?
 }
 
-struct AIEncouragementResponse: Codable, Equatable {
+/// Marked `nonisolated` because the project defaults actor isolation to
+/// `SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`; without this, `MoodCheckIn`'s
+/// (also `nonisolated`, see below) synthesized `Equatable` conformance can't
+/// use this type's main-actor-isolated `Equatable` conformance from a
+/// nonisolated context.
+nonisolated struct AIEncouragementResponse: Codable, Equatable {
     let message: String
     let verseRef: String
     let verseText: String
     let translation: String
 }
 
-struct MoodCheckIn: Codable, Identifiable, Equatable {
+/// Marked `nonisolated` because the project defaults actor isolation to
+/// `@MainActor` (`SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor`); without this,
+/// the type's `Codable` conformance would be main-actor-isolated, which
+/// breaks its use (via `[MoodCheckIn]`) as the `T: Codable & Sendable`
+/// payload for the deliberately off-main-actor `SnapshotStore.readSync`/
+/// `write` (mirrors the same annotation on `MoodStatusResponse`/
+/// `DailyReflection` below).
+nonisolated struct MoodCheckIn: Codable, Identifiable, Equatable {
     let id: String
     let checkInType: String
     let timestamp: String
