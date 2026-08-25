@@ -72,21 +72,30 @@ struct MoodHistoryView: View {
     }
 
     // Compute the start and end date for the current window.
+    private var currentWindow: (startDate: String, endDate: String) {
+        window(for: selectedRange, offset: periodOffset)
+    }
+
+    // Compute the start and end date for an explicit range + offset. Split out
+    // from `currentWindow` so `loadHistoryAsync` can derive the request window
+    // from values captured BEFORE its first await — reading live @State after
+    // the await would let a mid-flight range-picker change redirect the
+    // response into the wrong window.
     // All Calendar math guards against nil — non-Gregorian calendars (Japanese,
     // Buddhist) and DST edges can return nil from `calendar.date(byAdding:)`
     // and `calendar.range(of:)`. Fall back to today's window on failure.
-    private var currentWindow: (startDate: String, endDate: String) {
+    private func window(for range: DateRangeSelection, offset: Int) -> (startDate: String, endDate: String) {
         let calendar = Calendar.current
         let today = Date()
         let todayString = isoDateFormatter.string(from: today)
 
-        switch selectedRange {
+        switch range {
         case .days(let count):
             // endDate = today shifted by (offset * count) days
             // startDate = endDate minus (count - 1) days
             guard let endDate = calendar.date(
                 byAdding: .day,
-                value: periodOffset * count,
+                value: offset * count,
                 to: today
             ) else {
                 return (todayString, todayString)
@@ -106,7 +115,7 @@ struct MoodHistoryView: View {
             // Shift by 'offset' whole calendar months
             guard let targetMonth = calendar.date(
                 byAdding: .month,
-                value: periodOffset,
+                value: offset,
                 to: today
             ) else {
                 return (todayString, todayString)
@@ -208,6 +217,13 @@ struct MoodHistoryView: View {
             }
         }
         .onAppear {
+            // Seed the week grid from the last-known snapshot before the
+            // network call so cold launch renders bars instantly. Only for
+            // the default (7-day, offset 0) window — other windows always
+            // fetch fresh.
+            if selectedRange == .days(7) && periodOffset == 0 && summaries.isEmpty {
+                summaries = appState.weekSummary
+            }
             loadHistory()
             Task { await appState.loadMoodStatus() }
         }
@@ -583,35 +599,68 @@ struct MoodHistoryView: View {
     }
 
     private func loadHistoryAsync() async {
+        // Capture the request window BEFORE the first await. The @State values
+        // can change mid-flight (user taps the range picker while a fetch is
+        // in the air); re-reading them after the await would let a stale
+        // month-sized response pass the "default window" guard below and
+        // pollute the weekSummary cache with non-week data.
+        let requestedRange = selectedRange
+        let requestedOffset = periodOffset
+        let window = window(for: requestedRange, offset: requestedOffset)
+        // Capture the account that owns this fetch, too. If it changes before
+        // the response lands (sign-out + another sign-in), publishWeekSummary
+        // drops the result so one user's summary can't land in another's cache.
+        let requestSub = appState.authenticatedUserSub
+
         do {
-            // Compute days to fetch based on selected range
+            // Compute days to fetch based on the requested range
             let daysToFetch: Int
-            switch selectedRange {
+            switch requestedRange {
             case .days(let count):
                 daysToFetch = count
             case .thisMonth:
-                let window = currentWindow
                 guard let startDate = isoDateFormatter.date(from: window.startDate) else {
-                    await MainActor.run { isLoading = false }
+                    await MainActor.run {
+                        if requestedRange == selectedRange && requestedOffset == periodOffset {
+                            isLoading = false
+                        }
+                    }
                     return
                 }
                 daysToFetch = daysInCurrentMonth(for: startDate)
             }
 
-            let window = currentWindow
             // Only pass explicit bounds when navigating away from the current period
-            let startDate: String? = periodOffset == 0 ? nil : window.startDate
-            let endDate: String? = periodOffset == 0 ? nil : window.endDate
+            let startDate: String? = requestedOffset == 0 ? nil : window.startDate
+            let endDate: String? = requestedOffset == 0 ? nil : window.endDate
 
             let response = try await appState.loadMoodHistory(
                 days: daysToFetch,
                 startDate: startDate,
                 endDate: endDate
             )
+            let fetched = response.summaries
             await MainActor.run {
-                summaries = response.summaries
-                errorMessage = nil
-                isLoading = false
+                // Only touch view state if the user is still on the window this
+                // response was requested for — a stale response must not
+                // overwrite the grid, clear a newer fetch's error banner, or
+                // drop a newer fetch's spinner. Safe because every window
+                // change calls loadHistory(), so a newer fetch always owns the
+                // live window's state.
+                if requestedRange == selectedRange && requestedOffset == periodOffset {
+                    summaries = fetched
+                    errorMessage = nil
+                    isLoading = false
+                }
+            }
+            // Only cache the default window so range-picker changes don't
+            // overwrite the "instant launch" snapshot with a non-week view.
+            // Guarded on the CAPTURED window, not live @State — see above.
+            // publishWeekSummary re-checks the account so an in-flight fetch
+            // from a signed-out user can't persist into the next user's cache.
+            if requestedRange == .days(7) && requestedOffset == 0,
+               let requestSub {
+                await appState.publishWeekSummary(fetched, requestSub: requestSub)
             }
         } catch {
             let errorDescription = error.localizedDescription
@@ -620,8 +669,13 @@ struct MoodHistoryView: View {
             #endif
 
             await MainActor.run {
-                errorMessage = errorDescription
-                isLoading = false
+                // Same staleness guard as the success path: a failed stale
+                // fetch must not paint an error banner over the window the
+                // user is now viewing.
+                if requestedRange == selectedRange && requestedOffset == periodOffset {
+                    errorMessage = errorDescription
+                    isLoading = false
+                }
             }
         }
     }

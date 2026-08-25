@@ -70,6 +70,22 @@ final class AppState: ObservableObject {
     @Published var currentMoodStatus: MoodStatusResponse?
     @Published var latestMoodResponse: MoodCheckInResponse?
     @Published var dailyReflection: DailyReflection?
+    /// Last-known 7-day mood summary for the current user. Snapshotted so the
+    /// MoodHistoryView week grid renders instantly on cold launch. Only the
+    /// default (last 7 days ending today) window is cached — range picker
+    /// changes always fetch fresh.
+    @Published var weekSummary: [DailyMoodSummary] = []
+    /// First page (up to 14 items) of the mood check-in log, snapshotted so
+    /// Settings → Check-in Log renders without a `ProgressView` on cold launch.
+    /// Pages 2+ are not cached — they still fetch on demand.
+    ///
+    /// Unlike the other snapshot-backed properties, this is NOT hydrated by
+    /// `hydrateFromSnapshots` — it's the largest snapshot (check-ins carry
+    /// full AI response text) and backs a Settings deep-dive screen most
+    /// sessions never open, so `MoodLogView.loadFirstPage()` lazily reads it
+    /// from `SnapshotStore` on first visit instead of paying the sync decode
+    /// on the cold-launch path.
+    @Published var moodLogFirstPage: [MoodCheckIn] = []
 
     // MARK: - Journal State
     @Published var journalEntries: [JournalEntry] = []
@@ -84,6 +100,11 @@ final class AppState: ObservableObject {
     private let authSession: FirebaseAuthSession
     private var isObservingAuth = false
     private var reflectionFetchTask: Task<Void, Never>?
+    /// Background profile fetch spawned by the auth listener. The listener can
+    /// fire more than once per session (foreground, token refresh); each new
+    /// fire cancels the previous fetch so stale results never pile up or land
+    /// after a sign-out/account switch.
+    private var profileRefreshTask: Task<Void, Never>?
     /// Debounced profile PATCH. Cancelled on each `syncProfile` call and on
     /// sign-out so rapid edits collapse into a single network round-trip and
     /// stale writes never land after the user has signed out.
@@ -106,7 +127,6 @@ final class AppState: ObservableObject {
         return f
     }()
     private static let reflectionDecoder = JSONDecoder()
-    private static let reflectionEncoder = JSONEncoder()
     private static let userScopedKeys: Set<String> = [
         StorageKey.onboardingCompleted,
         StorageKey.useProfilePersonalization,
@@ -138,6 +158,10 @@ final class AppState: ObservableObject {
         self.onboardingCompleted = false
 
         reloadUserScopedPreferences()
+
+        #if DEBUG
+        Task.detached { await SnapshotStore.runSelfCheck() }
+        #endif
     }
 
     func markOnboardingComplete() {
@@ -209,9 +233,14 @@ final class AppState: ObservableObject {
     /// sees the last in-memory value (nil on a cold launch). Called at
     /// sign-in and after auth state changes.
     func refreshProfileFromBackend() async {
-        guard isAuthenticated else { return }
+        guard isAuthenticated, let requestSub = authenticatedUserSub else { return }
         do {
             let response = try await apiClient.fetchUserProfile()
+            // User switched accounts while the fetch was in flight — discard.
+            // Applying the stale result would leak the previous user's PII into
+            // the new user's in-memory profile and on-disk snapshot.
+            guard authenticatedUserSub == requestSub else { return }
+            guard !Task.isCancelled else { return }
             if let response {
                 let profile = Self.profile(from: response)
                 currentProfile = profile
@@ -221,6 +250,7 @@ final class AppState: ObservableObject {
                 if !trimmedFirstName.isEmpty {
                     setHasCompletedProfileSetup(true)
                 }
+                await SnapshotStore.shared.write(response, kind: .profile, userSub: requestSub)
             } else {
                 currentProfile = nil
             }
@@ -229,6 +259,48 @@ final class AppState: ObservableObject {
             print("[AppState] Failed to fetch profile from backend: \(error)")
             #endif
         }
+    }
+
+    /// Synchronously hydrates server-backed @Published properties from the
+    /// on-disk SnapshotStore so views render instantly on sign-in. Called
+    /// from `refreshAuthenticatedUser` before any network fetch. Per-property
+    /// hydration is best-effort: a missing/corrupt snapshot leaves the current
+    /// in-memory value untouched, so the existing async fetch path still fills
+    /// it in without regression.
+    private func hydrateFromSnapshots(userSub: String) {
+        if let snapshot: Snapshot<RemoteUserProfileResponse> = SnapshotStore.shared.readSync(
+            RemoteUserProfileResponse.self, kind: .profile, userSub: userSub
+        ) {
+            currentProfile = Self.profile(from: snapshot.payload)
+        }
+
+        let today = Self.isoDateFormatter.string(from: Self.logicalDate())
+
+        if let snapshot: Snapshot<MoodStatusResponse> = SnapshotStore.shared.readSync(
+            MoodStatusResponse.self, kind: .moodStatus, userSub: userSub, dateSuffix: today
+        ) {
+            currentMoodStatus = snapshot.payload
+        }
+
+        if let snapshot: Snapshot<DailyReflection> = SnapshotStore.shared.readSync(
+            DailyReflection.self, kind: .dailyReflection, userSub: userSub, dateSuffix: today
+        ) {
+            dailyReflection = snapshot.payload
+        }
+
+        // Not date-scoped: a day-old week grid is still a valid approximation
+        // of the week and the view refetches immediately on appear; unlike
+        // moodStatus, nothing actionable/submittable derives from a stale
+        // summary.
+        if let snapshot: Snapshot<[DailyMoodSummary]> = SnapshotStore.shared.readSync(
+            [DailyMoodSummary].self, kind: .weekSummary, userSub: userSub
+        ) {
+            weekSummary = snapshot.payload
+        }
+
+        // `moodLogFirstPage` is deliberately NOT hydrated here — see its
+        // doc comment; MoodLogView lazily reads that snapshot on first visit
+        // to keep the biggest decode off the launch path.
     }
 
     /// Maps an `age range` bucket (e.g. "25-34") to the midpoint so the
@@ -354,28 +426,47 @@ final class AppState: ObservableObject {
                     // doesn't block on network round-trips.
                     if self.onboardingCompleted {
                         self.isCheckingAuth = false
-                        Task { @MainActor [weak self] in
+                        let expectedSub = self.authenticatedUserSub
+                        self.profileRefreshTask?.cancel()
+                        self.profileRefreshTask = Task { @MainActor [weak self] in
                             guard let self else { return }
                             await self.refreshProfileFromBackend()
+                            // Account switched while the fetch was in flight —
+                            // don't kick off a reflection fetch for the wrong
+                            // user's consent state.
+                            guard self.isAuthenticated, self.authenticatedUserSub == expectedSub else { return }
                             self.checkAndFetchDailyReflection()
                         }
                         return
                     }
-                    // Slow path: first sign-in or cleared app data. Need the
-                    // backend profile to decide onboarding vs. main app; blocking
-                    // here prevents an OnboardingForm flash for returning users
-                    // whose scoped pref is missing.
-                    await self.refreshProfileFromBackend()
-                    if self.currentProfile != nil {
-                        self.markOnboardingComplete()
+                    // No local onboarding pref (first sign-in on this device or
+                    // cleared app data). Don't block the splash on the profile
+                    // fetch — show OnboardingForm immediately; if the fetch
+                    // confirms a returning user, markOnboardingComplete() flips
+                    // RootView to MainTabView mid-session. Deliberate trade-off
+                    // (design spec: instant launch > avoiding a brief
+                    // OnboardingForm flash on fresh devices).
+                    self.isCheckingAuth = false
+                    let expectedSub = self.authenticatedUserSub
+                    self.profileRefreshTask?.cancel()
+                    self.profileRefreshTask = Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        await self.refreshProfileFromBackend()
+                        // Account switched (or signed out) while the fetch was
+                        // in flight — never mark onboarding complete for a user
+                        // whose profile we didn't actually fetch.
+                        guard self.isAuthenticated, self.authenticatedUserSub == expectedSub else { return }
+                        if self.currentProfile != nil {
+                            self.markOnboardingComplete()
+                        }
+                        self.checkAndFetchDailyReflection()
                     }
-                    self.checkAndFetchDailyReflection()
                 } else {
                     self.isAuthenticated = false
                     self.needsEmailVerification = false
                     self.setAuthenticatedUserSub(nil)
+                    self.isCheckingAuth = false
                 }
-                self.isCheckingAuth = false
             }
         }
         // Fallback: unblock UI if Firebase hasn't responded within 10 seconds.
@@ -534,12 +625,20 @@ final class AppState: ObservableObject {
         // reminder prefs). The account is gone — these keys should not linger.
         if let sub = departingSub {
             removeUserScopedDefaults(for: sub)
+            // Remove all on-disk caches for the deleted user (legacy
+            // reflection keys + the SnapshotStore directory). Uses the sub
+            // captured BEFORE the backend await — the auth listener may have
+            // already observed the server-side deletion and nil'd
+            // authenticatedUserSub by now.
+            clearOnDiskUserCaches(for: sub)
         }
 
         // Cancel any in-flight sync tasks so a stale PATCH doesn't land after
         // the backend has deleted the user.
         reflectionFetchTask?.cancel()
         reflectionFetchTask = nil
+        profileRefreshTask?.cancel()
+        profileRefreshTask = nil
         profileSyncTask?.cancel()
         profileSyncTask = nil
 
@@ -580,6 +679,8 @@ final class AppState: ObservableObject {
         // cancellation; nothing here blocks.
         reflectionFetchTask?.cancel()
         reflectionFetchTask = nil
+        profileRefreshTask?.cancel()
+        profileRefreshTask = nil
         profileSyncTask?.cancel()
         profileSyncTask = nil
 
@@ -589,13 +690,19 @@ final class AppState: ObservableObject {
         dailyReflection = nil
         latestMoodResponse = nil
         currentMoodStatus = nil
+        weekSummary = []
+        moodLogFirstPage = []
         lastMoodStatusFetch = nil
 
-        // Remove all cached daily-reflection blobs for the outgoing user.
-        // The keys are scoped by Firebase sub so they're user-specific;
-        // clearing them eagerly prevents accidental reuse after a shared
-        // device is handed to someone else.
-        clearCachedReflectionsForCurrentUser()
+        // Remove all on-disk caches for the outgoing user (legacy reflection
+        // keys + the SnapshotStore directory). Scoped by Firebase sub so
+        // clearing eagerly prevents accidental reuse after a shared device is
+        // handed to someone else. Capture the sub locally: if it's already
+        // nil (never authenticated), skip cleanup but continue the rest of
+        // the sign-out teardown as before.
+        if let departingSub = authenticatedUserSub {
+            clearOnDiskUserCaches(for: departingSub)
+        }
 
         // Wipe any pending local reminders so the next account doesn't
         // inherit a stranger's notification schedule. The new user will
@@ -657,6 +764,11 @@ final class AppState: ObservableObject {
         do {
             let sub = try await authSession.currentUserSub()
             setAuthenticatedUserSub(sub)
+            // Lift any deleteAll tombstone from a prior session for this sub
+            // before hydrating — this is the one legitimate way a new
+            // session may resurrect on-disk snapshot writes.
+            await SnapshotStore.shared.beginSession(for: sub)
+            hydrateFromSnapshots(userSub: sub)
         } catch {
             setAuthenticatedUserSub(nil)
         }
@@ -716,7 +828,7 @@ final class AppState: ObservableObject {
     }
 
     private func sendProfileUpdate(_ profile: OnboardingProfile) async {
-        guard isAuthenticated else { return }
+        guard isAuthenticated, let requestSub = authenticatedUserSub else { return }
         let trimmedFirstName = profile.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOccupation = profile.occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = profile.major.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -739,7 +851,21 @@ final class AppState: ObservableObject {
         )
 
         do {
-            try await apiClient.updateUserProfile(payload)
+            // Snapshot the merged document the backend returns — NOT the
+            // request payload. The PATCH is a server-side merge, so any field
+            // this request omitted (e.g. nil firstName) is preserved remotely;
+            // snapshotting the request would record it as nil and hydrate a
+            // blank greeting on the next cold launch. `currentProfile` is
+            // deliberately left untouched here: it was already set
+            // optimistically by `updateProfile()`, and this debounced PATCH
+            // may land after newer in-memory edits.
+            let updated = try await apiClient.updateUserProfile(payload)
+            // User switched accounts while the PATCH was in flight — don't
+            // persist this user's merged profile into the new user's snapshot.
+            guard authenticatedUserSub == requestSub else { return }
+            if let updated {
+                await SnapshotStore.shared.write(updated, kind: .profile, userSub: requestSub)
+            }
         } catch {
             #if DEBUG
             print("[AppState] Failed to sync profile: \(error)")
@@ -781,7 +907,7 @@ final class AppState: ObservableObject {
     private static let moodStatusStaleness: TimeInterval = 60
 
     func loadMoodStatus() async {
-        guard isAuthenticated else { return }
+        guard isAuthenticated, let requestSub = authenticatedUserSub else { return }
         if let lastFetch = lastMoodStatusFetch,
            Date().timeIntervalSince(lastFetch) < Self.moodStatusStaleness {
             return
@@ -789,8 +915,17 @@ final class AppState: ObservableObject {
 
         do {
             let status = try await apiClient.fetchMoodStatus()
+            // User switched accounts while the fetch was in flight — discard.
+            // Applying the stale result would render the previous user's mood
+            // in the new user's session and persist it into their snapshot.
+            guard authenticatedUserSub == requestSub else { return }
             currentMoodStatus = status
             lastMoodStatusFetch = Date()
+            // Date-scoped: the check-in type is a time-of-day claim, so the
+            // snapshot's validity is day-bounded — a previous-day snapshot
+            // must not hydrate (prevents stale-card wrong-type submissions).
+            let today = Self.isoDateFormatter.string(from: Self.logicalDate())
+            await SnapshotStore.shared.write(status, kind: .moodStatus, userSub: requestSub, dateSuffix: today)
         } catch {
             #if DEBUG
             print("[AppState] Failed to load mood status: \(error)")
@@ -805,6 +940,10 @@ final class AppState: ObservableObject {
 
         let response = try await apiClient.submitMoodCheckIn(request)
         latestMoodResponse = response
+        // Intentionally do NOT write a nil snapshot here — the disk snapshot
+        // is the last-known server view and should stay until the async
+        // loadMoodStatus() below refreshes it. This keeps a cold launch mid-
+        // submit from rendering blank check-in cards.
         currentMoodStatus = nil
         // Invalidate the staleness window so the next `loadMoodStatus()` call
         // refetches instead of returning the now-outdated cached status.
@@ -830,10 +969,32 @@ final class AppState: ObservableObject {
         return try await apiClient.fetchMoodLogFullHistory(days: days, endDate: endDate)
     }
 
+    /// Publishes a freshly fetched 7-day summary and snapshots it — but only
+    /// if the account that requested the fetch is still signed in. The caller
+    /// (MoodHistoryView) captures `requestSub` before its fetch await; a
+    /// mismatch means the user switched accounts mid-fetch, so the stale
+    /// result must be dropped rather than persisted into the new user's
+    /// `@Published` state and on-disk snapshot.
+    func publishWeekSummary(_ summaries: [DailyMoodSummary], requestSub: String) async {
+        guard authenticatedUserSub == requestSub else { return }
+        weekSummary = summaries
+        await SnapshotStore.shared.write(summaries, kind: .weekSummary, userSub: requestSub)
+    }
+
+    /// Publishes a freshly fetched mood-log first page and snapshots it, with
+    /// the same cross-account guard as `publishWeekSummary(_:requestSub:)`.
+    func publishMoodLogFirstPage(_ page: [MoodCheckIn], requestSub: String) async {
+        guard authenticatedUserSub == requestSub else { return }
+        moodLogFirstPage = page
+        await SnapshotStore.shared.write(page, kind: .moodLogFirstPage, userSub: requestSub)
+    }
+
     func clearMoodState() {
         currentMoodStatus = nil
         latestMoodResponse = nil
         dailyReflection = nil
+        weekSummary = []
+        moodLogFirstPage = []
         lastMoodStatusFetch = nil
     }
 
@@ -1001,38 +1162,50 @@ final class AppState: ObservableObject {
         }
     }
 
-    private func dailyReflectionCacheKey(for date: String) -> String {
-        guard let userSub = authenticatedUserSub else { return "" }
-        return "\(StorageKey.dailyReflectionPrefix)::\(userSub)::\(date)"
-    }
-
     private func loadCachedReflection(for date: String) -> DailyReflection? {
-        let key = dailyReflectionCacheKey(for: date)
-        guard !key.isEmpty,
-              let data = defaults.data(forKey: key),
+        guard let userSub = authenticatedUserSub else { return nil }
+
+        // Prefer the new SnapshotStore.
+        if let snapshot: Snapshot<DailyReflection> = SnapshotStore.shared.readSync(
+            DailyReflection.self, kind: .dailyReflection, userSub: userSub, dateSuffix: date
+        ) {
+            return snapshot.payload
+        }
+
+        // Legacy path: migrate the old UserDefaults key on first read. Removing
+        // the key makes the migration self-terminating; past-date reflections
+        // are never read again and the sign-out sweep still clears the prefix.
+        let legacyKey = "\(StorageKey.dailyReflectionPrefix)::\(userSub)::\(date)"
+        guard let data = defaults.data(forKey: legacyKey),
               let reflection = try? Self.reflectionDecoder.decode(DailyReflection.self, from: data)
         else { return nil }
+        Task { await SnapshotStore.shared.write(reflection, kind: .dailyReflection, userSub: userSub, dateSuffix: date) }
+        defaults.removeObject(forKey: legacyKey)
         return reflection
     }
 
-    private func cacheReflection(_ reflection: DailyReflection) {
-        let key = dailyReflectionCacheKey(for: reflection.date)
-        guard !key.isEmpty,
-              let data = try? Self.reflectionEncoder.encode(reflection)
-        else { return }
-        defaults.set(data, forKey: key)
+    private func cacheReflection(_ reflection: DailyReflection) async {
+        guard let userSub = authenticatedUserSub else { return }
+        await SnapshotStore.shared.write(
+            reflection, kind: .dailyReflection, userSub: userSub, dateSuffix: reflection.date
+        )
     }
 
-    /// Removes every cached daily-reflection key that belongs to the current
-    /// authenticated user. Called at sign-out so the next user on the same
-    /// device never sees a stranger's reflection. The matching key prefix
-    /// is `walkworthy.dailyReflection::<userSub>::`.
-    private func clearCachedReflectionsForCurrentUser() {
-        guard let userSub = authenticatedUserSub else { return }
+    /// Removes every on-disk cache scoped to the given user — the legacy
+    /// UserDefaults reflection keys and the SnapshotStore directory. Called
+    /// at sign-out and account deletion so the next user on this device
+    /// never sees a stranger's data. Takes the sub explicitly (captured by
+    /// the caller before any suspension point) so a concurrent auth-listener
+    /// nil-ing of `authenticatedUserSub` can't turn cleanup into a no-op.
+    private func clearOnDiskUserCaches(for userSub: String) {
         let prefix = "\(StorageKey.dailyReflectionPrefix)::\(userSub)::"
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
             defaults.removeObject(forKey: key)
         }
+        // Ordering assumption: this actor job is enqueued immediately at
+        // sign-out, seconds before any re-sign-in's beginSession could run;
+        // worst case is in-memory-only and self-heals on relaunch.
+        Task { await SnapshotStore.shared.deleteAll(for: userSub) }
     }
 
     private static func logicalDate() -> Date {
@@ -1053,11 +1226,15 @@ final class AppState: ObservableObject {
             return
         }
         reflectionFetchTask?.cancel()
+        let requestSub = authenticatedUserSub
         reflectionFetchTask = Task { @MainActor in
             do {
                 let result = try await apiClient.fetchDailyReflection()
+                // User switched accounts mid-fetch — applying A's reflection
+                // would render it in B's session and persist it to B's snapshot.
+                guard self.authenticatedUserSub == requestSub else { return }
                 self.dailyReflection = result
-                self.cacheReflection(result)
+                await self.cacheReflection(result)
                 Analytics.logEvent("reflection_viewed", parameters: ["source": "network"])
             } catch {
                 #if DEBUG

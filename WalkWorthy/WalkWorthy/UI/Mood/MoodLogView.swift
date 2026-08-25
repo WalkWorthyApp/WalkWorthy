@@ -95,6 +95,12 @@ private struct MoodLogContent: View {
     @State private var hasMore: Bool = true
     @State private var oldestLoadedDate: String? = nil
     @State private var errorMessage: String? = nil
+    /// How many day-window pages are currently loaded. `loadFirstPage()`
+    /// resets it to 1 (full first-page replacement); `loadOlder()` increments
+    /// it. Drives the `.task` guard — item counts can't, because `pageSize`
+    /// is a DAYS window (up to 3 check-ins per day, so page 1 alone can hold
+    /// more than `pageSize` items).
+    @State private var loadedPages: Int = 1
 
     private static let pageSize: Int = 14
 
@@ -128,7 +134,12 @@ private struct MoodLogContent: View {
         .navigationTitle("Check-in log")
         .toolbarTitleDisplayMode(.inline)
         .task {
-            if checkIns.isEmpty && !isLoading {
+            // Only one page loaded — don't clobber a paged-back session.
+            // Re-running .task on tab revisit refreshes page 1 (full
+            // replacement), which would silently drop pages loaded via
+            // loadOlder(), so skip the auto-refetch once the user has paged
+            // back. Pull-to-refresh remains available in that state.
+            if loadedPages <= 1 {
                 await loadFirstPage()
             }
         }
@@ -282,6 +293,34 @@ private struct MoodLogContent: View {
     // MARK: Loading
 
     private func loadFirstPage() async {
+        // Lazily hydrate the AppState cache from disk on first visit. This
+        // snapshot is the largest one (up to 14 check-ins with full AI text),
+        // and this screen is a Settings deep-dive most sessions never open —
+        // so the sync decode happens here, not on the cold-launch path in
+        // `AppState.hydrateFromSnapshots`.
+        if checkIns.isEmpty && appState.moodLogFirstPage.isEmpty,
+           let sub = appState.authenticatedUserSub,
+           let snapshot: Snapshot<[MoodCheckIn]> = SnapshotStore.shared.readSync(
+               [MoodCheckIn].self, kind: .moodLogFirstPage, userSub: sub
+           ) {
+            appState.moodLogFirstPage = snapshot.payload
+        }
+
+        // Seed from the last-known snapshot so the ProgressView doesn't flash
+        // on cold launch. The fetch below then replaces the whole first page.
+        // Note (offline-only cosmetic case): the seeded page may span fewer
+        // days than the journal window, so a linked journal can render
+        // standalone until the refetch lands.
+        if checkIns.isEmpty && !appState.moodLogFirstPage.isEmpty {
+            checkIns = appState.moodLogFirstPage
+            oldestLoadedDate = Self.dateString(daysAgo: Self.pageSize)
+            hasMore = true
+        }
+
+        // Capture the account that owns this fetch before the await, so a
+        // sign-out + another sign-in mid-fetch can't persist this user's log
+        // into the next user's cache (publishMoodLogFirstPage re-checks it).
+        let requestSub = appState.authenticatedUserSub
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
@@ -293,6 +332,15 @@ private struct MoodLogContent: View {
             // be older data in Firestore — only mark hasMore=false when user has paged back
             // and explicitly gets an empty response.
             hasMore = true
+            // Full first-page replacement — back to a single loaded page.
+            loadedPages = 1
+
+            // Publish to AppState + snapshot so the next cold launch renders
+            // instantly. Guarded on the captured account.
+            let page = Array(response.checkIns.prefix(Self.pageSize))
+            if let requestSub {
+                await appState.publishMoodLogFirstPage(page, requestSub: requestSub)
+            }
         } catch {
             #if DEBUG
             print("[MoodLogView] loadFirstPage failed: \(error)")
@@ -320,6 +368,7 @@ private struct MoodLogContent: View {
                 if let newOldest = Self.dateByOffsetting(oldest, days: -Self.pageSize) {
                     oldestLoadedDate = newOldest
                 }
+                loadedPages += 1
             }
         } catch {
             #if DEBUG
