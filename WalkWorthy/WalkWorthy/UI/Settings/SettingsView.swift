@@ -34,14 +34,15 @@ struct SettingsView: View {
                         }
                         .listRowBackground(Color.wwCardBackground)
 
-                        // Bible translation picker removed until multi-translation
-                        // content is actually shipped. Today the app uses ESV
-                        // everywhere (Verse of the Day, AI encouragements), so a
-                        // 7-option picker would be misleading. AppState still tracks
-                        // selectedTranslation (default ESV) and the backend schema
-                        // accepts all 7 values, so re-adding the picker is a small
-                        // diff — restore this Picker, setTranslation, and
-                        // syncStoredProfile when real translation content lands.
+                        // No Bible translation picker: the app is ESV-only.
+                        // Every quotation ships from a reviewed server-side
+                        // catalog (functions/src/lib/scripture-catalog.ts) and
+                        // the Verse of the Day list, both ESV. Supporting
+                        // another translation is a licensing task, not a UI
+                        // one — NIV, NASB, CSB, NLT and NKJV each require their
+                        // own permission from their publisher before their text
+                        // can ship. Add the picker back only alongside licensed
+                        // catalog text for whatever translations are added.
                     }
 
                     // In-app AI disclosure required by App Review Guideline

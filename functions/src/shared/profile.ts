@@ -1,5 +1,5 @@
 import { getFirestore } from 'firebase-admin/firestore';
-import type { AgeRange, Gender, CheckInTimes, Translation } from './types';
+import type { AgeRange, Gender, CheckInTimes } from './types';
 
 export interface UserProfile {
   /** SENSITIVE: Stored PII - use redactSensitiveFields() when logging */
@@ -23,7 +23,6 @@ export interface UserProfile {
 
   hobbies?: string[];
   optInTailored?: boolean;
-  translationPreference?: Translation;
 
   /** User's preferred check-in notification times */
   checkInTimes?: CheckInTimes;

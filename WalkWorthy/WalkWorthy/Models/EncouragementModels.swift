@@ -43,7 +43,6 @@ struct RemoteUserProfileRequest: Codable {
     var major: String?
     var hobbies: [String]?
     var optInTailored: Bool?
-    var translationPreference: String?
     var checkInTimes: CheckInTimes?
     var timezone: String?
 }
@@ -65,33 +64,8 @@ nonisolated struct RemoteUserProfileResponse: Codable {
     var major: String?
     var hobbies: [String]?
     var optInTailored: Bool?
-    var translationPreference: String?
     var timezone: String?
     var checkInTimes: CheckInTimes?
-}
-
-enum Translation: String, CaseIterable, Identifiable, Codable {
-    case esv = "ESV"
-    case kjv = "KJV"
-    case niv = "NIV"
-    case nkjv = "NKJV"
-    case nasb = "NASB"
-    case csb = "CSB"
-    case nlt = "NLT"
-
-    var id: String { rawValue }
-
-    var displayName: String {
-        switch self {
-        case .esv: return "English Standard Version"
-        case .kjv: return "King James Version"
-        case .niv: return "New International Version"
-        case .nkjv: return "New King James Version"
-        case .nasb: return "New American Standard Bible"
-        case .csb: return "Christian Standard Bible"
-        case .nlt: return "New Living Translation"
-        }
-    }
 }
 
 struct OnboardingProfile {

@@ -81,7 +81,6 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
           occupation: validated.occupation,
           hobbies: validated.hobbies,
           optInTailored: validated.optInTailored,
-          translationPreference: validated.translationPreference,
           timezone: validated.timezone,
           checkInTimes: validated.checkInTimes,
           updatedAt: new Date().toISOString(),
@@ -180,15 +179,6 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
           updates.optInTailored = Boolean(req.body.optInTailored);
         }
 
-        if (req.body.translationPreference !== undefined) {
-          const validTranslations = ['ESV', 'KJV', 'NIV', 'NKJV', 'NASB', 'CSB', 'NLT'];
-          const pref = String(req.body.translationPreference).toUpperCase();
-          if (!validTranslations.includes(pref)) {
-            return errorResponse(res, 400, 'Invalid translationPreference value');
-          }
-          updates.translationPreference = pref as UserProfile['translationPreference'];
-        }
-
         if (req.body.timezone !== undefined) {
           if (typeof req.body.timezone === 'string' && req.body.timezone.length > 0 && req.body.timezone.length <= 50) {
             updates.timezone = req.body.timezone;
@@ -211,9 +201,12 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
           return errorResponse(res, 400, 'No valid fields to update');
         }
 
-        // Gender is no longer collected. Any real profile change also purges
+        // Gender is no longer collected, and translationPreference no longer
+        // exists (the app is ESV-only). Any real profile change purges both
         // legacy values stored by prerelease builds.
         updates.gender = FieldValue.delete() as unknown as UserProfile['gender'];
+        (updates as Record<string, unknown>).translationPreference =
+          FieldValue.delete();
         updates.updatedAt = new Date().toISOString();
 
         // Atomically create or update the document using merge

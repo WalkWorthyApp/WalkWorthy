@@ -23,7 +23,7 @@ export type Gender = 'female' | 'male' | 'nonBinary' | 'preferNotToSay';
  * - Use redactSensitiveFields() when logging this data
  * - Consider field importance before including in AI prompts
  *
- * REQUIRED FIELDS: ageRange, hobbies, optInTailored, translationPreference, timezone
+ * REQUIRED FIELDS: ageRange, hobbies, optInTailored, timezone
  * OPTIONAL FIELDS: major, occupation (not everyone is in school or employed)
  */
 export interface UserProfileInput {
@@ -47,9 +47,6 @@ export interface UserProfileInput {
 
   /** REQUIRED - Whether user opts in to tailored encouragement */
   optInTailored: boolean;
-
-  /** REQUIRED - Bible translation preference */
-  translationPreference: 'ESV' | 'KJV' | 'NIV' | 'NKJV' | 'NASB' | 'CSB' | 'NLT';
 
   /** OPTIONAL - User's preferred check-in notification times */
   checkInTimes?: CheckInTimes;
@@ -89,7 +86,7 @@ export function validateGender(value: unknown): Gender | undefined {
  * SECURITY: Validates all fields including sensitive PII fields (ageRange, major, occupation).
  * Sensitive fields should be treated as identifying information and protected accordingly.
  *
- * REQUIRED FIELDS: ageRange, hobbies, optInTailored, translationPreference, timezone
+ * REQUIRED FIELDS: ageRange, hobbies, optInTailored, timezone
  * OPTIONAL FIELDS: major, occupation
  *
  * @param input The untrusted profile input from client
@@ -104,20 +101,6 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
   const ageRange = validateAgeRange(obj.ageRange);
   if (!ageRange) {
     logger.error('Profile validation failed: missing or invalid ageRange');
-    return undefined;
-  }
-
-  // REQUIRED: Validate translation preference
-  let translationPref: UserProfileInput['translationPreference'] | undefined;
-  if (obj.translationPreference !== undefined) {
-    const validTranslations = ['ESV', 'KJV', 'NIV', 'NKJV', 'NASB', 'CSB', 'NLT'];
-    const pref = String(obj.translationPreference).toUpperCase();
-    if (validTranslations.includes(pref)) {
-      translationPref = pref as UserProfileInput['translationPreference'];
-    }
-  }
-  if (!translationPref) {
-    logger.error('Profile validation failed: missing or invalid translationPreference');
     return undefined;
   }
 
@@ -159,7 +142,6 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
     ageRange,
     hobbies,
     optInTailored: Boolean(obj.optInTailored),
-    translationPreference: translationPref,
     timezone,
     // Optional fields
     firstName,
@@ -215,11 +197,6 @@ export interface JournalEntry {
   createdAt: string;          // ISO 8601
   updatedAt: string;          // ISO 8601
 }
-
-/**
- * Bible translation options.
- */
-export type Translation = 'ESV' | 'KJV' | 'NIV' | 'NKJV' | 'NASB' | 'CSB' | 'NLT';
 
 /**
  * An optional help resource surfaced ALONGSIDE an encouragement — never in
@@ -323,7 +300,6 @@ export interface CheckInTimes {
 // ============================================================================
 
 const VALID_CHECK_IN_TYPES: CheckInType[] = ['morning', 'midday', 'evening'];
-const VALID_TRANSLATIONS: Translation[] = ['ESV', 'KJV', 'NIV', 'NKJV', 'NASB', 'CSB', 'NLT'];
 
 // All valid emotion tags across all mood levels
 const VALID_EMOTION_TAGS: ReadonlySet<string> = new Set([
@@ -413,15 +389,6 @@ export function validateMoodSpectrumData(input: unknown): MoodSpectrumData | und
     followUpScore: obj.followUpScore,
     note: typeof obj.note === 'string' ? obj.note : null,
   };
-}
-
-/**
- * Validates translation preference.
- */
-export function validateTranslation(value: unknown): Translation | undefined {
-  if (typeof value !== 'string') return undefined;
-  const upper = value.toUpperCase();
-  return VALID_TRANSLATIONS.includes(upper as Translation) ? (upper as Translation) : undefined;
 }
 
 /**

@@ -15,7 +15,6 @@ import FirebaseCrashlytics
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published var selectedTranslation: Translation
     @Published var onboardingCompleted: Bool
     @Published var useProfilePersonalization: Bool
     /// User has seen the AI data-sharing consent screen and tapped Continue.
@@ -131,7 +130,6 @@ final class AppState: ObservableObject {
         StorageKey.useProfilePersonalization,
         StorageKey.aiConsentGiven,
         StorageKey.analyticsEnabled,
-        StorageKey.translation,
         StorageKey.dismissedNameBackfill,
         StorageKey.hasCompletedProfileSetup,
     ]
@@ -151,7 +149,6 @@ final class AppState: ObservableObject {
         self.defaults = defaults
         self.modelContainer = modelContainer
         self.isAuthenticated = false
-        self.selectedTranslation = resolvedConfig.defaultTranslation
         self.authenticatedUserSub = nil
         self.useProfilePersonalization = false
         self.onboardingCompleted = false
@@ -797,7 +794,6 @@ final class AppState: ObservableObject {
             useProfilePersonalization = false
             aiConsentGiven = false
             analyticsEnabled = false
-            selectedTranslation = config.defaultTranslation
             currentProfile = nil
             nameBackfillDismissed = false
             hasCompletedProfileSetup = false
@@ -810,7 +806,6 @@ final class AppState: ObservableObject {
         aiConsentGiven = defaults.bool(forKey: storageKey(StorageKey.aiConsentGiven))
         analyticsEnabled = defaults.object(forKey: storageKey(StorageKey.analyticsEnabled)) as? Bool ?? false
         applyAnalyticsCollectionState()
-        selectedTranslation = Translation(rawValue: defaults.string(forKey: storageKey(StorageKey.translation)) ?? "") ?? config.defaultTranslation
 
         // Profile PII is no longer cached in UserDefaults — hydrate via
         // `refreshProfileFromBackend()` on sign-in. Leaving `currentProfile`
@@ -856,7 +851,6 @@ final class AppState: ObservableObject {
             major: trimmedMajor,
             hobbies: hobbies,
             optInTailored: profile.optIn,
-            translationPreference: selectedTranslation.rawValue,
             checkInTimes: nil,  // TODO: Add UI for custom check-in times
             timezone: timezone
         )
@@ -899,7 +893,6 @@ final class AppState: ObservableObject {
             major: nil,
             hobbies: nil,
             optInTailored: isOn,
-            translationPreference: nil,
             checkInTimes: nil,
             timezone: nil
         )
@@ -1322,7 +1315,6 @@ extension AppState {
         static let useProfilePersonalization = "walkworthy.settings.useProfilePersonalization"
         static let aiConsentGiven = "walkworthy.ai.consentGiven.v2"
         static let analyticsEnabled = "walkworthy.settings.analyticsOptIn.v2"
-        static let translation = "walkworthy.settings.translation"
         static let dismissedNameBackfill = "walkworthy.dismissed.nameBackfill"
         static let hasCompletedProfileSetup = "walkworthy.profile.hasCompletedSetup"
         static let lastAuthenticatedUser = "walkworthy.auth.lastUser"

@@ -11,7 +11,6 @@ struct Config {
     static let shared = Config()
 
     let notificationMode: String
-    let defaultTranslation: Translation
     let apiBaseURL: URL?
 
     init(bundle: Bundle = .main) {
@@ -30,12 +29,9 @@ struct Config {
         }
 
         override("API_BASE_URL")
-        override("DEFAULT_TRANSLATION") { $0.uppercased() }
         override("NOTIFICATION_MODE")
 
         notificationMode = (merged["NOTIFICATION_MODE"] as? String)?.lowercased() ?? "local"
-        let translationKey = (merged["DEFAULT_TRANSLATION"] as? String)?.uppercased() ?? Translation.esv.rawValue
-        defaultTranslation = Translation(rawValue: translationKey) ?? .esv
         apiBaseURL = Self.secureBaseURL(from: merged["API_BASE_URL"], allowLocalhostHTTP: true)
     }
 
