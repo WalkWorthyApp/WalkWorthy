@@ -7,6 +7,11 @@
 	     collection, and ad-personalization use. -->
 	<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>
 	<false/>
+	<!-- No automatic screen_view events. The privacy policy describes
+	     event-based feature counting ("a check-in was completed"), not
+	     screen-by-screen navigation tracking, so don't collect it. -->
+	<key>FirebaseAutomaticScreenReportingEnabled</key>
+	<false/>
 	<key>GOOGLE_ANALYTICS_IDFV_COLLECTION_ENABLED</key>
 	<false/>
 	<key>GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS</key>
