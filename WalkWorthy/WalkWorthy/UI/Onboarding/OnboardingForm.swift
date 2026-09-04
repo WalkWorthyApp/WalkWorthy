@@ -2,7 +2,7 @@
 //  OnboardingForm.swift
 //  WalkWorthy
 //
-//  Collects lightweight profile preferences and stores them locally.
+//  Collects lightweight profile preferences and saves them to the user's account.
 //
 
 import SwiftUI
@@ -19,13 +19,10 @@ struct OnboardingForm: View {
     @State private var ageText: String = ""
     @State private var occupation: String = ""
     @State private var major: String = ""
-    @State private var gender: Gender = .male
     @State private var selectedHobbies: Set<String> = []
     @State private var customHobby: String = ""
-    @State private var optIn: Bool = true
+    @State private var optIn: Bool = false
     @State private var ageError: String?
-    @State private var contextError: String?
-    @State private var hobbiesError: String?
     @State private var isEditingExistingProfile = false
     @FocusState private var focusedField: Field?
 
@@ -59,7 +56,6 @@ struct OnboardingForm: View {
                     firstNameSection
                     ageSection
                     contextSection
-                    genderSection
                     hobbiesSection
                     optInSection
                     privacyCopy
@@ -73,15 +69,6 @@ struct OnboardingForm: View {
         .onAppear(perform: loadProfile)
         .onChange(of: ageText) {
             if ageError != nil { ageError = nil }
-        }
-        .onChange(of: occupation) {
-            if contextError != nil { contextError = nil }
-        }
-        .onChange(of: major) {
-            if contextError != nil { contextError = nil }
-        }
-        .onChange(of: selectedHobbies) {
-            if hobbiesError != nil { hobbiesError = nil }
         }
         .navigationTitle("Let's personalize")
         .toolbarTitleDisplayMode(.inline)
@@ -144,7 +131,7 @@ struct OnboardingForm: View {
             VStack(alignment: .leading, spacing: scaled(8)) {
                 Text("What do you do?")
                     .font(.newsreaderSemiBoldItalic(size: scaled(20)))
-                Text("Fill in whichever applies to you, or both.")
+                Text("Optional. Fill in whichever applies to you, or both.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -175,31 +162,13 @@ struct OnboardingForm: View {
                     .accessibilityLabel("Major")
             }
 
-            if let contextError {
-                Text(contextError)
-                    .font(.footnote)
-                    .foregroundStyle(.red)
-            }
-        }
-    }
-
-    private var genderSection: some View {
-        VStack(alignment: .leading, spacing: scaled(8)) {
-            Text("Gender")
-                .font(.newsreaderSemiBoldItalic(size: scaled(20)))
-            Picker("Gender", selection: $gender) {
-                ForEach(Gender.allCases) { option in
-                    Text(option.rawValue).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
         }
     }
 
     @ViewBuilder
     private var hobbiesSection: some View {
         VStack(alignment: .leading, spacing: scaled(12)) {
-            Text("Hobbies")
+            Text("Hobbies (optional)")
                 .font(.newsreaderSemiBoldItalic(size: scaled(20)))
             Text("Pick a few that spark joy, or add your own.")
                 .font(.footnote)
@@ -233,19 +202,14 @@ struct OnboardingForm: View {
                 }
             }
         }
-        if let hobbiesError {
-            Text(hobbiesError)
-                .font(.footnote)
-                .foregroundStyle(.red)
-        }
     }
 
     private var optInSection: some View {
         Toggle(isOn: $optIn) {
             VStack(alignment: .leading, spacing: scaled(4)) {
-                Text("Receive encouragement nudges")
+                Text("Use profile details for AI personalization")
                     .font(.newsreaderSemiBoldItalic(size: scaled(20)))
-                Text("We'll keep them gentle and focused on Scripture.")
+                Text("If on, your age range, occupation or major, and hobbies may shape AI encouragements. You can change this in Settings.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -255,7 +219,7 @@ struct OnboardingForm: View {
     }
 
     private var privacyCopy: some View {
-        Text("Your data is encrypted and never shared. We use it only to personalize your encouragement experience.")
+        Text("Profile details are stored in your WalkWorthy account. They are shared with OpenAI only if you separately consent to AI sharing and turn on profile personalization.")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .padding(.top, scaled(8))
@@ -278,7 +242,7 @@ struct OnboardingForm: View {
                     .foregroundStyle(Color.white)
             }
             .buttonStyle(.plain)
-            .accessibilityHint("Saves your preferences locally and continues to the app.")
+            .accessibilityHint("Saves your profile to your WalkWorthy account and continues to the app.")
         }
         .padding(.top, scaled(16))
     }
@@ -295,7 +259,6 @@ struct OnboardingForm: View {
         }
         occupation = profile.occupation
         major = profile.major
-        gender = profile.gender
         selectedHobbies = profile.hobbies
         optIn = profile.optIn
         resetValidationMessages()
@@ -354,7 +317,7 @@ struct OnboardingForm: View {
         firstName = trimmedFirstName
         occupation = trimmedOccupation
         major = trimmedMajor
-        appState.updateProfile(firstName: trimmedFirstName, age: age, occupation: trimmedOccupation, major: trimmedMajor, gender: gender, hobbies: selectedHobbies, optIn: optIn)
+        appState.updateProfile(firstName: trimmedFirstName, age: age, occupation: trimmedOccupation, major: trimmedMajor, hobbies: selectedHobbies, optIn: optIn)
         appState.markOnboardingComplete()
 
         if isEditingExistingProfile {
@@ -377,27 +340,11 @@ struct OnboardingForm: View {
             return false
         }
 
-        // Require at least one of occupation or major
-        let trimmedOccupation = occupation.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedMajor = major.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedOccupation.isEmpty || !trimmedMajor.isEmpty else {
-            contextError = "Please share your occupation or field of study."
-            focusedField = .occupation
-            return false
-        }
-
-        guard !selectedHobbies.isEmpty else {
-            hobbiesError = "Pick at least one hobby."
-            return false
-        }
-
         return true
     }
 
     private func resetValidationMessages() {
         ageError = nil
-        contextError = nil
-        hobbiesError = nil
     }
 
     private var shouldShowIncompleteHint: Bool {
@@ -406,9 +353,6 @@ struct OnboardingForm: View {
 
     private var formIsComplete: Bool {
         guard let age = Int(ageText), age > 0 else { return false }
-        let trimmedOccupation = occupation.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedMajor = major.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmedOccupation.isEmpty || !trimmedMajor.isEmpty else { return false }
-        return !selectedHobbies.isEmpty
+        return age >= Self.minimumAge
     }
 }

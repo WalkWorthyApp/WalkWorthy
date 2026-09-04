@@ -16,6 +16,7 @@ import {
   GuardrailTripError,
 } from "../lib/model-config";
 import { collectProfileValues } from "../lib/profile-sanitize";
+import { sanitizeProfile } from "../lib/profile-sanitize";
 import type { UserProfilePayload } from "../lib/profile-sanitize";
 
 // ============================================================================
@@ -156,7 +157,6 @@ test("isCleanStoredAiContent fails stored content with regex-class PII", () => {
 
 const baseProfile: UserProfilePayload = {
   ageRange: "18-24",
-  gender: "female",
   occupation: "Nurse",
   major: "Nursing",
   hobbies: ["Worship", "Music", "competitive fencing"],
@@ -176,9 +176,8 @@ test("collectProfileValues excludes preset hobby vocabulary", () => {
   assert.equal(values.includes("Music"), false);
 });
 
-test("collectProfileValues excludes generic demographic enums (gender, ageRange)", () => {
+test("collectProfileValues excludes the generic ageRange enum", () => {
   const values = collectProfileValues(baseProfile);
-  assert.equal(values.includes("female"), false);
   assert.equal(values.includes("18-24"), false);
 });
 
@@ -197,4 +196,11 @@ test("Scripture containing demographic tokens passes for a female 18-24 user", (
 
 test("collectProfileValues returns empty for null profile", () => {
   assert.deepEqual(collectProfileValues(null), []);
+});
+
+test("sanitizeProfile drops legacy gender values before AI sharing", () => {
+  const legacyProfile = { ...baseProfile, gender: "female" };
+  const sanitized = sanitizeProfile(legacyProfile);
+  assert.ok(sanitized);
+  assert.equal("gender" in sanitized, false);
 });

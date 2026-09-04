@@ -27,7 +27,6 @@ import {
   CheckInSummary,
   CheckInType,
   MoodLevel,
-  Translation,
   PendingCheckIn,
 } from '../shared/types';
 import { randomUUID } from 'crypto';
@@ -59,14 +58,6 @@ const httpsOptions: HttpsOptions = {
   invoker: 'public',
   secrets: [openaiApiKey], // Bind OpenAI API key secret
 };
-
-const VALID_TRANSLATIONS: Translation[] = ['ESV', 'KJV', 'NIV', 'NKJV', 'NASB', 'CSB', 'NLT'];
-
-function normalizeTranslation(value?: string): Translation {
-  if (!value) return 'ESV';
-  const upper = value.toUpperCase() as Translation;
-  return VALID_TRANSLATIONS.includes(upper) ? upper : 'ESV';
-}
 
 /**
  * Parse an "HH:mm" string into minute-of-day. Returns undefined on any format
@@ -236,7 +227,6 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
 
     // Get user profile
     const profile = await getUserProfileOnce(userId);
-    const translation = normalizeTranslation(profile?.translationPreference);
     const timezone = profile?.timezone || 'America/New_York';
     const todayDate = getLogicalDateString(timezone);
 
@@ -245,7 +235,6 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       checkInType: input.checkInType,
       moodLevel: input.moodSpectrumData.moodLevel,
       moodScore: input.moodSpectrumData.moodScore,
-      translation,
     });
 
     // Use deterministic docID to prevent duplicate documents from concurrent requests
@@ -334,10 +323,8 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
 
     try {
       // Step 2: Generate AI response (outside transaction - may take time)
-      // Respect the user's "Use profile for encouragements" toggle: default to
-      // personalization ON when the flag is undefined (matches iOS onboarding
-      // default), strip the profile only when explicitly opted out.
-      const useProfile = profile?.optInTailored !== false;
+      // Profile sharing is opt-in. Missing/legacy values remain off.
+      const useProfile = profile?.optInTailored === true;
       if (!useProfile) {
         logger.info('personalization.optedOut', { userId, endpoint: 'moodCheckIn' });
       }
@@ -345,7 +332,6 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         profile: useProfile ? (profile as UserProfilePayload | null) : null,
         checkInType: input.checkInType,
         moodSpectrumData: input.moodSpectrumData,
-        translationPreference: translation,
       };
 
       const aiResponse = await runMoodAgent(agentInput, openaiApiKey.value());

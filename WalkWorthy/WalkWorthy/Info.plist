@@ -2,9 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Analytics collection stays OFF until the user passes the AI/analytics
-	     consent screen; AppState.applyAnalyticsCollectionState() enables it. -->
+	<!-- Analytics stays OFF until the user explicitly opts in. The Core
+	     product and flags below remove advertising-ID capability, IDFV
+	     collection, and ad-personalization use. -->
 	<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>
+	<false/>
+	<key>GOOGLE_ANALYTICS_IDFV_COLLECTION_ENABLED</key>
+	<false/>
+	<key>GOOGLE_ANALYTICS_DEFAULT_ALLOW_AD_PERSONALIZATION_SIGNALS</key>
 	<false/>
 	<key>UIAppFonts</key>
 	<array>

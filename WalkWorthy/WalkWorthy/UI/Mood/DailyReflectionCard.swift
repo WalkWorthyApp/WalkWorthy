@@ -16,6 +16,10 @@ struct DailyReflectionCard: View {
                     .foregroundStyle(.secondary)
                 Text("Today's Reflection")
                     .font(.newsreaderSemiBoldItalic(size: scaled(15)))
+                Spacer()
+                Text("AI-generated")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
 
             if let reflection {

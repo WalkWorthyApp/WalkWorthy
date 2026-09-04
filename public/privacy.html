@@ -12,7 +12,7 @@
     <header class="doc-header">
         <a class="doc-home" href="/">WalkWorthy</a>
         <h1>Privacy Policy</h1>
-        <p class="doc-meta">Effective date: <time datetime="2026-07-06">July 6, 2026</time></p>
+        <p class="doc-meta">Effective date: <time datetime="2026-09-03">September 3, 2026</time></p>
     </header>
 
     <section>
@@ -22,8 +22,13 @@
             is offered by Nathan Jones ("<strong>we</strong>", "<strong>us</strong>").
         </p>
         <p>
-            We take privacy seriously. Mood and journal content is among the most sensitive data we
-            handle, and the sections below describe exactly what happens to it.
+            We take privacy seriously. Mood information can be sensitive, and the sections below
+            describe what happens to it. Journal entries remain on your device in the current iOS
+            app and are not collected by us.
+        </p>
+        <p>
+            See our separate <a href="/health-data">Consumer Health Data Privacy Policy</a> for
+            additional disclosures and rights concerning mood and emotional-wellness data.
         </p>
     </section>
 
@@ -38,26 +43,37 @@
 
     <section>
         <h2>Information we collect</h2>
-        <p>We collect only the information we need to make the app work and to personalize it.</p>
+        <p>We collect information needed to operate the app and information you optionally provide.</p>
 
         <h3>Information you provide</h3>
         <ul>
-            <li><strong>Email address</strong> — required to create an account.</li>
-            <li><strong>First name</strong> — shown on the home screen greeting.</li>
             <li>
-                <strong>Optional profile details</strong> — age, occupation, field of study,
-                gender, and hobbies. Used to personalize the tone of encouragements.
+                <strong>Account information</strong> — your email address for email/password
+                accounts, or the identifiers and any email relay address supplied through Sign in
+                with Apple.
+            </li>
+            <li><strong>Display name</strong> — optional and shown only in the home-screen greeting.</li>
+            <li>
+                <strong>Age eligibility and optional profile details</strong> — the age you enter
+                is used on-device to enforce the 13+ minimum. For adults, we may store an age
+                range. You may also provide an occupation, field of study, and hobbies. Earlier
+                test versions also collected gender; that field is no longer collected or sent to
+                our AI provider and is removed when the profile is next updated or the account is
+                deleted.
             </li>
             <li>
                 <strong>Mood check-ins</strong> — the numeric score you select, emotion tags you
-                pick, impact categories, and any free-text note you add.
+                pick, impact categories (which can include faith), and any free-text note you add.
             </li>
             <li>
                 <strong>Journal entries</strong> — the free-text content you write. Journal entries
-                are stored on your device only and are not synced to our servers by default.
+                are stored on your device only and are not sent to our servers or AI provider by
+                the current iOS app.
             </li>
             <li>
-                <strong>Notification preferences</strong> — your chosen check-in reminder times.
+                <strong>Notification preferences</strong> — your chosen check-in reminder times,
+                stored on your device. Reminders are local notifications; we do not collect a push
+                notification token.
             </li>
         </ul>
 
@@ -68,18 +84,28 @@
                 assigned when you sign up. Used to link your data to your account.
             </li>
             <li>
-                <strong>Device identifiers</strong> — an App Attest token issued by Apple, used to
-                confirm that requests come from a genuine, un-tampered copy of the app. We do not
-                receive the IDFA.
+                <strong>App and device identifiers</strong> — Firebase assigns installation or
+                app-instance identifiers, and Apple App Attest supplies integrity assertions used
+                to help verify that requests come from a genuine copy of the app. We do not use
+                these identifiers to track you across other companies' apps or websites.
             </li>
             <li>
-                <strong>Crash and diagnostic data</strong> — when the app crashes we collect
-                technical details (stack trace, OS version, device model) via Firebase Crashlytics.
-                We do not collect the content of your mood entries or journal in these reports.
+                <strong>Crash, performance, and diagnostic data</strong> — Firebase Crashlytics
+                may receive crash stack traces, app state, app version, OS version, device model,
+                and related technical identifiers. We do not intentionally add your mood entries,
+                notes, or journal content to crash reports.
             </li>
             <li>
-                <strong>Request logs</strong> — timestamps, IP address, and endpoint called, stored
-                by our backend for a short period to support rate limiting and abuse prevention.
+                <strong>Network and request data</strong> — our cloud providers receive IP
+                addresses, timestamps, endpoint and request metadata, and security signals needed
+                to deliver the service, diagnose failures, prevent abuse, and enforce rate limits.
+            </li>
+            <li>
+                <strong>Optional analytics</strong> — only if you turn analytics on, Firebase
+                Analytics receives app interactions (such as a feature being used), an app-instance
+                identifier, device/app information, and coarse location derived from a masked IP
+                address. Analytics never receives mood check-ins, notes, journal text, or profile
+                fields from our event code.
             </li>
         </ul>
     </section>
@@ -104,33 +130,45 @@
         <h2>Who we share information with</h2>
         <p>
             We share your information only with the service providers we need to run the app. These
-            providers act as "sub-processors" — they process data on our behalf under contract.
+            providers process data on our behalf. We require them to handle personal information
+            consistently with this policy and to provide the same or equivalent protection.
         </p>
         <ul>
             <li>
                 <strong>Google Firebase</strong> (Google Cloud) — hosts our database, authenticates
-                your account, stores mood and profile data, and verifies device integrity.
+                your account, stores mood, generated encouragement, reflection, and profile data,
+                provides crash reporting and optional analytics, and verifies device integrity.
                 Reminder notifications are scheduled locally on your device and never touch our
                 servers. Data is stored on Google Cloud infrastructure in the United
                 States. See
                 <a href="https://firebase.google.com/support/privacy" target="_blank" rel="noopener">Firebase's Privacy and Security page</a>.
             </li>
             <li>
-                <strong>OpenAI</strong> — when you submit a mood check-in or request a daily
-                reflection, we send the structured signals (mood score, emotion tags, profile
-                context) to OpenAI so it can generate a personalized Scripture-based response.
-                The app asks for your explicit consent before your first check-in, and nothing is
-                sent to OpenAI until you agree. We have configured our OpenAI project for Zero
-                Data Retention, which means OpenAI does not retain this data after generating the
-                response. We do not send your email address, first name, Firebase UID, or journal
-                entries to OpenAI.
+                <strong>OpenAI</strong> — when you submit a mood check-in, we send the mood score and level, follow-up
+                rating, emotion tags, selected life areas, check-in period, and an optional note to
+                OpenAI so it can generate a response. For a daily reflection, we send a seven-day
+                summary containing check-in dates, morning/midday/evening mood levels, and overall
+                sentiment. If you separately
+                enable profile personalization, we may also send an adult age range, occupation or
+                field of study, and hobbies. The app asks for explicit permission before the first
+                AI request, and you can withdraw that permission in Settings. We do not send your
+                email address, display name, Firebase UID, gender, or on-device journal entries to
+                OpenAI. API response storage and Agents SDK tracing are disabled for these
+                requests. OpenAI states that API data is not used to train its models unless a
+                customer opts in. We do not opt in. We also use OpenAI's moderation service to
+                screen an optional note before generation and generated prose before it is shown.
+                If a note is classified as a self-harm signal, we skip AI generation entirely and
+                return a fixed, human-written response that offers crisis-support contact
+                information. The app only displays that information — it never contacts anyone on
+                your behalf. If the moderation service is unavailable, the check-in still
+                proceeds.
             </li>
             <li>
-                <strong>Firebase Analytics</strong> — with your permission, we count anonymous
-                feature usage (for example, "a check-in was completed") to understand which parts
-                of the app matter. Analytics events never include your check-in content, notes,
-                or profile details, and you can turn this off anytime in Settings → AI &amp; Your
-                Data.
+                <strong>Firebase Analytics</strong> — only if you opt in, we count app interactions
+                (for example, that a check-in was completed) to understand which features are used.
+                We disable advertising-ID capability, IDFV collection, and ad-personalization
+                signals. Analytics events never include check-in content, notes, journals, or
+                profile details, and you can turn analytics off anytime in Settings.
             </li>
             <li>
                 <strong>Apple</strong> — if you sign in with your Apple ID, Apple handles the
@@ -150,20 +188,23 @@
     <section>
         <h2>How long we keep your information</h2>
         <ul>
-            <li>Mood check-ins and profile data — until you delete your account.</li>
-            <li>Journal entries — stored only on your device. If you reinstall or switch devices, journal entries are not recoverable.</li>
-            <li>Daily reflections — generated on demand and cached for the current day only.</li>
-            <li>Request logs and rate-limit counters — automatically expired within 30 days.</li>
-            <li>Crash reports — retained by Firebase Crashlytics per Google's default retention (90 days).</li>
+            <li>Mood check-ins, generated encouragements, profile data, and daily reflections — until you delete your account.</li>
+            <li>Journal entries — stored only on your device and removed when you sign out or delete your account. If you reinstall or switch devices, journal entries are not recoverable.</li>
+            <li>Local server-response snapshots — cached on your device for faster loading and removed when you sign out or delete your account.</li>
+            <li>Rate-limit records — used only for short hourly/daily abuse-prevention windows and marked for automatic expiration. Cloud request logs follow our provider-console retention settings.</li>
+            <li>Crash and analytics records — retained according to our configured Firebase/Google retention settings or deleted when no longer needed for the stated purpose.</li>
         </ul>
         <p>
             When you delete your account via Settings → Account → Delete Account, we permanently
-            remove your profile, mood history, daily reflections, encouragements, device tokens,
-            and authentication record. This is immediate and irreversible.
+            remove your profile, mood history, daily reflections, encouragements, authentication
+            record, local journal, local response snapshots, and local notification preferences.
+            The app does not store push tokens. Deletion is irreversible; provider backup and log
+            copies may age out under the providers' normal deletion schedules and applicable
+            legal deadlines.
         </p>
     </section>
 
-    <section>
+    <section id="choices">
         <h2>Your rights and choices</h2>
         <ul>
             <li>
@@ -186,6 +227,15 @@
                 toggle in Settings disables the use of your profile details to shape encouragements.
                 Core mood signals are still used.
             </li>
+            <li>
+                <strong>Withdraw AI permission</strong> — turn off “Share check-ins with OpenAI”
+                in Settings. New check-ins and daily-reflection requests will not be sent to
+                OpenAI while it is off.
+            </li>
+            <li>
+                <strong>Disable analytics</strong> — analytics is off by default and can be
+                switched on or off independently in Settings.
+            </li>
         </ul>
         <p>
             If you are a resident of California, the European Union, the United Kingdom, or
@@ -199,8 +249,9 @@
         <h2>Children's privacy</h2>
         <p>
             WalkWorthy is intended for users age 13 and older. We do not knowingly collect
-            information from children under 13. The sign-up flow asks for age and rejects anyone
-            under 13. If you believe a child under 13 has created an account, please email us and
+            information from children under 13. Before account creation, the app requires the
+            person signing up to confirm that they are at least 13; onboarding also rejects an age
+            below 13. If you believe a child under 13 has created an account, please email us and
             we will delete it promptly.
         </p>
         <p>
@@ -225,12 +276,8 @@
                 of the app, not a tampered build or script.
             </li>
             <li>
-                On-device data is stored with iOS Data Protection (Complete) so it is unreadable
-                while the device is locked.
-            </li>
-            <li>
-                Device push tokens are hashed with SHA-256 plus a server-side secret before storage
-                so we never retain a plain push token.
+                Local journal data and authenticated server-response snapshots are stored with
+                iOS complete file protection and excluded from device backups.
             </li>
             <li>
                 Firestore security rules enforce per-user access — no user can read or write
@@ -247,8 +294,9 @@
         <h2>International users</h2>
         <p>
             WalkWorthy is operated from the United States. If you use the app from outside the
-            U.S., your information will be transferred to and processed in the U.S. By using the
-            app, you consent to this transfer.
+            U.S., your information may be transferred to and processed in the U.S. Those locations
+            may have different data-protection laws than your country. Contact us if you have a
+            question about the safeguards used for an international transfer.
         </p>
     </section>
 
@@ -257,8 +305,7 @@
         <p>
             We may update this Privacy Policy from time to time. The current version lives at this
             URL and its effective date is shown at the top. If we make material changes, we will
-            notify you in-app or by email before the changes take effect. Continuing to use the
-            app after the effective date means you accept the updated policy.
+            notify you in-app or by email before the changes take effect.
         </p>
     </section>
 

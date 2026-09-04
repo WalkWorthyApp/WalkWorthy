@@ -137,9 +137,8 @@ async function handleGet(req: Request, res: Response): Promise<void> {
     let budgetReserved = true;
 
     try {
-      // Respect the opt-in toggle. Default to personalization ON when
-      // optInTailored is undefined; strip profile only on explicit opt-out.
-      const useProfile = profile?.optInTailored !== false;
+      // Profile sharing is opt-in. Missing/legacy values remain off.
+      const useProfile = profile?.optInTailored === true;
       if (!useProfile) {
         logger.info('personalization.optedOut', { userId, endpoint: 'dailyReflection' });
       }

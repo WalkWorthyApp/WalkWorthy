@@ -157,6 +157,30 @@ actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
         Auth.auth().currentUser?.email
     }
 
+    func usesAppleSignIn() async -> Bool {
+        Auth.auth().currentUser?.providerData.contains {
+            $0.providerID == "apple.com"
+        } ?? false
+    }
+
+    /// Apple and Firebase require a fresh Apple authorization code to revoke
+    /// Sign in with Apple access during account deletion.
+    func revokeAppleAuthorizationForDeletion() async throws {
+        guard await usesAppleSignIn() else { return }
+
+        let coordinator = await SignInWithAppleCoordinator()
+        let authorization = try await coordinator.authorize()
+        guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let codeData = credential.authorizationCode,
+              let authorizationCode = String(data: codeData, encoding: .utf8),
+              !authorizationCode.isEmpty
+        else {
+            throw AuthError.invalidAppleCredential
+        }
+
+        try await Auth.auth().revokeToken(withAuthorizationCode: authorizationCode)
+    }
+
     /// Number of seconds since the current user's last successful sign-in.
     /// Returns `nil` when no user is signed in or the metadata is unavailable.
     /// Used to decide whether `user.delete()` requires re-authentication —

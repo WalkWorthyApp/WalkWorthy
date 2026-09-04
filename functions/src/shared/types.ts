@@ -16,14 +16,14 @@ export type Gender = 'female' | 'male' | 'nonBinary' | 'preferNotToSay';
  * User profile input from client.
  *
  * SECURITY NOTES:
- * - ageRange, gender, major, and occupation are SENSITIVE DATA (PII)
+ * - ageRange, major, and occupation are SENSITIVE DATA (PII)
  * - Can identify users when combined with other profile fields (GDPR/CCPA concern)
  * - NEVER log these fields in plain text
  * - Validate incoming values against defined enums before storage
  * - Use redactSensitiveFields() when logging this data
  * - Consider field importance before including in AI prompts
  *
- * REQUIRED FIELDS: ageRange, gender, hobbies, optInTailored, translationPreference, timezone
+ * REQUIRED FIELDS: ageRange, hobbies, optInTailored, translationPreference, timezone
  * OPTIONAL FIELDS: major, occupation (not everyone is in school or employed)
  */
 export interface UserProfileInput {
@@ -41,9 +41,6 @@ export interface UserProfileInput {
 
   /** OPTIONAL - SENSITIVE: occupation/job title (for non-students). Can identify users when combined with other profile data. */
   occupation?: string;
-
-  /** REQUIRED - SENSITIVE: Must be one of the predefined gender options */
-  gender: Gender;
 
   /** REQUIRED - List of user hobbies/interests */
   hobbies: string[];
@@ -89,10 +86,10 @@ export function validateGender(value: unknown): Gender | undefined {
 
 /**
  * Validates and normalizes user profile input.
- * SECURITY: Validates all fields including sensitive PII fields (ageRange, gender, major, occupation).
+ * SECURITY: Validates all fields including sensitive PII fields (ageRange, major, occupation).
  * Sensitive fields should be treated as identifying information and protected accordingly.
  *
- * REQUIRED FIELDS: ageRange, gender, hobbies, optInTailored, translationPreference, timezone
+ * REQUIRED FIELDS: ageRange, hobbies, optInTailored, translationPreference, timezone
  * OPTIONAL FIELDS: major, occupation
  *
  * @param input The untrusted profile input from client
@@ -107,13 +104,6 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
   const ageRange = validateAgeRange(obj.ageRange);
   if (!ageRange) {
     logger.error('Profile validation failed: missing or invalid ageRange');
-    return undefined;
-  }
-
-  // REQUIRED: Validate gender
-  const gender = validateGender(obj.gender);
-  if (!gender) {
-    logger.error('Profile validation failed: missing or invalid gender');
     return undefined;
   }
 
@@ -167,7 +157,6 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
 
   return {
     ageRange,
-    gender,
     hobbies,
     optInTailored: Boolean(obj.optInTailored),
     translationPreference: translationPref,
@@ -233,6 +222,20 @@ export interface JournalEntry {
 export type Translation = 'ESV' | 'KJV' | 'NIV' | 'NKJV' | 'NASB' | 'CSB' | 'NLT';
 
 /**
+ * An optional help resource surfaced ALONGSIDE an encouragement — never in
+ * place of one. Attached when a check-in note is classified as a self-harm
+ * signal, so the user still receives their encouragement and is separately
+ * offered a way to reach a person. The app renders this as its own card; it
+ * never dials or contacts anyone automatically.
+ */
+export interface SupportResource {
+  title: string;          // Short card heading
+  body: string;           // One or two sentences of context
+  phone?: string;         // Dialable/textable short code, e.g. "988"
+  url?: string;           // Web fallback, e.g. https://988lifeline.org
+}
+
+/**
  * AI-generated encouragement response.
  */
 export interface AIEncouragementResponse {
@@ -240,6 +243,8 @@ export interface AIEncouragementResponse {
   verseRef: string;       // e.g., "Philippians 4:6-7"
   verseText: string;      // Full verse text
   translation: string;    // Bible translation used
+  /** Optional; present only on the deterministic crisis-signal path. */
+  supportResource?: SupportResource;
 }
 
 /**
@@ -253,7 +258,7 @@ export interface MoodCheckIn {
   moodSpectrumData: MoodSpectrumData;
   aiResponse: AIEncouragementResponse;
   createdAt: string;          // ISO 8601
-  expiresAt: string;          // 24-hour TTL
+  expiresAt: string;          // Client display metadata; retained until account deletion.
 }
 
 /**

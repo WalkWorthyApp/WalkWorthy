@@ -5,7 +5,7 @@
  * based on their mood pattern over the past week.
  */
 
-import { Agent, run } from "@openai/agents";
+import { Agent, run, setTracingDisabled } from "@openai/agents";
 import { setDefaultOpenAIKey, setOpenAIAPI } from "@openai/agents-openai";
 import { z } from "zod";
 import { logger } from "firebase-functions/v2";
@@ -24,6 +24,7 @@ import {
   sleep,
   withTimeout,
 } from "./model-config";
+import { moderateText } from "./content-safety";
 
 // ============================================================================
 // Output Schema
@@ -51,14 +52,14 @@ Given a summary of the student's mood check-ins over the past week, write a shor
 - Specific enough to feel personal, not generic enough to feel like a form letter
 
 ## Using the User Profile (SUBTLE CONTEXT ONLY)
-You may receive a "profile" object with optional fields: ageRange, occupation, major, gender, hobbies. Treat this as SILENT CONTEXT that shapes TONE and IMAGERY — never as material to name or list back.
+You may receive a "profile" object with optional fields: ageRange, occupation, major, hobbies. Treat this as SILENT CONTEXT that shapes TONE and IMAGERY — never as material to name or list back.
 
 **DO:**
 - Let ageRange, occupation/major, and hobbies inform your word choice and the season-of-life texture of your reflection (e.g., "a week of long study hours" vs. "a week of meeting after meeting").
 - Choose resonant imagery without announcing it.
 
 **DON'T:**
-- Name-drop hobbies, major, occupation, gender, or age.
+- Name-drop hobbies, major, occupation, or age.
 - List the user's profile back to them.
 - Refer to the user by an identity label ("Hey engineer,", "As a student…").
 
@@ -80,14 +81,15 @@ function ensureAgent(apiKey: string): Agent<object, typeof reflectionOutputSchem
 
   setDefaultOpenAIKey(apiKey);
   setOpenAIAPI("responses");
+  setTracingDisabled(true);
   cachedApiKey = apiKey;
 
   cachedAgent = new Agent<object, typeof reflectionOutputSchema>({
     name: "WalkWorthyReflectionAgent",
     instructions: REFLECTION_SYSTEM_PROMPT,
     model: MOOD_MODEL,
-    // Zero Data Retention — see mood-agent.ts for rationale. OpenAI does not
-    // persist the request/response after generation; privacy-policy claim.
+    // Disable storage of the Responses API response object for this call.
+    // Provider abuse-monitoring retention remains governed by the API project.
     modelSettings: { temperature: 0.6, topP: 1, maxTokens: 256, store: false },
     outputType: reflectionOutputSchema,
     outputGuardrails: [piiGuardrail],
@@ -150,7 +152,9 @@ export async function runReflectionAgent(
     }
 
     try {
-      const result = await withTimeout((signal) => run(agent, input, { signal }));
+      const result = await withTimeout((signal) =>
+        run(agent, input, { signal }),
+      );
       const output = result.finalOutput;
 
       const raw =
@@ -164,6 +168,10 @@ export async function runReflectionAgent(
       }
 
       const reflection = parsed.reflection.trim();
+      const outputSafety = await moderateText(reflection, apiKey, "output");
+      if (outputSafety !== "allow") {
+        return "Whatever this week has held, consider pausing with someone you trust and making room for care today. What is one safe, supportive next step you can take?";
+      }
       // Deterministic echo-check: block a reflection that repeats the user's
       // own profile strings back. Checked against the sanitized profile —
       // the same values buildPrompt() sent to the model. Throws
@@ -176,7 +184,10 @@ export async function runReflectionAgent(
         logger.error("[ReflectionAgent] PII guardrail tripped; not retrying", { attempt: attempt + 1 });
         throw new GuardrailTripError();
       }
-      logger.error(`[ReflectionAgent] Attempt ${attempt + 1} failed:`, err);
+      logger.error("[ReflectionAgent] Attempt failed", {
+        attempt: attempt + 1,
+        errorName: err instanceof Error ? err.name : "UnknownError",
+      });
     }
   }
 

@@ -166,6 +166,23 @@ nonisolated struct AIEncouragementResponse: Codable, Equatable {
     let verseRef: String
     let verseText: String
     let translation: String
+    /// Optional help resource shown ALONGSIDE the encouragement, never in
+    /// place of it. The backend attaches this only when a check-in note is
+    /// classified as a self-harm signal. Optional so check-ins written before
+    /// this field existed (and cached snapshots) keep decoding.
+    let supportResource: SupportResource?
+}
+
+/// A tappable help resource rendered as its own card under the verse. The app
+/// only ever *offers* it — tapping is what places a call or opens a link.
+///
+/// `nonisolated` for the same reason as `AIEncouragementResponse` above: it is
+/// reached from the off-main-actor `SnapshotStore` via its parent type.
+nonisolated struct SupportResource: Codable, Equatable {
+    let title: String
+    let body: String
+    let phone: String?
+    let url: String?
 }
 
 /// Marked `nonisolated` because the project defaults actor isolation to

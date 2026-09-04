@@ -41,7 +41,6 @@ struct RemoteUserProfileRequest: Codable {
     var firstName: String?
     var occupation: String?
     var major: String?
-    var gender: String?
     var hobbies: [String]?
     var optInTailored: Bool?
     var translationPreference: String?
@@ -64,7 +63,6 @@ nonisolated struct RemoteUserProfileResponse: Codable {
     var firstName: String?
     var occupation: String?
     var major: String?
-    var gender: String?
     var hobbies: [String]?
     var optInTailored: Bool?
     var translationPreference: String?
@@ -96,13 +94,6 @@ enum Translation: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-enum Gender: String, CaseIterable, Identifiable {
-    case female = "Female"
-    case male = "Male"
-
-    var id: String { rawValue }
-}
-
 struct OnboardingProfile {
     /// Optional first name. Empty/whitespace means not set. Used only for Home
     /// greeting personalization — never passed to AI agents.
@@ -110,7 +101,6 @@ struct OnboardingProfile {
     var age: Int?
     var occupation: String  // For professionals
     var major: String       // For students
-    var gender: Gender
     var hobbies: Set<String>
     var optIn: Bool
 }

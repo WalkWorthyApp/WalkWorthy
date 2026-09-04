@@ -2,7 +2,7 @@ import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from '../shared/auth';
-import { validateUserProfileInput, validateAgeRange, validateGender, validateCheckInTimes } from '../shared/types';
+import { validateUserProfileInput, validateAgeRange, validateCheckInTimes } from '../shared/types';
 import type { UserProfile } from '../shared/profile';
 import { clearUserProfileCache } from '../shared/profile';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -77,7 +77,6 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
         const profileData: UserProfile = {
           ageRange: validated.ageRange,
           firstName: validated.firstName,
-          gender: validated.gender,
           major: validated.major,
           occupation: validated.occupation,
           hobbies: validated.hobbies,
@@ -101,18 +100,13 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
 
         if (req.body.ageRange !== undefined) {
           const validAge = validateAgeRange(req.body.ageRange);
-          if (req.body.ageRange !== null && !validAge) {
+          if (req.body.ageRange === null || req.body.ageRange === '') {
+            updates.ageRange = FieldValue.delete() as unknown as UserProfile['ageRange'];
+          } else if (!validAge) {
             return errorResponse(res, 400, 'Invalid ageRange value');
+          } else {
+            updates.ageRange = validAge;
           }
-          updates.ageRange = validAge;
-        }
-
-        if (req.body.gender !== undefined) {
-          const validGender = validateGender(req.body.gender);
-          if (req.body.gender !== null && !validGender) {
-            return errorResponse(res, 400, 'Invalid gender value');
-          }
-          updates.gender = validGender;
         }
 
         if (req.body.firstName !== undefined) {
@@ -138,7 +132,9 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
             updates.major = FieldValue.delete() as unknown as string | undefined;
           } else if (typeof req.body.major === 'string') {
             const trimmed = req.body.major.trim();
-            if (trimmed.length > 0 && trimmed.length <= 120) {
+            if (trimmed.length === 0) {
+              updates.major = FieldValue.delete() as unknown as string | undefined;
+            } else if (trimmed.length <= 120) {
               updates.major = trimmed;
             } else {
               return errorResponse(res, 400, 'Invalid major value');
@@ -153,7 +149,9 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
             updates.occupation = FieldValue.delete() as unknown as string | undefined;
           } else if (typeof req.body.occupation === 'string') {
             const trimmed = req.body.occupation.trim();
-            if (trimmed.length > 0 && trimmed.length <= 120) {
+            if (trimmed.length === 0) {
+              updates.occupation = FieldValue.delete() as unknown as string | undefined;
+            } else if (trimmed.length <= 120) {
               updates.occupation = trimmed;
             } else {
               return errorResponse(res, 400, 'Invalid occupation value');
@@ -207,10 +205,15 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
           updates.checkInTimes = validCheckInTimes;
         }
 
+        // Reject a request that carried no recognized field BEFORE adding the
+        // server-owned fields below — otherwise this guard can never fire.
         if (Object.keys(updates).length === 0) {
           return errorResponse(res, 400, 'No valid fields to update');
         }
 
+        // Gender is no longer collected. Any real profile change also purges
+        // legacy values stored by prerelease builds.
+        updates.gender = FieldValue.delete() as unknown as UserProfile['gender'];
         updates.updatedAt = new Date().toISOString();
 
         // Atomically create or update the document using merge

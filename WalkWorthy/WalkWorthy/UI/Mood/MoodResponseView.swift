@@ -46,6 +46,11 @@ struct MoodResponseContent: View {
                     ))
             }
 
+            if showVerse, let resource = response.aiResponse.supportResource {
+                supportResourceCard(resource)
+                    .transition(.opacity)
+            }
+
             Spacer(minLength: scaled(40))
 
             if showDoneButton {
@@ -83,9 +88,14 @@ struct MoodResponseContent: View {
                 .accessibilityLabel("WalkWorthy assistant")
 
             VStack(alignment: .leading, spacing: scaled(4)) {
-                Text("WalkWorthy")
-                    .font(Font.newsreaderSemiBoldItalic(size: scaled(13)))
-                    .foregroundColor(.accentColor)
+                HStack(spacing: scaled(6)) {
+                    Text("WalkWorthy")
+                        .font(Font.newsreaderSemiBoldItalic(size: scaled(13)))
+                        .foregroundColor(.accentColor)
+                    Text("AI-generated")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
 
                 Text(response.aiResponse.message)
                     .font(.body)
@@ -99,6 +109,60 @@ struct MoodResponseContent: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// Renders an offered help resource. Nothing here dials or contacts
+    /// anyone on its own — the user taps if they want it.
+    @ViewBuilder
+    private func supportResourceCard(_ resource: SupportResource) -> some View {
+        VStack(alignment: .leading, spacing: scaled(10)) {
+            Label(resource.title, systemImage: "lifepreserver.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.accentColor)
+
+            Text(resource.body)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: scaled(12)) {
+                if let phone = resource.phone,
+                   let callURL = URL(string: "tel://\(phone)") {
+                    Link(destination: callURL) {
+                        Label("Call \(phone)", systemImage: "phone.fill")
+                            .font(.footnote.weight(.semibold))
+                    }
+                }
+
+                if let phone = resource.phone,
+                   let textURL = URL(string: "sms:\(phone)") {
+                    Link(destination: textURL) {
+                        Label("Text \(phone)", systemImage: "message.fill")
+                            .font(.footnote.weight(.semibold))
+                    }
+                }
+
+                if let urlString = resource.url,
+                   let webURL = URL(string: urlString) {
+                    Link(destination: webURL) {
+                        Label("Learn more", systemImage: "arrow.up.right")
+                            .font(.footnote.weight(.semibold))
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(scaled(16))
+        .background(
+            RoundedRectangle(cornerRadius: scaled(16))
+                .fill(Color.wwCardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: scaled(16))
+                .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("\(resource.title). \(resource.body)"))
     }
 
     private var verseCard: some View {
