@@ -49,4 +49,4 @@ jobs:
       - name: Deploy to Firebase
         run: |
           npm install -g firebase-tools
-          firebase deploy --only functions,firestore:rules,firestore:indexes --project walkworthy-app
+          firebase deploy --only functions,firestore:rules,firestore:indexes,hosting --project walkworthy-app

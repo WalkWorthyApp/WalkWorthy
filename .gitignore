@@ -31,6 +31,9 @@ DerivedData/
 GoogleService-Info.plist
 users.json
 firebase-debug.log
+
+# Firebase CLI deploy caches — local upload-hash bookkeeping, never shared
+.firebase/
 firestore-debug.log
 ui-debug.log
 FIREBASE_AUTH_MIGRATION.md

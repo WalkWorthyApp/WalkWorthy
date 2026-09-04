@@ -16,14 +16,14 @@ export type Gender = 'female' | 'male' | 'nonBinary' | 'preferNotToSay';
  * User profile input from client.
  *
  * SECURITY NOTES:
- * - ageRange, gender, major, and occupation are SENSITIVE DATA (PII)
+ * - ageRange, major, and occupation are SENSITIVE DATA (PII)
  * - Can identify users when combined with other profile fields (GDPR/CCPA concern)
  * - NEVER log these fields in plain text
  * - Validate incoming values against defined enums before storage
  * - Use redactSensitiveFields() when logging this data
  * - Consider field importance before including in AI prompts
  *
- * REQUIRED FIELDS: ageRange, gender, hobbies, optInTailored, translationPreference, timezone
+ * REQUIRED FIELDS: ageRange, hobbies, optInTailored, timezone
  * OPTIONAL FIELDS: major, occupation (not everyone is in school or employed)
  */
 export interface UserProfileInput {
@@ -42,17 +42,11 @@ export interface UserProfileInput {
   /** OPTIONAL - SENSITIVE: occupation/job title (for non-students). Can identify users when combined with other profile data. */
   occupation?: string;
 
-  /** REQUIRED - SENSITIVE: Must be one of the predefined gender options */
-  gender: Gender;
-
   /** REQUIRED - List of user hobbies/interests */
   hobbies: string[];
 
   /** REQUIRED - Whether user opts in to tailored encouragement */
   optInTailored: boolean;
-
-  /** REQUIRED - Bible translation preference */
-  translationPreference: 'ESV' | 'KJV' | 'NIV' | 'NKJV' | 'NASB' | 'CSB' | 'NLT';
 
   /** OPTIONAL - User's preferred check-in notification times */
   checkInTimes?: CheckInTimes;
@@ -89,10 +83,10 @@ export function validateGender(value: unknown): Gender | undefined {
 
 /**
  * Validates and normalizes user profile input.
- * SECURITY: Validates all fields including sensitive PII fields (ageRange, gender, major, occupation).
+ * SECURITY: Validates all fields including sensitive PII fields (ageRange, major, occupation).
  * Sensitive fields should be treated as identifying information and protected accordingly.
  *
- * REQUIRED FIELDS: ageRange, gender, hobbies, optInTailored, translationPreference, timezone
+ * REQUIRED FIELDS: ageRange, hobbies, optInTailored, timezone
  * OPTIONAL FIELDS: major, occupation
  *
  * @param input The untrusted profile input from client
@@ -107,27 +101,6 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
   const ageRange = validateAgeRange(obj.ageRange);
   if (!ageRange) {
     logger.error('Profile validation failed: missing or invalid ageRange');
-    return undefined;
-  }
-
-  // REQUIRED: Validate gender
-  const gender = validateGender(obj.gender);
-  if (!gender) {
-    logger.error('Profile validation failed: missing or invalid gender');
-    return undefined;
-  }
-
-  // REQUIRED: Validate translation preference
-  let translationPref: UserProfileInput['translationPreference'] | undefined;
-  if (obj.translationPreference !== undefined) {
-    const validTranslations = ['ESV', 'KJV', 'NIV', 'NKJV', 'NASB', 'CSB', 'NLT'];
-    const pref = String(obj.translationPreference).toUpperCase();
-    if (validTranslations.includes(pref)) {
-      translationPref = pref as UserProfileInput['translationPreference'];
-    }
-  }
-  if (!translationPref) {
-    logger.error('Profile validation failed: missing or invalid translationPreference');
     return undefined;
   }
 
@@ -167,10 +140,8 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
 
   return {
     ageRange,
-    gender,
     hobbies,
     optInTailored: Boolean(obj.optInTailored),
-    translationPreference: translationPref,
     timezone,
     // Optional fields
     firstName,
@@ -228,9 +199,18 @@ export interface JournalEntry {
 }
 
 /**
- * Bible translation options.
+ * An optional help resource surfaced ALONGSIDE an encouragement — never in
+ * place of one. Attached when a check-in note is classified as a self-harm
+ * signal, so the user still receives their encouragement and is separately
+ * offered a way to reach a person. The app renders this as its own card; it
+ * never dials or contacts anyone automatically.
  */
-export type Translation = 'ESV' | 'KJV' | 'NIV' | 'NKJV' | 'NASB' | 'CSB' | 'NLT';
+export interface SupportResource {
+  title: string;          // Short card heading
+  body: string;           // One or two sentences of context
+  phone?: string;         // Dialable/textable short code, e.g. "988"
+  url?: string;           // Web fallback, e.g. https://988lifeline.org
+}
 
 /**
  * AI-generated encouragement response.
@@ -240,6 +220,20 @@ export interface AIEncouragementResponse {
   verseRef: string;       // e.g., "Philippians 4:6-7"
   verseText: string;      // Full verse text
   translation: string;    // Bible translation used
+  /** Optional; present only on the deterministic crisis-signal path. */
+  supportResource?: SupportResource;
+  /**
+   * False on the fixed, human-written fallbacks (crisis signal, blocked input,
+   * blocked output). Absent means model-generated — every record written
+   * before this field existed was, so absent must read as true.
+   *
+   * The app keys three things off this: the "AI-generated" badge, the
+   * "can get things wrong" caveat, and the retry control. All three are wrong
+   * on a fixed response — retry re-runs and returns the identical string, and
+   * telling someone an emergency-resource message is AI-written and may be
+   * mistaken undermines it exactly when it needs to be trusted.
+   */
+  isGenerated?: boolean;
 }
 
 /**
@@ -253,7 +247,7 @@ export interface MoodCheckIn {
   moodSpectrumData: MoodSpectrumData;
   aiResponse: AIEncouragementResponse;
   createdAt: string;          // ISO 8601
-  expiresAt: string;          // 24-hour TTL
+  expiresAt: string;          // Client display metadata; retained until account deletion.
 }
 
 /**
@@ -318,7 +312,6 @@ export interface CheckInTimes {
 // ============================================================================
 
 const VALID_CHECK_IN_TYPES: CheckInType[] = ['morning', 'midday', 'evening'];
-const VALID_TRANSLATIONS: Translation[] = ['ESV', 'KJV', 'NIV', 'NKJV', 'NASB', 'CSB', 'NLT'];
 
 // All valid emotion tags across all mood levels
 const VALID_EMOTION_TAGS: ReadonlySet<string> = new Set([
@@ -408,15 +401,6 @@ export function validateMoodSpectrumData(input: unknown): MoodSpectrumData | und
     followUpScore: obj.followUpScore,
     note: typeof obj.note === 'string' ? obj.note : null,
   };
-}
-
-/**
- * Validates translation preference.
- */
-export function validateTranslation(value: unknown): Translation | undefined {
-  if (typeof value !== 'string') return undefined;
-  const upper = value.toUpperCase();
-  return VALID_TRANSLATIONS.includes(upper as Translation) ? (upper as Translation) : undefined;
 }
 
 /**

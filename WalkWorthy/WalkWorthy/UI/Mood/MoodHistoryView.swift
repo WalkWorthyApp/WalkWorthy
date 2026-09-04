@@ -563,6 +563,10 @@ struct MoodHistoryView: View {
                 Text("Latest Encouragement")
                     .font(.newsreaderSemiBoldItalic(size: scaled(17)))
 
+                if checkIn.aiResponse.isModelGenerated {
+                    AIGeneratedBadge()
+                }
+
                 Spacer()
 
                 Text(checkIn.aiResponse.verseRef)

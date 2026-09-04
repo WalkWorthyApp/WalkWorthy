@@ -6,11 +6,11 @@
  *   - Text fields capped at 120 chars (major/occupation) or 40 chars (hobbies)
  *   - Hobbies list capped at 6 entries
  *   - Strips HTML tags and URLs
- *   - Validates gender/ageRange via shared type validators
+ *   - Validates ageRange via the shared type validator
  */
 
-import type { AgeRange, Gender } from "../shared/types";
-import { validateAgeRange, validateGender } from "../shared/types";
+import type { AgeRange } from "../shared/types";
+import { validateAgeRange } from "../shared/types";
 
 /**
  * Profile payload shape as consumed by AI agents. Mirrors a subset of
@@ -21,8 +21,6 @@ export interface UserProfilePayload {
   major?: string;
   /** SENSITIVE: Optional occupation/job title (for non-students). Can identify users when combined with other profile data. */
   occupation?: string;
-  /** SENSITIVE: Gender is PII; must be one of the predefined gender options */
-  gender?: Gender;
   /** SENSITIVE: Age range is PII; must be one of the predefined ranges */
   ageRange?: AgeRange;
   hobbies?: string[];
@@ -61,9 +59,8 @@ const PRESET_HOBBIES: ReadonlySet<string> = new Set([
  * Deliberately EXCLUDED from the echo check:
  * - firstName — never sent to agents in the first place.
  * - Preset hobby words — generic devotional vocabulary (see above).
- * - gender and ageRange — tiny fixed enums whose tokens legitimately occur
- *   in Scripture output: Genesis 1:27 contains "male and female", and a
- *   verse range like "Romans 8:18-24" contains "18-24". Echo-checking them
+ * - ageRange — a tiny fixed enum whose tokens legitimately occur in a
+ *   verse range like "Romans 8:18-24". Echo-checking it
  *   turns valid encouragements into user-visible failures while revealing
  *   nothing identifying. The system prompts still forbid referencing them.
  *
@@ -87,7 +84,7 @@ export function collectProfileValues(
 /**
  * Sanitize a user profile for safe inclusion in AI agent input.
  *
- * Validates sensitive enum fields (gender, ageRange) and caps free-form
+ * Validates the age-range enum and caps free-form
  * text fields. Returns null when the profile is null/undefined.
  */
 export function sanitizeProfile(
@@ -95,10 +92,6 @@ export function sanitizeProfile(
 ): UserProfilePayload | null {
   if (!profile) return null;
 
-  // Validate sensitive enum fields to prevent invalid data being passed to AI
-  const validGender = profile.gender
-    ? validateGender(profile.gender)
-    : undefined;
   const validAgeRange = profile.ageRange
     ? validateAgeRange(profile.ageRange)
     : undefined;
@@ -108,7 +101,6 @@ export function sanitizeProfile(
     occupation: profile.occupation
       ? sanitizeText(profile.occupation, 120)
       : undefined,
-    gender: validGender,
     ageRange: validAgeRange,
     hobbies: profile.hobbies?.slice(0, 6).map((h) => sanitizeText(h, 40)),
     optInTailored: Boolean(profile.optInTailored),

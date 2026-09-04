@@ -11,6 +11,7 @@ import UIKit
 import UserNotifications
 import FirebaseCore
 import FirebaseAppCheck
+import FirebaseAnalytics
 import FirebaseCrashlytics
 import SwiftData
 
@@ -33,6 +34,23 @@ struct WalkWorthyApp: App {
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
         }
+
+        // Force analytics collection OFF the instant Firebase is up, before
+        // AppState hydrates and before any view can log.
+        //
+        // `setAnalyticsCollectionEnabled(_:)` PERSISTS across launches and
+        // outranks FIREBASE_ANALYTICS_COLLECTION_ENABLED in Info.plist. A build
+        // that defaulted analytics on wrote `true` there, and bumping the
+        // UserDefaults consent keys to `.v2` did not clear it — so on launch
+        // Firebase came up collecting (confirmed in device logs: "Analytics
+        // collection enabled" before our own "disabled"). That is a window of
+        // collection without consent, which contradicts what the consent screen
+        // and privacy policy promise.
+        //
+        // AppState turns collection back on immediately afterwards if, and only
+        // if, this user opted in, so the only transition a consenting user sees
+        // is off -> on.
+        Analytics.setAnalyticsCollectionEnabled(false)
 
         let resolvedConfig = Config.shared
 

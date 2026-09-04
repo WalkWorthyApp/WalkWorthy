@@ -157,8 +157,10 @@ actor SnapshotStore {
         do {
             try fileManager.createDirectory(
                 at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
+                withIntermediateDirectories: true,
+                attributes: [.protectionKey: FileProtectionType.complete]
             )
+            try Self.excludeFromBackup(url.deletingLastPathComponent())
             let data = try encoder.encode(snapshot)
             let tmpURL = url.appendingPathExtension("tmp")
             // Ensure no stale temp file confuses the atomic replace.
@@ -167,6 +169,7 @@ actor SnapshotStore {
             // Atomic on the same volume: readers see either the old file or
             // the new file, never a partially written snapshot.
             _ = try fileManager.replaceItemAt(url, withItemAt: tmpURL)
+            try Self.excludeFromBackup(url)
         } catch {
             #if DEBUG
             print("[SnapshotStore] Write failed for \(url.lastPathComponent): \(error)")
@@ -203,6 +206,13 @@ actor SnapshotStore {
     // MARK: - Paths
 
     private static let rootDirectoryName = "WalkWorthy/Snapshots"
+
+    private nonisolated static func excludeFromBackup(_ url: URL) throws {
+        var protectedURL = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try protectedURL.setResourceValues(values)
+    }
 
     private static func rootDirectory() -> URL? {
         try? FileManager.default.url(

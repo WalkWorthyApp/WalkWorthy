@@ -31,38 +31,15 @@ struct MoodCheckInView: View {
     @State private var followUpScore: Int = 0
     @State private var note: String = ""
 
-    // MARK: - Draft Persistence
-
-    /// On-device representation of an in-progress check-in. Persisted per-user
-    /// and per-check-in-type so a network failure mid-wizard doesn't erase the
-    /// user's selections. Cleared on successful submission.
-    ///
-    /// The slider position is deliberately NOT persisted: the wizard always
-    /// reopens on the slider step, and the mood should start at dead-center
-    /// neutral each time rather than wherever the user last left it.
-    private struct Draft: Codable {
-        var selectedTags: [String]
-        var selectedCategories: [String]
-        var followUpScore: Int
-        var note: String
-    }
-
-    private static let draftEncoder = JSONEncoder()
-    private static let draftDecoder = JSONDecoder()
-
     // MARK: - Submission
 
     @State private var submissionResult: MoodCheckInResponse?
     @State private var errorTitle: String?
     @State private var errorMessage: String?
     @State private var submissionTask: Task<Void, Never>?
-    /// Debounced draft persistence. Text input (the `note` field) can fire a
-    /// save on every keystroke; 400ms collapses rapid typing into a single
-    /// UserDefaults write. Non-text inputs (slider, tags, step) are saved
-    /// through the same path for consistency. Cancelled on view disappear
-    /// (with a final flush save) and on successful submission.
-    @State private var draftSaveTask: Task<Void, Never>?
-
+    @State private var regenerateTask: Task<Void, Never>?
+    @State private var isRegenerating = false
+    @State private var regenerateErrorMessage: String?
     // MARK: - Derived
 
     private var currentMoodLevel: MoodLevel {
@@ -89,42 +66,10 @@ struct MoodCheckInView: View {
     private var checkInFlow: some View {
         stepContent
             .animation(.easeInOut(duration: 0.35), value: step)
-            .onAppear {
-                restoreDraft()
-            }
             .onDisappear {
                 submissionTask?.cancel()
-                // Cancel the pending debounced write and flush-save immediately
-                // so a draft the user typed milliseconds before dismissing
-                // isn't lost.
-                draftSaveTask?.cancel()
-                draftSaveTask = nil
-                saveDraft()
+                regenerateTask?.cancel()
             }
-            // Persist on every meaningful input change. Cheap — a single
-            // UserDefaults write per edit — and avoids needing to plumb
-            // "save draft" callbacks through every step view.
-            .onChange(of: step) { _, _ in saveDraft() }
-            .onChange(of: selectedTags) { _, _ in saveDraft() }
-            .onChange(of: selectedCategories) { _, _ in saveDraft() }
-            .onChange(of: followUpScore) { _, _ in saveDraft() }
-            // `note` fires on every keystroke — debounce to avoid a
-            // UserDefaults write per character. onDisappear flush-saves any
-            // pending draft so a fast dismiss after typing doesn't lose work.
-            .onChange(of: note) { _, _ in scheduleDebouncedDraftSave() }
-    }
-
-    /// Cancels the current pending debounced save and schedules a new one
-    /// 400ms out. Matches the debounce pattern used by `AppState.profileSyncTask`.
-    private func scheduleDebouncedDraftSave() {
-        draftSaveTask?.cancel()
-        draftSaveTask = Task {
-            try? await Task.sleep(for: .milliseconds(400))
-            if Task.isCancelled { return }
-            await MainActor.run {
-                saveDraft()
-            }
-        }
     }
 
     @ViewBuilder
@@ -134,8 +79,8 @@ struct MoodCheckInView: View {
             MoodSliderView(sliderValue: $sliderValue, onNext: {
                 step = .emotionTags
             }, onBack: {
-                // User backed out without submitting — the draft stays on
-                // disk so they can resume on the next launch.
+                // The in-progress selections are memory-only and disappear
+                // when the check-in sheet is dismissed.
                 onComplete()
             })
 
@@ -176,29 +121,80 @@ struct MoodCheckInView: View {
                     errorMessage = nil
                     submissionResult = nil
                     step = .followUp
-                }
+                },
+                onRegenerate: regenerateEncouragement,
+                isRegenerating: isRegenerating,
+                regenerateErrorMessage: regenerateErrorMessage
             )
         }
     }
 
     // MARK: - Submission
 
+    /// Regenerates the encouragement for the check-in that was just submitted.
+    ///
+    /// Deliberately NOT a re-run of `submitCheckIn()`: that path also creates a
+    /// journal entry from the note and logs the completion analytics event, and
+    /// neither should happen twice for one check-in. This only swaps the AI
+    /// response. A failure keeps the existing encouragement on screen and
+    /// reports inline — losing the response the user already has would be a
+    /// worse outcome than a failed retry.
+    private func regenerateEncouragement() {
+        guard !isRegenerating else { return }
+        isRegenerating = true
+        regenerateErrorMessage = nil
+
+        regenerateTask?.cancel()
+        regenerateTask = Task {
+            do {
+                let request = MoodCheckInRequest(
+                    checkInType: checkInType.rawValue,
+                    moodSpectrumData: makeSpectrumData(),
+                    regenerate: true
+                )
+                let response = try await appState.submitMoodCheckIn(request)
+                try Task.checkCancellation()
+                await MainActor.run {
+                    submissionResult = response
+                    isRegenerating = false
+                }
+            } catch is CancellationError {
+                await MainActor.run { isRegenerating = false }
+            } catch {
+                await MainActor.run {
+                    let apiError = error as? APIError
+                    regenerateErrorMessage = apiError?.errorDescription
+                        ?? "Couldn't write a new one just now. Your encouragement above is unchanged."
+                    isRegenerating = false
+                }
+            }
+        }
+    }
+
+    /// The check-in payload built from current wizard state. Shared by the
+    /// initial submit and by regeneration so a retry describes exactly the same
+    /// check-in — the backend keys off it to find the document to overwrite.
+    private func makeSpectrumData() -> MoodSpectrumData {
+        let moodScore = Int(sliderValue * 9) + 1
+        let noteValue = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        return MoodSpectrumData(
+            moodScore: moodScore,
+            moodLevel: MoodLevel.from(score: moodScore).rawValue,
+            emotionTags: selectedTags,
+            impactCategories: selectedCategories,
+            followUpScore: followUpScore,
+            note: noteValue.isEmpty ? nil : noteValue
+        )
+    }
+
     private func submitCheckIn() {
         step = .cinematic
 
-        let moodScore = Int(sliderValue * 9) + 1
         let noteValue = note.trimmingCharacters(in: .whitespacesAndNewlines)
 
         submissionTask = Task {
             do {
-                let spectrumData = MoodSpectrumData(
-                    moodScore: moodScore,
-                    moodLevel: MoodLevel.from(score: moodScore).rawValue,
-                    emotionTags: selectedTags,
-                    impactCategories: selectedCategories,
-                    followUpScore: followUpScore,
-                    note: noteValue.isEmpty ? nil : noteValue
-                )
+                let spectrumData = makeSpectrumData()
                 let request = MoodCheckInRequest(
                     checkInType: checkInType.rawValue,
                     moodSpectrumData: spectrumData
@@ -229,12 +225,6 @@ struct MoodCheckInView: View {
 
                 await MainActor.run {
                     submissionResult = response
-                    // Draft is only safe to delete once the backend has
-                    // accepted the check-in. A cancelled task below leaves
-                    // the draft intact.
-                    draftSaveTask?.cancel()
-                    draftSaveTask = nil
-                    clearDraft()
                 }
             } catch is CancellationError {
                 // View was dismissed during submission — no-op
@@ -259,62 +249,13 @@ struct MoodCheckInView: View {
                     #else
                     baseMessage = apiError?.errorDescription ?? error.localizedDescription
                     #endif
-                    // Reassure the user — their selections are safe on-device
-                    // and they can retry without re-entering anything.
-                    errorMessage = "\(baseMessage)\n\nSaved on your device — we'll sync when you're back online."
+                    // The open view retains the selections in memory for retry.
+                    errorMessage = "\(baseMessage)\n\nYour selections are still here — you can retry without re-entering them."
                 }
             }
         }
     }
 
-    // MARK: - Draft Persistence
-
-    /// UserDefaults key scoped by the authenticated user's Firebase sub claim
-    /// and the current check-in type. Returns nil if the user isn't signed in
-    /// yet, in which case we skip persistence entirely.
-    private func draftKey() -> String? {
-        guard let userSub = appState.authenticatedUserSub else { return nil }
-        return "walkworthy.moodCheckIn.draft.\(userSub).\(checkInType.rawValue)"
-    }
-
-    private func saveDraft() {
-        // Skip while the cinematic submission sequence is running — any state
-        // updates there should not overwrite the draft we're about to clear.
-        guard step != .cinematic, let key = draftKey() else { return }
-
-        let draft = Draft(
-            selectedTags: selectedTags,
-            selectedCategories: selectedCategories,
-            followUpScore: followUpScore,
-            note: note
-        )
-
-        do {
-            let data = try Self.draftEncoder.encode(draft)
-            UserDefaults.standard.set(data, forKey: key)
-        } catch {
-            #if DEBUG
-            print("[MoodCheckInView] Failed to encode check-in draft: \(error)")
-            #endif
-        }
-    }
-
-    private func restoreDraft() {
-        guard let key = draftKey(),
-              let data = UserDefaults.standard.data(forKey: key),
-              let draft = try? Self.draftDecoder.decode(Draft.self, from: data)
-        else { return }
-
-        selectedTags = draft.selectedTags
-        selectedCategories = draft.selectedCategories
-        followUpScore = draft.followUpScore
-        note = draft.note
-    }
-
-    private func clearDraft() {
-        guard let key = draftKey() else { return }
-        UserDefaults.standard.removeObject(forKey: key)
-    }
 }
 
 #Preview {

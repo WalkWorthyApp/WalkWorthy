@@ -12,6 +12,7 @@ struct SignInFormView: View {
     @ObservedObject var viewModel: AuthenticationViewModel
     @Environment(\.colorScheme) private var colorScheme
     @FocusState private var focusedField: Field?
+    @State private var minimumAgeConfirmed = false
 
     enum Field {
         case email
@@ -35,6 +36,8 @@ struct SignInFormView: View {
                 errorCard(error)
             }
 
+            minimumAgeConfirmation
+
             // Submit button
             submitButton
 
@@ -47,11 +50,9 @@ struct SignInFormView: View {
             // Mode switch link
             modeSwitchLink
 
-            // Legal consent line (shown only in create-account mode; signing in
-            // implies prior acceptance at the time the account was created).
-            if viewModel.mode == .createAccount {
-                legalConsentText
-            }
+            // Apple uses one button for both first-time account creation and
+            // returning sign-in, so keep policy links visible in both modes.
+            legalConsentText
         }
         .padding(.horizontal, scaled(12))
         .padding(.vertical, scaled(16))
@@ -76,6 +77,16 @@ struct SignInFormView: View {
     }
 
     // MARK: - Components
+
+    private var minimumAgeConfirmation: some View {
+        Toggle(isOn: $minimumAgeConfirmed) {
+            Text("I confirm I am 13 or older. If I am under 18, my parent or guardian permits my use of WalkWorthy.")
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .toggleStyle(.switch)
+        .accessibilityHint("Required before signing in or creating an account")
+    }
 
     private var modeToggle: some View {
         HStack(spacing: 0) {
@@ -234,7 +245,7 @@ struct SignInFormView: View {
             .foregroundStyle(.white)
         }
         .buttonStyle(.plain)
-        .disabled(viewModel.isLoading)
+        .disabled(viewModel.isLoading || !minimumAgeConfirmed)
     }
 
     private var orDivider: some View {
@@ -272,8 +283,8 @@ struct SignInFormView: View {
         .frame(maxWidth: .infinity)
         .frame(height: scaled(48))
         .clipShape(RoundedRectangle(cornerRadius: scaled(16), style: .continuous))
-        .disabled(viewModel.isLoading)
-        .opacity(viewModel.isLoading ? 0.6 : 1)
+        .disabled(viewModel.isLoading || !minimumAgeConfirmed)
+        .opacity(viewModel.isLoading || !minimumAgeConfirmed ? 0.6 : 1)
     }
 
     private var modeSwitchLink: some View {
@@ -299,7 +310,7 @@ struct SignInFormView: View {
     /// must be able to reach the policies before creating an account.
     private var legalConsentText: some View {
         let attributed: AttributedString = {
-            var full = AttributedString("By creating an account you agree to our ")
+            var full = AttributedString("By signing in or creating an account you agree to our ")
             full.foregroundColor = .secondary
 
             var terms = AttributedString("Terms of Use")

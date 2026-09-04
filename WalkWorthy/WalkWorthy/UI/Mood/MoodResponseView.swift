@@ -16,6 +16,12 @@ import SwiftUI
 struct MoodResponseContent: View {
     let response: MoodCheckInResponse
     let onDismiss: () -> Void
+    /// Optional so read-only presentations (history, the standalone wrapper)
+    /// show no retry affordance — retrying only makes sense in the flow that
+    /// just produced the encouragement.
+    var onRetry: (() -> Void)?
+    var isRetrying: Bool = false
+    var retryErrorMessage: String?
 
     @State private var showMessage = false
     @State private var showVerse = false
@@ -44,6 +50,11 @@ struct MoodResponseContent: View {
                         ),
                         removal: .opacity
                     ))
+            }
+
+            if showVerse, let resource = response.aiResponse.supportResource {
+                supportResourceCard(resource)
+                    .transition(.opacity)
             }
 
             Spacer(minLength: scaled(40))
@@ -83,9 +94,14 @@ struct MoodResponseContent: View {
                 .accessibilityLabel("WalkWorthy assistant")
 
             VStack(alignment: .leading, spacing: scaled(4)) {
-                Text("WalkWorthy")
-                    .font(Font.newsreaderSemiBoldItalic(size: scaled(13)))
-                    .foregroundColor(.accentColor)
+                HStack(spacing: scaled(6)) {
+                    Text("WalkWorthy")
+                        .font(Font.newsreaderSemiBoldItalic(size: scaled(13)))
+                        .foregroundColor(.accentColor)
+                    if response.aiResponse.isModelGenerated {
+                        AIGeneratedBadge()
+                    }
+                }
 
                 Text(response.aiResponse.message)
                     .font(.body)
@@ -96,9 +112,114 @@ struct MoodResponseContent: View {
                         RoundedRectangle(cornerRadius: scaled(16))
                             .fill(Color.wwCardBackground)
                     )
+
+                // Both of these are true only of model output. A fixed
+                // fallback is human-written (so the caveat would be false) and
+                // deterministic (so retry would return the identical string
+                // while still spending a daily budget slot).
+                if response.aiResponse.isModelGenerated {
+                    // HIG (Generative AI → Inputs): "it's important to clearly
+                    // communicate that AI-generated content may contain
+                    // errors." The badge names the source; this names the
+                    // limitation.
+                    Text("This is written by AI and can get things wrong.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if let onRetry {
+                        retryControl(onRetry)
+                            .padding(.top, scaled(2))
+                    }
+                }
+
+                if let retryErrorMessage {
+                    Text(retryErrorMessage)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// HIG (Generative AI → Outputs): "surfacing controls like Edit, Undo,
+    /// Retry, or Adjust near generated content preserves people's agency."
+    /// Regeneration is a real backend call, so it consumes the same daily AI
+    /// budget as the first generation — a spent budget surfaces as an ordinary
+    /// usage-limit message rather than a silent no-op.
+    @ViewBuilder
+    private func retryControl(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: scaled(5)) {
+                if isRetrying {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
+                Text(isRetrying ? "Writing a new one…" : "Try a different encouragement")
+            }
+            .font(.caption)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.accentColor)
+        .disabled(isRetrying)
+        .accessibilityHint("Replaces this encouragement with a newly generated one")
+    }
+
+    /// Renders an offered help resource. Nothing here dials or contacts
+    /// anyone on its own — the user taps if they want it.
+    @ViewBuilder
+    private func supportResourceCard(_ resource: SupportResource) -> some View {
+        VStack(alignment: .leading, spacing: scaled(10)) {
+            Label(resource.title, systemImage: "lifepreserver.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundColor(.accentColor)
+
+            Text(resource.body)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: scaled(12)) {
+                if let phone = resource.phone,
+                   let callURL = URL(string: "tel://\(phone)") {
+                    Link(destination: callURL) {
+                        Label("Call \(phone)", systemImage: "phone.fill")
+                            .font(.footnote.weight(.semibold))
+                    }
+                }
+
+                if let phone = resource.phone,
+                   let textURL = URL(string: "sms:\(phone)") {
+                    Link(destination: textURL) {
+                        Label("Text \(phone)", systemImage: "message.fill")
+                            .font(.footnote.weight(.semibold))
+                    }
+                }
+
+                if let urlString = resource.url,
+                   let webURL = URL(string: urlString) {
+                    Link(destination: webURL) {
+                        Label("Learn more", systemImage: "arrow.up.right")
+                            .font(.footnote.weight(.semibold))
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(scaled(16))
+        .background(
+            RoundedRectangle(cornerRadius: scaled(16))
+                .fill(Color.wwCardBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: scaled(16))
+                .strokeBorder(Color.accentColor.opacity(0.35), lineWidth: 1)
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text("\(resource.title). \(resource.body)"))
     }
 
     private var verseCard: some View {
@@ -262,5 +383,19 @@ private struct SlideUpTransitionModifier: ViewModifier {
         content
             .offset(y: yOffset)
             .opacity(opacity)
+    }
+}
+
+
+/// The "AI-generated" marker. Shared so every surface that displays model
+/// output labels it identically — HIG (Generative AI → Transparency):
+/// "Communicate where your app uses AI... Never trick someone into thinking
+/// they're interacting with or viewing content authored by a human if they're
+/// actually interacting with AI."
+struct AIGeneratedBadge: View {
+    var body: some View {
+        Text("AI-generated")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
     }
 }

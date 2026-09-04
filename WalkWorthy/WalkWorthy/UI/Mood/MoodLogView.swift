@@ -585,6 +585,9 @@ private struct MoodLogCheckInCard: View {
                 Text("Encouragement")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
+                if checkIn.aiResponse.isModelGenerated {
+                    AIGeneratedBadge()
+                }
             }
 
             Text(checkIn.aiResponse.message)

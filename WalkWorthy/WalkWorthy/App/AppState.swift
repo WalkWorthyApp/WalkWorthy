@@ -15,7 +15,6 @@ import FirebaseCrashlytics
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published var selectedTranslation: Translation
     @Published var onboardingCompleted: Bool
     @Published var useProfilePersonalization: Bool
     /// User has seen the AI data-sharing consent screen and tapped Continue.
@@ -24,10 +23,9 @@ final class AppState: ObservableObject {
     /// Scoped per user; false blocks mood check-in AI + daily reflection fetch.
     @Published private(set) var aiConsentGiven: Bool = false
     /// Firebase Analytics collection toggle. Collection is disabled in
-    /// Info.plist (FIREBASE_ANALYTICS_COLLECTION_ENABLED = NO) and only turned
-    /// on at runtime once consent is given AND this flag is true, so no events
-    /// are collected before the user has seen the disclosure.
-    @Published private(set) var analyticsEnabled: Bool = true
+    /// Info.plist (FIREBASE_ANALYTICS_COLLECTION_ENABLED = NO) and turned on
+    /// only when the user independently enables this setting.
+    @Published private(set) var analyticsEnabled: Bool = false
     /// In-memory mirror of the backend profile for SwiftUI-observable access
     /// (HomeView greeting + tone-aware subtitle). Hydrated via
     /// `refreshProfileFromBackend()` at sign-in; nil before sign-in / after
@@ -132,7 +130,6 @@ final class AppState: ObservableObject {
         StorageKey.useProfilePersonalization,
         StorageKey.aiConsentGiven,
         StorageKey.analyticsEnabled,
-        StorageKey.translation,
         StorageKey.dismissedNameBackfill,
         StorageKey.hasCompletedProfileSetup,
     ]
@@ -152,9 +149,8 @@ final class AppState: ObservableObject {
         self.defaults = defaults
         self.modelContainer = modelContainer
         self.isAuthenticated = false
-        self.selectedTranslation = resolvedConfig.defaultTranslation
         self.authenticatedUserSub = nil
-        self.useProfilePersonalization = true
+        self.useProfilePersonalization = false
         self.onboardingCompleted = false
 
         reloadUserScopedPreferences()
@@ -180,13 +176,13 @@ final class AppState: ObservableObject {
 
     /// Updates user profile data in memory and syncs to the Firebase backend.
     ///
-    /// Profile PII (age, occupation, major, gender, hobbies, first name) is
+    /// Profile PII (age, occupation, major, hobbies, first name) is
     /// never persisted in UserDefaults — the authoritative copy lives on the
     /// backend and is fetched into `currentProfile` at sign-in. UserDefaults
     /// plists inherit `NSFileProtectionCompleteUntilFirstUserAuthentication`
     /// and are readable from unencrypted iTunes backups; keeping PII out of
     /// them removes that exposure without a Keychain migration.
-    func updateProfile(firstName: String, age: Int?, occupation: String, major: String, gender: Gender, hobbies: Set<String>, optIn: Bool) {
+    func updateProfile(firstName: String, age: Int?, occupation: String, major: String, hobbies: Set<String>, optIn: Bool) {
         let trimmedFirstName = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOccupation = occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = major.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -197,10 +193,11 @@ final class AppState: ObservableObject {
             age: age,
             occupation: trimmedOccupation,
             major: trimmedMajor,
-            gender: gender,
             hobbies: hobbies,
             optIn: optIn
         )
+        useProfilePersonalization = optIn
+        defaults.set(optIn, forKey: storageKey(StorageKey.useProfilePersonalization))
 
         // Flip the "setup complete" flag so the Home name banner stops showing
         // on offline cold-launches. Only set it when the user actually supplied
@@ -210,7 +207,7 @@ final class AppState: ObservableObject {
             setHasCompletedProfileSetup(true)
         }
 
-        syncProfile(firstName: trimmedFirstName, age: age, occupation: trimmedOccupation, major: trimmedMajor, gender: gender, hobbies: hobbies, optIn: optIn)
+        syncProfile(firstName: trimmedFirstName, age: age, occupation: trimmedOccupation, major: trimmedMajor, hobbies: hobbies, optIn: optIn)
     }
 
     /// Returns the current observable profile, or an empty profile for the
@@ -222,9 +219,8 @@ final class AppState: ObservableObject {
             age: nil,
             occupation: "",
             major: "",
-            gender: .male,
             hobbies: [],
-            optIn: true
+            optIn: false
         )
     }
 
@@ -244,6 +240,8 @@ final class AppState: ObservableObject {
             if let response {
                 let profile = Self.profile(from: response)
                 currentProfile = profile
+                useProfilePersonalization = profile.optIn
+                defaults.set(profile.optIn, forKey: storageKey(StorageKey.useProfilePersonalization))
                 // Record the minimal "setup complete" flag so the
                 // NameBackfillBanner gate survives offline cold-launches.
                 let trimmedFirstName = profile.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -272,6 +270,11 @@ final class AppState: ObservableObject {
             RemoteUserProfileResponse.self, kind: .profile, userSub: userSub
         ) {
             currentProfile = Self.profile(from: snapshot.payload)
+            useProfilePersonalization = snapshot.payload.optInTailored ?? false
+            defaults.set(
+                useProfilePersonalization,
+                forKey: storageKey(StorageKey.useProfilePersonalization)
+            )
         }
 
         let today = Self.isoDateFormatter.string(from: Self.logicalDate())
@@ -321,53 +324,35 @@ final class AppState: ObservableObject {
             }
         }()
 
-        // Map the backend's gender string to the local enum. Match both known
-        // values explicitly — the previous `default: .male` silently coerced
-        // unknown/missing values to male, which misrepresents users who never
-        // set a gender and would misrepresent any future backend-side addition
-        // (e.g. a third option). We can't add an "unknown" enum case without
-        // reshaping the onboarding picker UI, so preserve the OnboardingProfile
-        // contract (Gender is non-optional) by falling back to the picker's
-        // default seed value (`.male`) only when the backend value is truly
-        // absent, and log unknown string values in DEBUG so we notice drift.
-        let gender: Gender
-        switch response.gender?.lowercased() {
-        case "female":
-            gender = .female
-        case "male":
-            gender = .male
-        case .none:
-            // No value persisted on the backend yet — the user hasn't completed
-            // gender selection. Use the form's default seed so the picker
-            // renders without crashing; the user will pick explicitly on first
-            // edit.
-            gender = .male
-        case .some(let raw):
-            #if DEBUG
-            print("[AppState] Unknown gender value from backend: \(raw); defaulting to .male")
-            #endif
-            gender = .male
-        }
-
         return OnboardingProfile(
             firstName: response.firstName ?? "",
             age: age,
             occupation: response.occupation ?? "",
             major: response.major ?? "",
-            gender: gender,
             hobbies: Set(response.hobbies ?? []),
-            optIn: response.optInTailored ?? true
+            optIn: response.optInTailored ?? false
         )
     }
 
     func setUseProfilePersonalization(_ isOn: Bool) {
+        let previousValue = useProfilePersonalization
         useProfilePersonalization = isOn
+        currentProfile?.optIn = isOn
         defaults.set(isOn, forKey: storageKey(StorageKey.useProfilePersonalization))
+
+        guard isAuthenticated, let requestSub = authenticatedUserSub else { return }
+        profileSyncTask?.cancel()
+        profileSyncTask = Task { [weak self] in
+            await self?.sendPersonalizationPreference(
+                isOn,
+                previousValue: previousValue,
+                requestSub: requestSub
+            )
+        }
     }
 
     /// Records the user's explicit consent to AI data sharing (App Review
-    /// Guideline 5.1.2(i)) after they've seen `AIConsentView`, and applies the
-    /// analytics preference disclosed on the same screen.
+    /// Guideline 5.1.2(i)) after they've seen `AIConsentView`.
     func setAIConsentGiven(_ given: Bool) {
         aiConsentGiven = given
         defaults.set(given, forKey: storageKey(StorageKey.aiConsentGiven))
@@ -385,10 +370,9 @@ final class AppState: ObservableObject {
     }
 
     /// Collection stays off (Info.plist FIREBASE_ANALYTICS_COLLECTION_ENABLED
-    /// = NO) until the user has seen the consent screen AND left analytics on —
-    /// no events are ever collected pre-consent.
+    /// = NO) until the user independently opts in to analytics.
     private func applyAnalyticsCollectionState() {
-        Analytics.setAnalyticsCollectionEnabled(aiConsentGiven && analyticsEnabled)
+        Analytics.setAnalyticsCollectionEnabled(analyticsEnabled)
     }
 
     /// Record the user's dismissal of the "add your first name" banner on Home.
@@ -664,6 +648,7 @@ final class AppState: ObservableObject {
         for key in defaults.dictionaryRepresentation().keys where key.hasSuffix(suffix) {
             defaults.removeObject(forKey: key)
         }
+        removeMoodDrafts(for: userSub)
         // Also clear the "last authenticated user" pointer so a subsequent
         // sign-in starts with a clean per-user slate.
         if defaults.string(forKey: StorageKey.lastAuthenticatedUser) == userSub {
@@ -701,6 +686,7 @@ final class AppState: ObservableObject {
         // nil (never authenticated), skip cleanup but continue the rest of
         // the sign-out teardown as before.
         if let departingSub = authenticatedUserSub {
+            removeMoodDrafts(for: departingSub)
             clearOnDiskUserCaches(for: departingSub)
         }
 
@@ -719,6 +705,16 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Mood drafts use a legacy dot-delimited key because the view owns their
+    /// persistence. They can contain a free-text note, so clear them explicitly
+    /// on sign-out and account deletion.
+    private func removeMoodDrafts(for userSub: String) {
+        let prefix = "walkworthy.moodCheckIn.draft.\(userSub)."
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+            defaults.removeObject(forKey: key)
+        }
+    }
+
     var requiresAuthenticationGate: Bool {
         !isAuthenticated
     }
@@ -732,6 +728,14 @@ final class AppState: ObservableObject {
     /// gate. Not persisted anywhere client-side.
     func currentUserEmail() async -> String? {
         await authSession.currentUserEmail()
+    }
+
+    func accountUsesAppleSignIn() async -> Bool {
+        await authSession.usesAppleSignIn()
+    }
+
+    func revokeAppleAuthorizationForDeletion() async throws {
+        try await authSession.revokeAppleAuthorizationForDeletion()
     }
 
     /// Re-checks verification after the user says they've clicked the link.
@@ -752,6 +756,8 @@ final class AppState: ObservableObject {
         authenticatedUserSub = sub
 
         if let sub {
+            // Purge sensitive drafts written by releases that used UserDefaults.
+            removeMoodDrafts(for: sub)
             defaults.set(sub, forKey: StorageKey.lastAuthenticatedUser)
         } else {
             defaults.removeObject(forKey: StorageKey.lastAuthenticatedUser)
@@ -785,10 +791,9 @@ final class AppState: ObservableObject {
     private func reloadUserScopedPreferences() {
         if authenticatedUserSub == nil {
             onboardingCompleted = false
-            useProfilePersonalization = true
+            useProfilePersonalization = false
             aiConsentGiven = false
-            analyticsEnabled = true
-            selectedTranslation = config.defaultTranslation
+            analyticsEnabled = false
             currentProfile = nil
             nameBackfillDismissed = false
             hasCompletedProfileSetup = false
@@ -797,11 +802,10 @@ final class AppState: ObservableObject {
         }
 
         onboardingCompleted = defaults.bool(forKey: storageKey(StorageKey.onboardingCompleted))
-        useProfilePersonalization = defaults.object(forKey: storageKey(StorageKey.useProfilePersonalization)) as? Bool ?? true
+        useProfilePersonalization = defaults.object(forKey: storageKey(StorageKey.useProfilePersonalization)) as? Bool ?? false
         aiConsentGiven = defaults.bool(forKey: storageKey(StorageKey.aiConsentGiven))
-        analyticsEnabled = defaults.object(forKey: storageKey(StorageKey.analyticsEnabled)) as? Bool ?? true
+        analyticsEnabled = defaults.object(forKey: storageKey(StorageKey.analyticsEnabled)) as? Bool ?? false
         applyAnalyticsCollectionState()
-        selectedTranslation = Translation(rawValue: defaults.string(forKey: storageKey(StorageKey.translation)) ?? "") ?? config.defaultTranslation
 
         // Profile PII is no longer cached in UserDefaults — hydrate via
         // `refreshProfileFromBackend()` on sign-in. Leaving `currentProfile`
@@ -811,9 +815,9 @@ final class AppState: ObservableObject {
         hasCompletedProfileSetup = defaults.bool(forKey: storageKey(StorageKey.hasCompletedProfileSetup))
     }
 
-    private func syncProfile(firstName: String, age: Int?, occupation: String, major: String, gender: Gender, hobbies: Set<String>, optIn: Bool) {
+    private func syncProfile(firstName: String, age: Int?, occupation: String, major: String, hobbies: Set<String>, optIn: Bool) {
         guard isAuthenticated else { return }
-        let profile = OnboardingProfile(firstName: firstName, age: age, occupation: occupation, major: major, gender: gender, hobbies: hobbies, optIn: optIn)
+        let profile = OnboardingProfile(firstName: firstName, age: age, occupation: occupation, major: major, hobbies: hobbies, optIn: optIn)
 
         // Debounce: cancel any in-flight sync and schedule a new one after a
         // short delay. Rapid edits in the onboarding form (e.g. toggling
@@ -838,14 +842,15 @@ final class AppState: ObservableObject {
         let timezone = TimeZone.current.identifier
 
         let payload = RemoteUserProfileRequest(
-            ageRange: ageRangeString(for: profile.age),
-            firstName: trimmedFirstName.isEmpty ? nil : trimmedFirstName,
-            occupation: trimmedOccupation.isEmpty ? nil : trimmedOccupation,
-            major: trimmedMajor.isEmpty ? nil : trimmedMajor,
-            gender: profile.gender.rawValue.lowercased(),
-            hobbies: hobbies.isEmpty ? nil : hobbies,
+            // Empty values are sent deliberately on this full form save so
+            // the PATCH can remove fields the user cleared. Nil is reserved
+            // for minimal partial updates such as a consent toggle.
+            ageRange: ageRangeString(for: profile.age) ?? "",
+            firstName: trimmedFirstName,
+            occupation: trimmedOccupation,
+            major: trimmedMajor,
+            hobbies: hobbies,
             optInTailored: profile.optIn,
-            translationPreference: selectedTranslation.rawValue,
             checkInTimes: nil,  // TODO: Add UI for custom check-in times
             timezone: timezone
         )
@@ -869,6 +874,43 @@ final class AppState: ObservableObject {
         } catch {
             #if DEBUG
             print("[AppState] Failed to sync profile: \(error)")
+            #endif
+        }
+    }
+
+    /// Persists the Settings toggle as an immediate, minimal PATCH. The backend
+    /// reads this Firestore value before every AI request, so a local-only write
+    /// would not actually withdraw profile sharing.
+    private func sendPersonalizationPreference(
+        _ isOn: Bool,
+        previousValue: Bool,
+        requestSub: String
+    ) async {
+        let payload = RemoteUserProfileRequest(
+            ageRange: nil,
+            firstName: nil,
+            occupation: nil,
+            major: nil,
+            hobbies: nil,
+            optInTailored: isOn,
+            checkInTimes: nil,
+            timezone: nil
+        )
+
+        do {
+            let updated = try await apiClient.updateUserProfile(payload)
+            guard authenticatedUserSub == requestSub else { return }
+            if let updated {
+                await SnapshotStore.shared.write(updated, kind: .profile, userSub: requestSub)
+            }
+        } catch {
+            guard authenticatedUserSub == requestSub,
+                  useProfilePersonalization == isOn else { return }
+            useProfilePersonalization = previousValue
+            currentProfile?.optIn = previousValue
+            defaults.set(previousValue, forKey: storageKey(StorageKey.useProfilePersonalization))
+            #if DEBUG
+            print("[AppState] Failed to sync personalization preference: \(error)")
             #endif
         }
     }
@@ -1271,9 +1313,8 @@ extension AppState {
     enum StorageKey {
         static let onboardingCompleted = "walkworthy.onboardingCompleted"
         static let useProfilePersonalization = "walkworthy.settings.useProfilePersonalization"
-        static let aiConsentGiven = "walkworthy.ai.consentGiven"
-        static let analyticsEnabled = "walkworthy.settings.analyticsEnabled"
-        static let translation = "walkworthy.settings.translation"
+        static let aiConsentGiven = "walkworthy.ai.consentGiven.v2"
+        static let analyticsEnabled = "walkworthy.settings.analyticsOptIn.v2"
         static let dismissedNameBackfill = "walkworthy.dismissed.nameBackfill"
         static let hasCompletedProfileSetup = "walkworthy.profile.hasCompletedSetup"
         static let lastAuthenticatedUser = "walkworthy.auth.lastUser"

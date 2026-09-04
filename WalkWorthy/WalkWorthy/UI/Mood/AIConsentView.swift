@@ -39,17 +39,26 @@ struct AIConsentView: View {
                             Image(systemName: "sparkles")
                         }
 
-                        Text("When you check in, we send OpenAI:")
+                        Text("When AI sharing is on, we send OpenAI:")
                             .fontWeight(.semibold)
 
                         VStack(alignment: .leading, spacing: scaled(6)) {
-                            bulletRow("Your mood level and the emotion tags you pick")
+                            bulletRow("Your mood score and level, follow-up rating, emotion tags, and check-in period")
                             bulletRow("The life areas you select")
                             bulletRow("Your optional note, if you write one")
-                            bulletRow("If personalization is on: your age range, occupation or major, and hobbies — never your name")
+                            bulletRow("For daily reflections: a seven-day summary of check-in dates, mood levels, and overall sentiment")
+                            bulletRow("If personalization is on: your age range, occupation or major, and hobbies — never your name or gender")
                         }
 
-                        Text("Our OpenAI project is set to Zero Data Retention — OpenAI processes your check-in to generate a response and does not store it or use it for training. Your responses are saved only in your own WalkWorthy account.")
+                        Text("OpenAI processes this information to generate a response. WalkWorthy disables API response storage and AI tracing, and OpenAI says API data is not used to train its models unless a customer opts in. Your generated responses are saved in your WalkWorthy account.")
+                            .foregroundStyle(.white.opacity(0.85))
+
+                        // HIG (Generative AI → Transparency): "Set clear
+                        // expectations about what your AI-powered feature can
+                        // and can't do." Every Scripture quotation comes from a
+                        // reviewed server-side catalog, so the passage itself is
+                        // never model-written — only the surrounding words are.
+                        Text("What to expect: the encouragement is written by AI, so it can be off or occasionally get something wrong — you can ask for a different one any time. Scripture quotations are not written by AI; they come from a reviewed ESV list. This is general spiritual encouragement, not medical or mental-health care.")
                             .foregroundStyle(.white.opacity(0.85))
                     }
                     .glassCard()
@@ -59,10 +68,10 @@ struct AIConsentView: View {
                             get: { appState.analyticsEnabled },
                             set: { appState.setAnalyticsEnabled($0) }
                         )) {
-                            Text("Share anonymous usage analytics")
+                            Text("Share app usage analytics")
                                 .fontWeight(.semibold)
                         }
-                        Text("Helps us see which features matter (via Firebase Analytics). Never includes your check-ins, notes, or profile details. You can change this anytime in Settings.")
+                        Text("Optional and off by default. Firebase Analytics uses an app-instance identifier to count feature use, but never receives your check-ins, notes, or profile details. You can change this anytime in Settings.")
                             .font(.footnote)
                             .foregroundStyle(.white.opacity(0.75))
                     }
@@ -79,6 +88,14 @@ struct AIConsentView: View {
 
                     Link(destination: URL(string: "https://walkworthy-app.web.app/privacy")!) {
                         Text("Read the full Privacy Policy")
+                            .font(.footnote)
+                            .underline()
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+                    .padding(.horizontal, scaled(4))
+
+                    Link(destination: URL(string: "https://walkworthy-app.web.app/health-data")!) {
+                        Text("Read the Consumer Health Data Policy")
                             .font(.footnote)
                             .underline()
                             .foregroundStyle(.white.opacity(0.9))

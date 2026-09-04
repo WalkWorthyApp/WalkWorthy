@@ -146,6 +146,17 @@ enum MoodSentiment: String, Codable {
 struct MoodCheckInRequest: Codable {
     let checkInType: String
     let moodSpectrumData: MoodSpectrumData
+    /// Set on an explicit "try again" so the backend replaces the stored
+    /// encouragement instead of re-serving it. The check-in write path is
+    /// idempotent by design (doc ID is `${date}_${checkInType}`), so without
+    /// this a retry would return the identical prose. Omitted on first submit.
+    var regenerate: Bool?
+
+    init(checkInType: String, moodSpectrumData: MoodSpectrumData, regenerate: Bool? = nil) {
+        self.checkInType = checkInType
+        self.moodSpectrumData = moodSpectrumData
+        self.regenerate = regenerate
+    }
 }
 
 struct MoodCheckInResponse: Codable, Equatable {
@@ -166,6 +177,34 @@ nonisolated struct AIEncouragementResponse: Codable, Equatable {
     let verseRef: String
     let verseText: String
     let translation: String
+    /// Optional help resource shown ALONGSIDE the encouragement, never in
+    /// place of it. The backend attaches this only when a check-in note is
+    /// classified as a self-harm signal. Optional so check-ins written before
+    /// this field existed (and cached snapshots) keep decoding.
+    let supportResource: SupportResource?
+    /// False on the backend's fixed, human-written fallbacks. Absent means
+    /// model-generated — every record written before this field existed was.
+    let isGenerated: Bool?
+
+    /// Whether the prose actually came from the model. Drives the
+    /// "AI-generated" badge, the fallibility caveat, and the retry control:
+    /// all three are wrong on a fixed response. Retry would re-run and return
+    /// the identical string while still spending a daily budget slot, and
+    /// calling the crisis text fallible AI output undermines it exactly when
+    /// it needs to be trusted.
+    var isModelGenerated: Bool { isGenerated ?? true }
+}
+
+/// A tappable help resource rendered as its own card under the verse. The app
+/// only ever *offers* it — tapping is what places a call or opens a link.
+///
+/// `nonisolated` for the same reason as `AIEncouragementResponse` above: it is
+/// reached from the off-main-actor `SnapshotStore` via its parent type.
+nonisolated struct SupportResource: Codable, Equatable {
+    let title: String
+    let body: String
+    let phone: String?
+    let url: String?
 }
 
 /// Marked `nonisolated` because the project defaults actor isolation to

@@ -6,14 +6,13 @@
  * and provides conversational, warm support.
  */
 
-import { Agent, run } from "@openai/agents";
+import { Agent, run, setTracingDisabled } from "@openai/agents";
 import { setDefaultOpenAIKey, setOpenAIAPI } from "@openai/agents-openai";
 import { z } from "zod";
 import Ajv from "ajv";
 import { logger } from "firebase-functions/v2";
 import type {
   CheckInType,
-  Translation,
   AIEncouragementResponse,
   MoodSpectrumData,
 } from "../shared/types";
@@ -32,6 +31,13 @@ import {
   sleep,
   withTimeout,
 } from "./model-config";
+import {
+  SCRIPTURE_CATALOG,
+  SCRIPTURE_IDS,
+  SCRIPTURE_SELECTION_GUIDE,
+  resolveScripture,
+} from "./scripture-catalog";
+import { moderateText } from "./content-safety";
 
 // ============================================================================
 // Types
@@ -45,7 +51,6 @@ export interface MoodAgentInput {
   profile: UserProfilePayload | null;
   checkInType: CheckInType;
   moodSpectrumData: MoodSpectrumData;
-  translationPreference: Translation;
 }
 
 // ============================================================================
@@ -54,35 +59,25 @@ export interface MoodAgentInput {
 
 const encouragementOutputSchema = z.object({
   message: z.string().max(500),
-  verseRef: z
-    .string()
-    .regex(/^[1-3]?\s?[A-Za-z]+(?:\s+[A-Za-z]+)*\s\d+:\d+(-\d+)?$/),
-  verseText: z.string().max(1200),
-  translation: z.enum(["ESV", "KJV", "NIV", "NKJV", "NASB", "CSB", "NLT"]),
+  verseId: z.enum(SCRIPTURE_IDS),
 });
+
+type AgentEncouragementOutput = z.infer<typeof encouragementOutputSchema>;
 
 const encouragementJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["message", "verseRef", "verseText", "translation"],
+  required: ["message", "verseId"],
   properties: {
     message: { type: "string", maxLength: 500 },
-    verseRef: {
-      type: "string",
-      pattern: "^[1-3]?\\s?[A-Za-z]+(?:\\s+[A-Za-z]+)*\\s\\d+:\\d+(-\\d+)?$",
-    },
-    verseText: { type: "string", maxLength: 1200 },
-    translation: {
-      type: "string",
-      enum: ["ESV", "KJV", "NIV", "NKJV", "NASB", "CSB", "NLT"],
-    },
+    verseId: { type: "string", enum: SCRIPTURE_IDS },
   },
 } as const;
 
 // Ajv config: allErrors: true to collect all validation issues
 // removeAdditional: false to prevent silent mutation of invalid responses
 const ajv = new Ajv({ allErrors: true, removeAdditional: false });
-const validateEncouragement = ajv.compile<AIEncouragementResponse>(
+const validateEncouragement = ajv.compile<AgentEncouragementOutput>(
   encouragementJsonSchema,
 );
 
@@ -122,30 +117,24 @@ You receive a structured mood check-in with four signals. Use all of them togeth
 For score=2, tags=["Anxious","Overwhelmed"], categories=["Work"], morning, followUpScore=1:
 {
   "message": "Hey, I hear you - waking up already dreading the day is exhausting. You don't have to carry that weight alone.",
-  "verseRef": "Matthew 11:28",
-  "verseText": "Come to me, all you who are weary and burdened, and I will give you rest.",
-  "translation": "NIV"
+  "verseId": "matthew_11_28"
 }
 
 For score=8, tags=["Grateful","Hopeful"], categories=["Faith"], morning, followUpScore=4:
 {
   "message": "Love that energy! Starting the day with hope and gratitude is a gift - lean into it.",
-  "verseRef": "Psalm 118:24",
-  "verseText": "This is the day that the LORD has made; let us rejoice and be glad in it.",
-  "translation": "ESV"
+  "verseId": "romans_15_13"
 }
 
 For score=5, tags=["Calm","Steady"], categories=["Tasks"], midday, followUpScore=3:
 {
   "message": "A manageable day is worth something - not every day needs to be a mountaintop. Keep going.",
-  "verseRef": "Galatians 6:9",
-  "verseText": "Let us not become weary in doing good, for at the proper time we will reap a harvest if we do not give up.",
-  "translation": "NIV"
+  "verseId": "psalm_46_1"
 }
 
 ## Using the User Profile (SUBTLE CONTEXT ONLY)
 
-You may receive a "profile" object with optional fields: ageRange, occupation, major, gender, hobbies. Treat this as SILENT CONTEXT that quietly shapes your response — never as material to name or list back.
+You may receive a "profile" object with optional fields: ageRange, occupation, major, hobbies. Treat this as SILENT CONTEXT that quietly shapes your response — never as material to name or list back.
 
 **DO:**
 - Let ageRange, occupation/major, and hobbies inform your TONE, IMAGERY, and VERSE CHOICE. A verse about diligence hits differently for a grad student than for a retiree.
@@ -153,7 +142,7 @@ You may receive a "profile" object with optional fields: ageRange, occupation, m
 - Pick imagery that resonates with their world without announcing it (e.g., for someone with outdoor hobbies, a verse about God's creation may land more than one about city streets).
 
 **DON'T:**
-- Name-drop hobbies, major, occupation, gender, or age. Never write "As a nursing student…", "I know you love reading…", or "Hey engineer,".
+- Name-drop hobbies, major, occupation, or age. Never write "As a nursing student…", "I know you love reading…", or "Hey engineer,".
 - List the user's profile back to them in any form.
 - Mention that a profile or personalization exists.
 - Refer to the user by an identity label or role.
@@ -166,12 +155,14 @@ GOOD (subtle): "Mornings before a heavy day can feel like the whole weight lands
 
 If the profile is null or empty, fall back to neutral, universally-applicable warmth.
 
+## Scripture Catalog
+Choose exactly one verseId from this reviewed catalog:
+${SCRIPTURE_SELECTION_GUIDE}
+
 ## Output Requirements
-- Output STRICT JSON matching the schema {message, verseRef, verseText, translation}
+- Output STRICT JSON matching the schema {message, verseId}
 - No prose, explanations, or code fences - just the JSON object
-- Use the user's translationPreference EXACTLY - do not switch translations
-- Select a REAL Bible verse that EXISTS in the specified translation
-- Quote the verse text EXACTLY as it appears in that translation
+- Never write or paraphrase a Bible quotation; the server supplies the reviewed text
 - Keep the message under 500 characters, friendly and warm`;
 
 // ============================================================================
@@ -191,6 +182,9 @@ function ensureConfig(apiKey: string) {
   // Configure OpenAI SDK with the provided key
   setDefaultOpenAIKey(apiKey);
   setOpenAIAPI("responses");
+  // Agent tracing captures model inputs and outputs by default and is not
+  // compatible with Zero Data Retention. Keep it disabled process-wide.
+  setTracingDisabled(true);
 }
 
 // ============================================================================
@@ -198,20 +192,6 @@ function ensureConfig(apiKey: string) {
 // ============================================================================
 // sanitizeProfile() and sanitizeText() live in ./profile-sanitize so the
 // reflection agent can share the same sanitization logic.
-
-function normalizeTranslation(value: Translation | string): Translation {
-  const upper = value.toUpperCase() as Translation;
-  const allowed: Translation[] = [
-    "ESV",
-    "KJV",
-    "NIV",
-    "NKJV",
-    "NASB",
-    "CSB",
-    "NLT",
-  ];
-  return allowed.includes(upper) ? upper : "ESV";
-}
 
 // ============================================================================
 // Agent Instance
@@ -260,10 +240,9 @@ function ensureAgent(
       temperature: 0.4,
       topP: 1,
       maxTokens: 512,
-      // Zero Data Retention: OpenAI does not persist this request/response
-      // after generation. Privacy Policy surfaces this commitment to users;
-      // the org's "API call logging" setting is "Enabled per call" so each
-      // call opts out explicitly via this flag.
+      // Disable storage of the Responses API response object for this call.
+      // This is separate from OpenAI abuse-monitoring logs and does not by
+      // itself assert that the API project has Zero Data Retention approval.
       store: false,
     },
     outputType: encouragementOutputSchema,
@@ -278,6 +257,52 @@ function ensureAgent(
 
 const MAX_RETRIES = 2;
 
+/**
+ * Returned when the user's own note is classified as a self-harm signal. The
+ * model is deliberately not involved: a fixed, reviewed response is safer than
+ * generated prose here.
+ *
+ * The encouragement is still a real encouragement. Help is OFFERED as a
+ * separate resource card rather than replacing the response with a redirect —
+ * a user who wrote something heavy still gets what they opened the app for.
+ */
+export const CRISIS_RESPONSE: AIEncouragementResponse = {
+  message: "I'm glad you put that into words — that takes something. You don't have to carry it alone, and you don't have to have it sorted out today. WalkWorthy isn't a substitute for real help, so if you'd like to talk with someone, there's a free and confidential option here whenever you want it.",
+  verseRef: SCRIPTURE_CATALOG.psalm_34_18.ref,
+  verseText: SCRIPTURE_CATALOG.psalm_34_18.text,
+  translation: "ESV",
+  isGenerated: false,
+  supportResource: {
+    title: "Talk to someone now",
+    body: "The 988 Suicide & Crisis Lifeline is free, confidential, and open 24/7. Outside the US, contact your local emergency services.",
+    phone: "988",
+    url: "https://988lifeline.org",
+  },
+};
+
+/** Returned when the user's note is flagged for a non-self-harm category. */
+export const BLOCKED_INPUT_RESPONSE: AIEncouragementResponse = {
+  message: "I couldn't build an encouragement around that note, but your check-in is saved. You can edit the note and try again, or continue without one.",
+  verseRef: SCRIPTURE_CATALOG.psalm_46_1.ref,
+  verseText: SCRIPTURE_CATALOG.psalm_46_1.text,
+  translation: "ESV",
+  isGenerated: false,
+};
+
+/**
+ * Returned when the MODEL's own output is flagged. This is a generation
+ * failure, not a signal about the user — it must never surface a crisis
+ * resource, or a user who wrote nothing concerning gets an unprompted
+ * hotline referral.
+ */
+export const BLOCKED_OUTPUT_RESPONSE: AIEncouragementResponse = {
+  message: "Today's encouragement didn't come through the way it should have, so here's a passage to sit with instead. Your check-in is saved.",
+  verseRef: SCRIPTURE_CATALOG.psalm_46_1.ref,
+  verseText: SCRIPTURE_CATALOG.psalm_46_1.text,
+  translation: "ESV",
+  isGenerated: false,
+};
+
 export async function runMoodAgent(
   input: MoodAgentInput,
   apiKey: string,
@@ -290,13 +315,10 @@ export async function runMoodAgent(
   logger.info("[MoodAgent] Agent created");
 
   const { moodSpectrumData } = input;
-  // The free-text `note` is intentionally NOT input-guardrailed: the tightly
-  // bounded output schema (regex verseRef, enum translation, length caps) plus
-  // the PII output guardrail are the mitigation for prompt injection. Don't
-  // loosen the output schema without adding input-side scanning.
+  // The optional free-text note is moderated before it is sent to the
+  // generation model. Profile strings are sanitized and checked for echoes.
   const payload = {
     profile: sanitizeProfile(input.profile),
-    translationPreference: normalizeTranslation(input.translationPreference),
     checkInType: input.checkInType,
     moodScore: moodSpectrumData.moodScore,
     moodLevel: moodSpectrumData.moodLevel,
@@ -305,6 +327,13 @@ export async function runMoodAgent(
     followUpScore: moodSpectrumData.followUpScore,
     note: moodSpectrumData.note ? sanitizeText(moodSpectrumData.note, 300) : undefined,
   };
+
+  const inputSafety = await moderateText(payload.note, apiKey, "input");
+  if (inputSafety === "crisis") {
+    logger.info("[MoodAgent] Self-harm signal in note; returning fixed crisis response");
+    return CRISIS_RESPONSE;
+  }
+  if (inputSafety === "block") return BLOCKED_INPUT_RESPONSE;
 
   const serializedInput = JSON.stringify(payload, null, 2);
 
@@ -321,12 +350,20 @@ export async function runMoodAgent(
     logger.info(`[MoodAgent] Attempt ${attempt + 1}/${MAX_RETRIES}`);
     try {
       logger.info("[MoodAgent] Calling OpenAI agent...");
-      const result = await withTimeout((signal) => run(agent, serializedInput, { signal }));
-      logger.info("[MoodAgent] Agent returned response");
-      const parsed = parseEncouragement(
-        result.finalOutput,
-        payload.translationPreference,
+      const result = await withTimeout((signal) =>
+        run(agent, serializedInput, { signal }),
       );
+      logger.info("[MoodAgent] Agent returned response");
+      const parsed = parseEncouragement(result.finalOutput);
+      // A flagged OUTPUT says the model misbehaved, not that the user is at
+      // risk — fall back to a neutral response, never the crisis card.
+      const outputSafety = await moderateText(parsed.message, apiKey, "output");
+      if (outputSafety !== "allow") {
+        logger.warn("[MoodAgent] Generated output flagged; returning neutral fallback", {
+          decision: outputSafety,
+        });
+        return BLOCKED_OUTPUT_RESPONSE;
+      }
       // Deterministic echo-check: block a response that repeats the user's
       // own profile strings back (the regex guardrail can't know them).
       // Throws GuardrailTripError — caught below and rethrown without retry.
@@ -341,7 +378,10 @@ export async function runMoodAgent(
         logger.error("[MoodAgent] PII guardrail tripped; not retrying", { attempt: attempt + 1 });
         throw new GuardrailTripError();
       }
-      logger.error(`[MoodAgent] Attempt ${attempt + 1} failed:`, err);
+      logger.error("[MoodAgent] Attempt failed", {
+        attempt: attempt + 1,
+        errorName: err instanceof Error ? err.name : "UnknownError",
+      });
     }
   }
 
@@ -352,7 +392,6 @@ export async function runMoodAgent(
 
 function parseEncouragement(
   candidate: unknown,
-  fallbackTranslation: Translation,
 ): AIEncouragementResponse {
   let data: Record<string, unknown>;
   if (typeof candidate === "string") {
@@ -379,20 +418,21 @@ function parseEncouragement(
       : "unknown validation error";
 
     logger.error("[MoodAgent] Validation errors:", validationErrors);
-    logger.error("[MoodAgent] Failed data:", JSON.stringify(data));
-
     throw new Error(
       `Agent output failed schema validation: ${validationErrors}`,
     );
   }
 
+  const passage = resolveScripture(data.verseId as string);
+  if (!passage) {
+    throw new Error("Agent selected an unknown Scripture catalog ID");
+  }
+
   return {
     message: data.message as string,
-    verseRef: data.verseRef as string,
-    verseText: data.verseText as string,
-    translation: normalizeTranslation(
-      (data.translation as string) || fallbackTranslation,
-    ),
+    verseRef: passage.ref,
+    verseText: passage.text,
+    translation: "ESV",
   };
 }
 

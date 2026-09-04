@@ -19,7 +19,15 @@ struct CinematicTransitionView: View {
     let errorTitle: String?
     let errorMessage: String?
     let onDone: () -> Void
-    let onRetry: () -> Void   // resets to .followUp in MoodCheckInView
+    let onRetry: () -> Void   // error path: resets to .followUp in MoodCheckInView
+    /// Success path: regenerate the encouragement in place, keeping the same
+    /// check-in. Distinct from `onRetry`, which restarts the wizard after a
+    /// failure. Optional so previews and any read-only use omit it.
+    var onRegenerate: (() -> Void)?
+    var isRegenerating: Bool = false
+    var regenerateErrorMessage: String?
+
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     // MARK: - Animation State
 
@@ -79,17 +87,23 @@ struct CinematicTransitionView: View {
                 if showCards {
                     if let result = response {
                         ScrollView {
-                            MoodResponseContent(response: result, onDismiss: onDone)
+                            MoodResponseContent(
+                                response: result,
+                                onDismiss: onDone,
+                                onRetry: onRegenerate,
+                                isRetrying: isRegenerating,
+                                retryErrorMessage: regenerateErrorMessage
+                            )
                                 .padding(.horizontal, scaled(8))
                                 .padding(.top, scaled(16))
                                 .padding(.bottom, scaled(40))
                                 .frame(maxWidth: .infinity)
                         }
                         .frame(width: screenW, height: geo.size.height * 0.80)
-                        .transition(.opacity.animation(.easeIn(duration: 0.7)))
+                        .transition(reduceMotion ? .identity : .opacity.animation(.easeIn(duration: 0.7)))
                     } else if let error = errorMessage {
                         errorOverlay(message: error, geo: geo)
-                            .transition(.opacity.animation(.easeIn(duration: 0.5)))
+                            .transition(reduceMotion ? .identity : .opacity.animation(.easeIn(duration: 0.5)))
                     }
                 }
             }
@@ -99,7 +113,11 @@ struct CinematicTransitionView: View {
             // .task ties the animation lifetime to the view — auto-cancels on dismiss
             .task {
                 imageOffsetX = screenW * 0.5
-                await runAnimation(screenW: screenW)
+                if reduceMotion {
+                    showReducedMotionState(screenW: screenW)
+                } else {
+                    await runAnimation(screenW: screenW)
+                }
             }
         }
         .ignoresSafeArea()
@@ -109,9 +127,7 @@ struct CinematicTransitionView: View {
         .onChange(of: response) { _, newValue in
             guard newValue != nil else { return }
             if panComplete {
-                guard !showCards else { return }
-                withAnimation(.easeOut(duration: 0.4)) { breathOpacity = 1.0 }
-                withAnimation { showCards = true }
+                revealCards()
             } else {
                 responseArrivedEarly = true
             }
@@ -119,9 +135,7 @@ struct CinematicTransitionView: View {
         .onChange(of: errorMessage) { _, newValue in
             guard newValue != nil else { return }
             if panComplete {
-                guard !showCards else { return }
-                withAnimation(.easeOut(duration: 0.4)) { breathOpacity = 1.0 }
-                withAnimation { showCards = true }
+                revealCards()
             } else {
                 responseArrivedEarly = true
             }
@@ -168,6 +182,26 @@ struct CinematicTransitionView: View {
 
     // MARK: - Animation Sequence
 
+    private func showReducedMotionState(screenW: CGFloat) {
+        imageOffsetX = -screenW * 0.15
+        dawnOpacity = 1.0
+        sunBloomOpacity = 1.0
+        breathOpacity = 1.0
+        panComplete = true
+        showCards = response != nil || errorMessage != nil
+    }
+
+    private func revealCards() {
+        guard !showCards else { return }
+        if reduceMotion {
+            breathOpacity = 1.0
+            showCards = true
+        } else {
+            withAnimation(.easeOut(duration: 0.4)) { breathOpacity = 1.0 }
+            withAnimation { showCards = true }
+        }
+    }
+
     private func runAnimation(screenW: CGFloat) async {
         // Phase 1: Dawn light builds (0 → 2.0s)
         withAnimation(.easeOut(duration: 2.0)) {
@@ -192,7 +226,7 @@ struct CinematicTransitionView: View {
         panComplete = true
         if responseArrivedEarly {
             // Response arrived while pan was running — show immediately
-            withAnimation { showCards = true }
+            revealCards()
         } else {
             // Still waiting — breathe until onChange fires
             withAnimation(.easeInOut(duration: 2.2).repeatForever(autoreverses: true)) {
@@ -210,9 +244,11 @@ struct CinematicTransitionView: View {
             checkInId: "preview",
             aiResponse: AIEncouragementResponse(
                 message: "You are doing great. Keep going.",
-                verseRef: "Philippians 4:13",
-                verseText: "I can do all things through Christ who strengthens me.",
-                translation: "NIV"
+                verseRef: "Philippians 4:6–7",
+                verseText: "do not be anxious about anything, but in everything by prayer and supplication with thanksgiving let your requests be made known to God. And the peace of God, which surpasses all understanding, will guard your hearts and your minds in Christ Jesus.",
+                translation: "ESV",
+                supportResource: nil,
+                isGenerated: true
             ),
             createdAt: "",
             expiresAt: "",

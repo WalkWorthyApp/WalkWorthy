@@ -9,6 +9,7 @@
 
 import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
+import { FUNCTIONS_REVISION } from '../shared/version';
 import { logger } from 'firebase-functions/v2';
 import type { Request, Response } from 'express';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
@@ -27,7 +28,6 @@ import {
   CheckInSummary,
   CheckInType,
   MoodLevel,
-  Translation,
   PendingCheckIn,
 } from '../shared/types';
 import { randomUUID } from 'crypto';
@@ -59,14 +59,6 @@ const httpsOptions: HttpsOptions = {
   invoker: 'public',
   secrets: [openaiApiKey], // Bind OpenAI API key secret
 };
-
-const VALID_TRANSLATIONS: Translation[] = ['ESV', 'KJV', 'NIV', 'NKJV', 'NASB', 'CSB', 'NLT'];
-
-function normalizeTranslation(value?: string): Translation {
-  if (!value) return 'ESV';
-  const upper = value.toUpperCase() as Translation;
-  return VALID_TRANSLATIONS.includes(upper) ? upper : 'ESV';
-}
 
 /**
  * Parse an "HH:mm" string into minute-of-day. Returns undefined on any format
@@ -234,9 +226,14 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     }
     const input: MoodCheckInInput = { checkInType, moodSpectrumData };
 
+    // Explicit "try again" on an already-generated check-in (App Store HIG:
+    // let people retry generated content). Regeneration is NOT free — it runs
+    // the agent again and so consumes the same rate limit and daily AI budget
+    // as a first generation, which is what keeps it from being abusable.
+    const regenerateRequested = req.body?.regenerate === true;
+
     // Get user profile
     const profile = await getUserProfileOnce(userId);
-    const translation = normalizeTranslation(profile?.translationPreference);
     const timezone = profile?.timezone || 'America/New_York';
     const todayDate = getLogicalDateString(timezone);
 
@@ -245,7 +242,10 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       checkInType: input.checkInType,
       moodLevel: input.moodSpectrumData.moodLevel,
       moodScore: input.moodSpectrumData.moodScore,
-      translation,
+      // Which build answered — see shared/version.ts. `firebase deploy` can
+      // silently skip functions and report success, so trust this over the
+      // deploy output.
+      functionsRevision: FUNCTIONS_REVISION,
     });
 
     // Use deterministic docID to prevent duplicate documents from concurrent requests
@@ -292,24 +292,39 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     // re-screening it against the CURRENT guardrails. Stored responses can
     // predate the profile echo-check, so a failed screen falls through to
     // regeneration (same flow as a mood update) instead of re-serving.
-    let regenerateScreenedCheckIn = false;
+    //
+    // Two things bypass the fast path, for different reasons but with the same
+    // mechanics: a stored response that fails the screen, and an explicit user
+    // "try again". Both must overwrite the existing doc, so both must also
+    // skip the optimistic-concurrency short-circuit further down — that check
+    // would otherwise re-serve the very response we were asked to replace.
+    let overwriteExistingResponse = false;
     if (transactionResult.type === 'existing') {
-      const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
-      if (isCleanStoredAiContent(transactionResult.data.aiResponse, profileValues)) {
-        return successResponse(res, {
+      if (regenerateRequested) {
+        logger.info('Regenerating check-in response at user request', {
+          userId,
           checkInId: transactionResult.data.id,
-          aiResponse: transactionResult.data.aiResponse,
-          createdAt: transactionResult.data.createdAt,
-          expiresAt: transactionResult.data.expiresAt,
-          isExisting: true,
         });
+        overwriteExistingResponse = true;
+        transactionResult = { type: 'update' as const, data: transactionResult.data };
+      } else {
+        const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
+        if (isCleanStoredAiContent(transactionResult.data.aiResponse, profileValues)) {
+          return successResponse(res, {
+            checkInId: transactionResult.data.id,
+            aiResponse: transactionResult.data.aiResponse,
+            createdAt: transactionResult.data.createdAt,
+            expiresAt: transactionResult.data.expiresAt,
+            isExisting: true,
+          });
+        }
+        logger.warn('Stored check-in response failed guardrail screen; regenerating', {
+          userId,
+          checkInId: transactionResult.data.id,
+        });
+        overwriteExistingResponse = true;
+        transactionResult = { type: 'update' as const, data: transactionResult.data };
       }
-      logger.warn('Stored check-in response failed guardrail screen; regenerating', {
-        userId,
-        checkInId: transactionResult.data.id,
-      });
-      regenerateScreenedCheckIn = true;
-      transactionResult = { type: 'update' as const, data: transactionResult.data };
     }
 
     // Reserve a slot in the daily AI budget BEFORE calling OpenAI. If the
@@ -334,10 +349,8 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
 
     try {
       // Step 2: Generate AI response (outside transaction - may take time)
-      // Respect the user's "Use profile for encouragements" toggle: default to
-      // personalization ON when the flag is undefined (matches iOS onboarding
-      // default), strip the profile only when explicitly opted out.
-      const useProfile = profile?.optInTailored !== false;
+      // Profile sharing is opt-in. Missing/legacy values remain off.
+      const useProfile = profile?.optInTailored === true;
       if (!useProfile) {
         logger.info('personalization.optedOut', { userId, endpoint: 'moodCheckIn' });
       }
@@ -345,7 +358,6 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         profile: useProfile ? (profile as UserProfilePayload | null) : null,
         checkInType: input.checkInType,
         moodSpectrumData: input.moodSpectrumData,
-        translationPreference: translation,
       };
 
       const aiResponse = await runMoodAgent(agentInput, openaiApiKey.value());
@@ -376,11 +388,12 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         await db.runTransaction(async (transaction) => {
           // Optimistic concurrency check: if a concurrent request already wrote this check-in
           // with the same mood, return that instead to avoid duplicate responses.
-          // Skipped when we're regenerating a response that failed the guardrail
-          // screen — the "existing identical" doc is exactly the dirty one we
-          // must overwrite, and this short-circuit would re-serve it.
+          // Skipped when we are deliberately overwriting the stored response
+          // (failed guardrail screen, or an explicit user retry) — the
+          // "existing identical" doc is exactly the one we must replace, and
+          // this short-circuit would re-serve it.
           const existingCheckInDoc = await transaction.get(checkInRef);
-          if (existingCheckInDoc.exists && !regenerateScreenedCheckIn) {
+          if (existingCheckInDoc.exists && !overwriteExistingResponse) {
             const existingCheckInData = existingCheckInDoc.data() as MoodCheckIn;
             if (existingCheckInData.moodSpectrumData &&
                 existingCheckInData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&
