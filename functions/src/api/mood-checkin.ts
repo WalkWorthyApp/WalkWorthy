@@ -9,6 +9,7 @@
 
 import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
+import { FUNCTIONS_REVISION } from '../shared/version';
 import { logger } from 'firebase-functions/v2';
 import type { Request, Response } from 'express';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
@@ -241,6 +242,10 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       checkInType: input.checkInType,
       moodLevel: input.moodSpectrumData.moodLevel,
       moodScore: input.moodSpectrumData.moodScore,
+      // Which build answered — see shared/version.ts. `firebase deploy` can
+      // silently skip functions and report success, so trust this over the
+      // deploy output.
+      functionsRevision: FUNCTIONS_REVISION,
     });
 
     // Use deterministic docID to prevent duplicate documents from concurrent requests
