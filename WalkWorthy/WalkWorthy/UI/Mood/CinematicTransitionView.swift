@@ -19,7 +19,13 @@ struct CinematicTransitionView: View {
     let errorTitle: String?
     let errorMessage: String?
     let onDone: () -> Void
-    let onRetry: () -> Void   // resets to .followUp in MoodCheckInView
+    let onRetry: () -> Void   // error path: resets to .followUp in MoodCheckInView
+    /// Success path: regenerate the encouragement in place, keeping the same
+    /// check-in. Distinct from `onRetry`, which restarts the wizard after a
+    /// failure. Optional so previews and any read-only use omit it.
+    var onRegenerate: (() -> Void)?
+    var isRegenerating: Bool = false
+    var regenerateErrorMessage: String?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -81,7 +87,13 @@ struct CinematicTransitionView: View {
                 if showCards {
                     if let result = response {
                         ScrollView {
-                            MoodResponseContent(response: result, onDismiss: onDone)
+                            MoodResponseContent(
+                                response: result,
+                                onDismiss: onDone,
+                                onRetry: onRegenerate,
+                                isRetrying: isRegenerating,
+                                retryErrorMessage: regenerateErrorMessage
+                            )
                                 .padding(.horizontal, scaled(8))
                                 .padding(.top, scaled(16))
                                 .padding(.bottom, scaled(40))

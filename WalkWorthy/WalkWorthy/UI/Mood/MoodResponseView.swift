@@ -16,6 +16,12 @@ import SwiftUI
 struct MoodResponseContent: View {
     let response: MoodCheckInResponse
     let onDismiss: () -> Void
+    /// Optional so read-only presentations (history, the standalone wrapper)
+    /// show no retry affordance — retrying only makes sense in the flow that
+    /// just produced the encouragement.
+    var onRetry: (() -> Void)?
+    var isRetrying: Bool = false
+    var retryErrorMessage: String?
 
     @State private var showMessage = false
     @State private var showVerse = false
@@ -106,9 +112,53 @@ struct MoodResponseContent: View {
                         RoundedRectangle(cornerRadius: scaled(16))
                             .fill(Color.wwCardBackground)
                     )
+
+                // HIG (Generative AI → Inputs): "it's important to clearly
+                // communicate that AI-generated content may contain errors."
+                // The badge above names the source; this names the limitation.
+                Text("This is written by AI and can get things wrong.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                if let onRetry {
+                    retryControl(onRetry)
+                        .padding(.top, scaled(2))
+                }
+
+                if let retryErrorMessage {
+                    Text(retryErrorMessage)
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+
+    /// HIG (Generative AI → Outputs): "surfacing controls like Edit, Undo,
+    /// Retry, or Adjust near generated content preserves people's agency."
+    /// Regeneration is a real backend call, so it consumes the same daily AI
+    /// budget as the first generation — a spent budget surfaces as an ordinary
+    /// usage-limit message rather than a silent no-op.
+    @ViewBuilder
+    private func retryControl(_ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: scaled(5)) {
+                if isRetrying {
+                    ProgressView().controlSize(.mini)
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
+                Text(isRetrying ? "Writing a new one…" : "Try a different encouragement")
+            }
+            .font(.caption)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Color.accentColor)
+        .disabled(isRetrying)
+        .accessibilityHint("Replaces this encouragement with a newly generated one")
     }
 
     /// Renders an offered help resource. Nothing here dials or contacts

@@ -146,6 +146,17 @@ enum MoodSentiment: String, Codable {
 struct MoodCheckInRequest: Codable {
     let checkInType: String
     let moodSpectrumData: MoodSpectrumData
+    /// Set on an explicit "try again" so the backend replaces the stored
+    /// encouragement instead of re-serving it. The check-in write path is
+    /// idempotent by design (doc ID is `${date}_${checkInType}`), so without
+    /// this a retry would return the identical prose. Omitted on first submit.
+    var regenerate: Bool?
+
+    init(checkInType: String, moodSpectrumData: MoodSpectrumData, regenerate: Bool? = nil) {
+        self.checkInType = checkInType
+        self.moodSpectrumData = moodSpectrumData
+        self.regenerate = regenerate
+    }
 }
 
 struct MoodCheckInResponse: Codable, Equatable {

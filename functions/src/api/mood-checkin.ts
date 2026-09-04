@@ -225,6 +225,12 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     }
     const input: MoodCheckInInput = { checkInType, moodSpectrumData };
 
+    // Explicit "try again" on an already-generated check-in (App Store HIG:
+    // let people retry generated content). Regeneration is NOT free — it runs
+    // the agent again and so consumes the same rate limit and daily AI budget
+    // as a first generation, which is what keeps it from being abusable.
+    const regenerateRequested = req.body?.regenerate === true;
+
     // Get user profile
     const profile = await getUserProfileOnce(userId);
     const timezone = profile?.timezone || 'America/New_York';
@@ -281,24 +287,39 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     // re-screening it against the CURRENT guardrails. Stored responses can
     // predate the profile echo-check, so a failed screen falls through to
     // regeneration (same flow as a mood update) instead of re-serving.
-    let regenerateScreenedCheckIn = false;
+    //
+    // Two things bypass the fast path, for different reasons but with the same
+    // mechanics: a stored response that fails the screen, and an explicit user
+    // "try again". Both must overwrite the existing doc, so both must also
+    // skip the optimistic-concurrency short-circuit further down — that check
+    // would otherwise re-serve the very response we were asked to replace.
+    let overwriteExistingResponse = false;
     if (transactionResult.type === 'existing') {
-      const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
-      if (isCleanStoredAiContent(transactionResult.data.aiResponse, profileValues)) {
-        return successResponse(res, {
+      if (regenerateRequested) {
+        logger.info('Regenerating check-in response at user request', {
+          userId,
           checkInId: transactionResult.data.id,
-          aiResponse: transactionResult.data.aiResponse,
-          createdAt: transactionResult.data.createdAt,
-          expiresAt: transactionResult.data.expiresAt,
-          isExisting: true,
         });
+        overwriteExistingResponse = true;
+        transactionResult = { type: 'update' as const, data: transactionResult.data };
+      } else {
+        const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
+        if (isCleanStoredAiContent(transactionResult.data.aiResponse, profileValues)) {
+          return successResponse(res, {
+            checkInId: transactionResult.data.id,
+            aiResponse: transactionResult.data.aiResponse,
+            createdAt: transactionResult.data.createdAt,
+            expiresAt: transactionResult.data.expiresAt,
+            isExisting: true,
+          });
+        }
+        logger.warn('Stored check-in response failed guardrail screen; regenerating', {
+          userId,
+          checkInId: transactionResult.data.id,
+        });
+        overwriteExistingResponse = true;
+        transactionResult = { type: 'update' as const, data: transactionResult.data };
       }
-      logger.warn('Stored check-in response failed guardrail screen; regenerating', {
-        userId,
-        checkInId: transactionResult.data.id,
-      });
-      regenerateScreenedCheckIn = true;
-      transactionResult = { type: 'update' as const, data: transactionResult.data };
     }
 
     // Reserve a slot in the daily AI budget BEFORE calling OpenAI. If the
@@ -362,11 +383,12 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         await db.runTransaction(async (transaction) => {
           // Optimistic concurrency check: if a concurrent request already wrote this check-in
           // with the same mood, return that instead to avoid duplicate responses.
-          // Skipped when we're regenerating a response that failed the guardrail
-          // screen — the "existing identical" doc is exactly the dirty one we
-          // must overwrite, and this short-circuit would re-serve it.
+          // Skipped when we are deliberately overwriting the stored response
+          // (failed guardrail screen, or an explicit user retry) — the
+          // "existing identical" doc is exactly the one we must replace, and
+          // this short-circuit would re-serve it.
           const existingCheckInDoc = await transaction.get(checkInRef);
-          if (existingCheckInDoc.exists && !regenerateScreenedCheckIn) {
+          if (existingCheckInDoc.exists && !overwriteExistingResponse) {
             const existingCheckInData = existingCheckInDoc.data() as MoodCheckIn;
             if (existingCheckInData.moodSpectrumData &&
                 existingCheckInData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&

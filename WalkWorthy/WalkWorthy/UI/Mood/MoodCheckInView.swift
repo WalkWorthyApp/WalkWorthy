@@ -37,6 +37,9 @@ struct MoodCheckInView: View {
     @State private var errorTitle: String?
     @State private var errorMessage: String?
     @State private var submissionTask: Task<Void, Never>?
+    @State private var regenerateTask: Task<Void, Never>?
+    @State private var isRegenerating = false
+    @State private var regenerateErrorMessage: String?
     // MARK: - Derived
 
     private var currentMoodLevel: MoodLevel {
@@ -65,6 +68,7 @@ struct MoodCheckInView: View {
             .animation(.easeInOut(duration: 0.35), value: step)
             .onDisappear {
                 submissionTask?.cancel()
+                regenerateTask?.cancel()
             }
     }
 
@@ -117,29 +121,80 @@ struct MoodCheckInView: View {
                     errorMessage = nil
                     submissionResult = nil
                     step = .followUp
-                }
+                },
+                onRegenerate: regenerateEncouragement,
+                isRegenerating: isRegenerating,
+                regenerateErrorMessage: regenerateErrorMessage
             )
         }
     }
 
     // MARK: - Submission
 
+    /// Regenerates the encouragement for the check-in that was just submitted.
+    ///
+    /// Deliberately NOT a re-run of `submitCheckIn()`: that path also creates a
+    /// journal entry from the note and logs the completion analytics event, and
+    /// neither should happen twice for one check-in. This only swaps the AI
+    /// response. A failure keeps the existing encouragement on screen and
+    /// reports inline — losing the response the user already has would be a
+    /// worse outcome than a failed retry.
+    private func regenerateEncouragement() {
+        guard !isRegenerating else { return }
+        isRegenerating = true
+        regenerateErrorMessage = nil
+
+        regenerateTask?.cancel()
+        regenerateTask = Task {
+            do {
+                let request = MoodCheckInRequest(
+                    checkInType: checkInType.rawValue,
+                    moodSpectrumData: makeSpectrumData(),
+                    regenerate: true
+                )
+                let response = try await appState.submitMoodCheckIn(request)
+                try Task.checkCancellation()
+                await MainActor.run {
+                    submissionResult = response
+                    isRegenerating = false
+                }
+            } catch is CancellationError {
+                await MainActor.run { isRegenerating = false }
+            } catch {
+                await MainActor.run {
+                    let apiError = error as? APIError
+                    regenerateErrorMessage = apiError?.errorDescription
+                        ?? "Couldn't write a new one just now. Your encouragement above is unchanged."
+                    isRegenerating = false
+                }
+            }
+        }
+    }
+
+    /// The check-in payload built from current wizard state. Shared by the
+    /// initial submit and by regeneration so a retry describes exactly the same
+    /// check-in — the backend keys off it to find the document to overwrite.
+    private func makeSpectrumData() -> MoodSpectrumData {
+        let moodScore = Int(sliderValue * 9) + 1
+        let noteValue = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        return MoodSpectrumData(
+            moodScore: moodScore,
+            moodLevel: MoodLevel.from(score: moodScore).rawValue,
+            emotionTags: selectedTags,
+            impactCategories: selectedCategories,
+            followUpScore: followUpScore,
+            note: noteValue.isEmpty ? nil : noteValue
+        )
+    }
+
     private func submitCheckIn() {
         step = .cinematic
 
-        let moodScore = Int(sliderValue * 9) + 1
         let noteValue = note.trimmingCharacters(in: .whitespacesAndNewlines)
 
         submissionTask = Task {
             do {
-                let spectrumData = MoodSpectrumData(
-                    moodScore: moodScore,
-                    moodLevel: MoodLevel.from(score: moodScore).rawValue,
-                    emotionTags: selectedTags,
-                    impactCategories: selectedCategories,
-                    followUpScore: followUpScore,
-                    note: noteValue.isEmpty ? nil : noteValue
-                )
+                let spectrumData = makeSpectrumData()
                 let request = MoodCheckInRequest(
                     checkInType: checkInType.rawValue,
                     moodSpectrumData: spectrumData

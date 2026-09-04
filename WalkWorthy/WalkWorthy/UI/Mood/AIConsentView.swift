@@ -52,6 +52,14 @@ struct AIConsentView: View {
 
                         Text("OpenAI processes this information to generate a response. WalkWorthy disables API response storage and AI tracing, and OpenAI says API data is not used to train its models unless a customer opts in. Your generated responses are saved in your WalkWorthy account.")
                             .foregroundStyle(.white.opacity(0.85))
+
+                        // HIG (Generative AI → Transparency): "Set clear
+                        // expectations about what your AI-powered feature can
+                        // and can't do." Every Scripture quotation comes from a
+                        // reviewed server-side catalog, so the passage itself is
+                        // never model-written — only the surrounding words are.
+                        Text("What to expect: the encouragement is written by AI, so it can be off or occasionally get something wrong — you can ask for a different one any time. Scripture quotations are not written by AI; they come from a reviewed ESV list. This is general spiritual encouragement, not medical or mental-health care.")
+                            .foregroundStyle(.white.opacity(0.85))
                     }
                     .glassCard()
 
