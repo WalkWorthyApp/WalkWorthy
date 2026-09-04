@@ -222,6 +222,18 @@ export interface AIEncouragementResponse {
   translation: string;    // Bible translation used
   /** Optional; present only on the deterministic crisis-signal path. */
   supportResource?: SupportResource;
+  /**
+   * False on the fixed, human-written fallbacks (crisis signal, blocked input,
+   * blocked output). Absent means model-generated — every record written
+   * before this field existed was, so absent must read as true.
+   *
+   * The app keys three things off this: the "AI-generated" badge, the
+   * "can get things wrong" caveat, and the retry control. All three are wrong
+   * on a fixed response — retry re-runs and returns the identical string, and
+   * telling someone an emergency-resource message is AI-written and may be
+   * mistaken undermines it exactly when it needs to be trusted.
+   */
+  isGenerated?: boolean;
 }
 
 /**

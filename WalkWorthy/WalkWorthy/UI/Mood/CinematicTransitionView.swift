@@ -247,7 +247,8 @@ struct CinematicTransitionView: View {
                 verseRef: "Philippians 4:6–7",
                 verseText: "do not be anxious about anything, but in everything by prayer and supplication with thanksgiving let your requests be made known to God. And the peace of God, which surpasses all understanding, will guard your hearts and your minds in Christ Jesus.",
                 translation: "ESV",
-                supportResource: nil
+                supportResource: nil,
+                isGenerated: true
             ),
             createdAt: "",
             expiresAt: "",

@@ -98,9 +98,9 @@ struct MoodResponseContent: View {
                     Text("WalkWorthy")
                         .font(Font.newsreaderSemiBoldItalic(size: scaled(13)))
                         .foregroundColor(.accentColor)
-                    Text("AI-generated")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                    if response.aiResponse.isModelGenerated {
+                        AIGeneratedBadge()
+                    }
                 }
 
                 Text(response.aiResponse.message)
@@ -113,17 +113,24 @@ struct MoodResponseContent: View {
                             .fill(Color.wwCardBackground)
                     )
 
-                // HIG (Generative AI → Inputs): "it's important to clearly
-                // communicate that AI-generated content may contain errors."
-                // The badge above names the source; this names the limitation.
-                Text("This is written by AI and can get things wrong.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                // Both of these are true only of model output. A fixed
+                // fallback is human-written (so the caveat would be false) and
+                // deterministic (so retry would return the identical string
+                // while still spending a daily budget slot).
+                if response.aiResponse.isModelGenerated {
+                    // HIG (Generative AI → Inputs): "it's important to clearly
+                    // communicate that AI-generated content may contain
+                    // errors." The badge names the source; this names the
+                    // limitation.
+                    Text("This is written by AI and can get things wrong.")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
 
-                if let onRetry {
-                    retryControl(onRetry)
-                        .padding(.top, scaled(2))
+                    if let onRetry {
+                        retryControl(onRetry)
+                            .padding(.top, scaled(2))
+                    }
                 }
 
                 if let retryErrorMessage {
@@ -376,5 +383,19 @@ private struct SlideUpTransitionModifier: ViewModifier {
         content
             .offset(y: yOffset)
             .opacity(opacity)
+    }
+}
+
+
+/// The "AI-generated" marker. Shared so every surface that displays model
+/// output labels it identically — HIG (Generative AI → Transparency):
+/// "Communicate where your app uses AI... Never trick someone into thinking
+/// they're interacting with or viewing content authored by a human if they're
+/// actually interacting with AI."
+struct AIGeneratedBadge: View {
+    var body: some View {
+        Text("AI-generated")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
     }
 }

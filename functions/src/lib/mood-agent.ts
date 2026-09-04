@@ -271,6 +271,7 @@ export const CRISIS_RESPONSE: AIEncouragementResponse = {
   verseRef: SCRIPTURE_CATALOG.psalm_34_18.ref,
   verseText: SCRIPTURE_CATALOG.psalm_34_18.text,
   translation: "ESV",
+  isGenerated: false,
   supportResource: {
     title: "Talk to someone now",
     body: "The 988 Suicide & Crisis Lifeline is free, confidential, and open 24/7. Outside the US, contact your local emergency services.",
@@ -285,6 +286,7 @@ export const BLOCKED_INPUT_RESPONSE: AIEncouragementResponse = {
   verseRef: SCRIPTURE_CATALOG.psalm_46_1.ref,
   verseText: SCRIPTURE_CATALOG.psalm_46_1.text,
   translation: "ESV",
+  isGenerated: false,
 };
 
 /**
@@ -298,6 +300,7 @@ export const BLOCKED_OUTPUT_RESPONSE: AIEncouragementResponse = {
   verseRef: SCRIPTURE_CATALOG.psalm_46_1.ref,
   verseText: SCRIPTURE_CATALOG.psalm_46_1.text,
   translation: "ESV",
+  isGenerated: false,
 };
 
 export async function runMoodAgent(

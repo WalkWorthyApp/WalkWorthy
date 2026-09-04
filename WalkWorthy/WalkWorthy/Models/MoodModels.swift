@@ -182,6 +182,17 @@ nonisolated struct AIEncouragementResponse: Codable, Equatable {
     /// classified as a self-harm signal. Optional so check-ins written before
     /// this field existed (and cached snapshots) keep decoding.
     let supportResource: SupportResource?
+    /// False on the backend's fixed, human-written fallbacks. Absent means
+    /// model-generated — every record written before this field existed was.
+    let isGenerated: Bool?
+
+    /// Whether the prose actually came from the model. Drives the
+    /// "AI-generated" badge, the fallibility caveat, and the retry control:
+    /// all three are wrong on a fixed response. Retry would re-run and return
+    /// the identical string while still spending a daily budget slot, and
+    /// calling the crisis text fallible AI output undermines it exactly when
+    /// it needs to be trusted.
+    var isModelGenerated: Bool { isGenerated ?? true }
 }
 
 /// A tappable help resource rendered as its own card under the verse. The app

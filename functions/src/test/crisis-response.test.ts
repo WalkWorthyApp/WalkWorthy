@@ -39,3 +39,13 @@ test("every fallback still supplies a real catalog verse", () => {
     assert.equal(response.translation, "ESV");
   }
 });
+
+test("no fixed fallback claims to be AI-generated", () => {
+  // The badge, the "can get things wrong" caveat, and the retry control all
+  // key off this. Retry on a fixed response is a no-op that still spends a
+  // daily budget slot, and labelling the crisis text as fallible AI output
+  // undermines it at the worst moment.
+  for (const response of [CRISIS_RESPONSE, BLOCKED_INPUT_RESPONSE, BLOCKED_OUTPUT_RESPONSE]) {
+    assert.equal(response.isGenerated, false);
+  }
+});
