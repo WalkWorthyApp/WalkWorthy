@@ -11,7 +11,11 @@ permissions:
   contents: read
 
 jobs:
+  checks:
+    uses: ./.github/workflows/backend-checks.yml
+
   deploy:
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -22,26 +26,14 @@ jobs:
         with:
           node-version: 24
 
+      # The functions predeploy hook (firebase.json) runs the TypeScript build.
       - name: Install Firebase Functions dependencies
         run: npm ci
         working-directory: functions
 
-      - name: Lint functions
-        run: npm run lint --if-present
-        working-directory: functions
-
-      - name: Use Java for the Firestore emulator
-        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
-        with:
-          distribution: temurin
-          java-version: '21'
-
       - name: Install Firebase CLI
         run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: .github/ci
-
-      - name: Build and test functions with Firestore
-        run: .github/ci/node_modules/.bin/firebase emulators:exec --only firestore --project demo-walkworthy-compliance "npm --prefix functions run test:ci"
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
