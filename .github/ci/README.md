@@ -2,7 +2,7 @@
 
 Firebase CLI dependencies are isolated from the deployed Functions package.
 The backend checks and deploy workflows install this lockfile with `npm ci --ignore-scripts`
-and invokes `node_modules/.bin/firebase` directly. A missing installation fails
+and invoke `node_modules/.bin/firebase` directly. A missing installation fails
 instead of downloading a replacement through `npx` or using a global CLI.
 
 To deliberately update Firebase CLI, run from this directory:
