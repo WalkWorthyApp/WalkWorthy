@@ -9,9 +9,14 @@ import SwiftUI
 
 struct OnboardingForm: View {
     /// Minimum age to use WalkWorthy. Enforced in `validateProfile()` to
-    /// comply with COPPA (US, 13+). If GDPR-EU 16+ localization is ever
+    /// WalkWorthy is an adults-only service. Serving minors would pull in the
+    /// US app-store age-verification laws (Texas SB 2420, Utah S.B. 142), state
+    /// age-appropriate design codes, and COPPA/teen-privacy duties, none of
+    /// which a self-declared checkbox satisfies. If that changes, a real age
+    /// signal and a minor-specific safety posture are prerequisites, not
+    /// follow-ups. Legacy note: if GDPR-EU 16+ localization is ever
     /// needed, bump this constant (or make it locale-aware).
-    static let minimumAge: Int = 13
+    static let minimumAge: Int = 18
 
     @EnvironmentObject private var appState: AppState
     @Environment(\.dismiss) private var dismiss

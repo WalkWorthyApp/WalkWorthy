@@ -151,11 +151,14 @@ struct MoodCheckInRequest: Codable {
     /// idempotent by design (doc ID is `${date}_${checkInType}`), so without
     /// this a retry would return the identical prose. Omitted on first submit.
     var regenerate: Bool?
+    /// Bind regeneration to the displayed check-in across logical-day rollover.
+    var expectedCheckInId: String?
 
-    init(checkInType: String, moodSpectrumData: MoodSpectrumData, regenerate: Bool? = nil) {
+    init(checkInType: String, moodSpectrumData: MoodSpectrumData, regenerate: Bool? = nil, expectedCheckInId: String? = nil) {
         self.checkInType = checkInType
         self.moodSpectrumData = moodSpectrumData
         self.regenerate = regenerate
+        self.expectedCheckInId = expectedCheckInId
     }
 }
 
@@ -324,6 +327,7 @@ struct MoodLogResponse: Codable {
 /// same annotation on `RemoteUserProfileResponse` in EncouragementModels.swift
 /// and on `Snapshot`/`SnapshotKind` in SnapshotStore.swift).
 nonisolated struct DailyReflection: Codable, Equatable {
+    var isGenerated: Bool? = nil
     let reflection: String
     let generatedAt: String
     let date: String        // "yyyy-MM-dd"

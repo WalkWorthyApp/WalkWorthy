@@ -28,6 +28,8 @@ struct RootView: View {
             } else if appState.requiresAuthenticationGate {
                 TitleScreenView()
                     .transition(.opacity)
+            } else if appState.accountDeletionPending {
+                PendingAccountDeletionView()
             } else if appState.needsEmailVerification {
                 // Email/password accounts must verify before entering the app
                 // (the backend also rejects unverified tokens with 403).
@@ -52,6 +54,32 @@ struct RootView: View {
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.needsEmailVerification)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.requiresAuthenticationGate)
         .animation(.spring(response: 0.5, dampingFraction: 0.8), value: appState.configurationError)
+    }
+}
+
+private struct PendingAccountDeletionView: View {
+    @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        VStack(spacing: 24) {
+            Text("Account deletion").font(.title)
+            Text("Device data removal has started. Retry to finish cleanup and confirm server deletion. If your account is already gone, you can sign out.")
+            if let error = appState.accountDeletionError {
+                Text(error).foregroundStyle(.secondary)
+            }
+            if appState.accountDeletionBusy { ProgressView() }
+            Button("Retry Deletion", role: .destructive) {
+                Task { try? await appState.deleteAccount() }
+            }
+            .disabled(appState.accountDeletionBusy)
+            Button("Sign Out") { appState.signOut() }
+                .disabled(appState.accountDeletionBusy)
+            Text("Support: walkworthyofficial@gmail.com")
+                .font(.footnote)
+                .textSelection(.enabled)
+        }
+        .multilineTextAlignment(.center)
+        .padding(32)
     }
 }
 

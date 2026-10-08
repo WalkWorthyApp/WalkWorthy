@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 // MARK: - Response Content (reusable overlay)
 
@@ -132,6 +133,8 @@ struct MoodResponseContent: View {
                             .padding(.top, scaled(2))
                     }
                 }
+
+                ContentReportLink(context: "Encouragement")
 
                 if let retryErrorMessage {
                     Text(retryErrorMessage)
@@ -397,5 +400,84 @@ struct AIGeneratedBadge: View {
         Text("AI-generated")
             .font(.caption2)
             .foregroundStyle(.secondary)
+    }
+}
+
+/// Opens a user-composed email; no note, mood, account ID or AI text is attached.
+///
+/// `mailto:` is inert wherever no mail client is installed — the Simulator,
+/// and any device where Mail was removed or has no account. A plain `Link`
+/// there is a dead tap with no feedback, which is unacceptable for the only
+/// content-report and rights-request channel, so this uses `openURL`'s
+/// completion handler and falls back to copying the address.
+struct ContentReportLink: View {
+    let context: String
+    @State private var showingReport = false
+    @State private var didCopyAddress = false
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button("Report a concern") { showingReport = true }
+                .font(.caption)
+            if didCopyAddress {
+                Text("No mail app is available. \(SupportContact.address) was copied to your clipboard.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .alert("Report \(context.lowercased())", isPresented: $showingReport) {
+            Button("Open email") {
+                SupportContact.compose(
+                    subject: "\(context) concern",
+                    openURL: openURL
+                ) { opened in didCopyAddress = !opened }
+            }
+            Button("Copy email address") {
+                SupportContact.copyAddress()
+                didCopyAddress = true
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Email \(SupportContact.address) with the concern you choose to share. Nothing from this response or your check-in is attached automatically. Avoid sensitive details. This inbox is not an emergency service; in the U.S., call or text 988 for crisis support.")
+        }
+    }
+}
+
+/// Single source of truth for the support mailbox and how it is reached.
+enum SupportContact {
+    static let address = "walkworthyofficial@gmail.com"
+
+    static func mailtoURL(subject: String?) -> URL? {
+        var components = URLComponents()
+        components.scheme = "mailto"
+        components.path = address
+        if let subject {
+            components.queryItems = [URLQueryItem(name: "subject", value: subject)]
+        }
+        return components.url
+    }
+
+    static func copyAddress() {
+        UIPasteboard.general.string = address
+    }
+
+    /// Attempts to open the user's mail client. `completion` reports whether
+    /// the system actually accepted the URL; when it did not, the address is
+    /// copied so the request is still actionable.
+    static func compose(
+        subject: String?,
+        openURL: OpenURLAction,
+        completion: @escaping (Bool) -> Void
+    ) {
+        guard let url = mailtoURL(subject: subject) else {
+            copyAddress()
+            completion(false)
+            return
+        }
+        openURL(url) { accepted in
+            if !accepted { copyAddress() }
+            completion(accepted)
+        }
     }
 }

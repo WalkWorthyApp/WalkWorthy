@@ -127,7 +127,7 @@ private struct JournalListContent: View {
                         #if DEBUG
                         print("[JournalListView] delete failed: \(error)")
                         #else
-                        Crashlytics.crashlytics().record(error: error)
+                        Crashlytics.crashlytics().record(error: NSError(domain: "WalkWorthy.Operation", code: 1, userInfo: nil))
                         #endif
                     }
                 }

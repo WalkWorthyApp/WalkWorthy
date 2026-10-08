@@ -52,15 +52,24 @@ struct MoodCheckInView: View {
         // AI-consent gate (Guideline 5.1.2(i)): check-in data goes to OpenAI,
         // so the very first check-in starts with the consent screen. Declining
         // dismisses the wizard without sending anything. Once granted, the
-        // flag flips and this body re-evaluates straight into the wizard.
-        if appState.aiConsentGiven {
-            checkInFlow
-        } else {
-            AIConsentView(
-                onContinue: { appState.setAIConsentGiven(true) },
-                onDecline: onComplete
-            )
+        // flag flips and this body re-evaluates into the wizard.
+        //
+        // The ZStack exists so the swap can cross-fade. A bare if/else in
+        // `body` has no container to transition within, so granting consent
+        // hard-cut straight to the mood slider. The timing matches the
+        // between-step animation below, so the whole wizard reads as one
+        // continuous flow rather than a gate bolted onto its front.
+        ZStack {
+            if appState.aiConsentGiven {
+                checkInFlow
+            } else {
+                AIConsentView(
+                    onContinue: {},
+                    onDecline: onComplete
+                )
+            }
         }
+        .animation(.easeInOut(duration: 0.35), value: appState.aiConsentGiven)
     }
 
     private var checkInFlow: some View {
@@ -69,6 +78,11 @@ struct MoodCheckInView: View {
             .onDisappear {
                 submissionTask?.cancel()
                 regenerateTask?.cancel()
+                // Consent can temporarily remove this flow without dismissing
+                // its owner. Never restore a loading step with no running task.
+                if step == .cinematic && submissionResult == nil && errorMessage == nil {
+                    step = .followUp
+                }
             }
     }
 
@@ -140,7 +154,7 @@ struct MoodCheckInView: View {
     /// reports inline — losing the response the user already has would be a
     /// worse outcome than a failed retry.
     private func regenerateEncouragement() {
-        guard !isRegenerating else { return }
+        guard !isRegenerating, let checkInId = submissionResult?.checkInId else { return }
         isRegenerating = true
         regenerateErrorMessage = nil
 
@@ -150,7 +164,8 @@ struct MoodCheckInView: View {
                 let request = MoodCheckInRequest(
                     checkInType: checkInType.rawValue,
                     moodSpectrumData: makeSpectrumData(),
-                    regenerate: true
+                    regenerate: true,
+                    expectedCheckInId: checkInId
                 )
                 let response = try await appState.submitMoodCheckIn(request)
                 try Task.checkCancellation()

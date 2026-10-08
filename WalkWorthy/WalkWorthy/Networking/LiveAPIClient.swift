@@ -74,6 +74,14 @@ final class LiveAPIClient: EncouragementAPI {
         return URLSession(configuration: configuration)
     }
 
+    func fetchPrivacyConsent() async throws -> PrivacyConsent {
+        try await performRequest(path: "privacyConsent", method: "GET", endpointKind: .nonAI, decode: PrivacyConsent.self)
+    }
+
+    func updatePrivacyConsent(_ update: PrivacyConsentUpdate) async throws -> PrivacyConsent {
+        try await performRequest(path: "privacyConsent", method: "PUT", body: update, endpointKind: .nonAI, decode: PrivacyConsent.self)
+    }
+
     // MARK: - EncouragementAPI
 
     @discardableResult
@@ -400,7 +408,7 @@ final class LiveAPIClient: EncouragementAPI {
             // Record as a non-fatal so we can see App Attest failure frequency in
             // production — helpful for diagnosing Apple reviewer device flakiness
             // or provisioning regressions.
-            Crashlytics.crashlytics().record(error: error)
+            Crashlytics.crashlytics().record(error: NSError(domain: "WalkWorthy.AppCheckToken", code: 4, userInfo: nil))
             #endif
             // Intentionally proceed. Backend enforces App Check independently via
             // verifyAppCheck(). A missing header returns 403, which `handleResponse`
@@ -411,6 +419,7 @@ final class LiveAPIClient: EncouragementAPI {
     }
 
     private func send<T: Decodable>(_ request: URLRequest, decode type: T.Type) async throws -> T {
+        try Task.checkCancellation()
         do {
             let (data, response) = try await urlSession.data(for: request)
             #if DEBUG
@@ -447,7 +456,20 @@ final class LiveAPIClient: EncouragementAPI {
             } catch {
                 throw APIError.decodingFailed(error)
             }
-        case 401, 403:
+        case 403:
+            let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            if payload?["code"] as? String == "AI_CONSENT_REQUIRED" {
+                throw APIError.aiConsentRequired
+            }
+            if payload?["code"] as? String == "ACCOUNT_DELETING" {
+                throw APIError.accountDeleting
+            }
+            // App Check rejections are 401 (see verifyAppCheck), not 403, so
+            // the remaining 403s are authorization failures — chiefly
+            // EMAIL_UNVERIFIED. Reporting those as "device verification
+            // failed" sent users chasing a problem they cannot fix.
+            throw APIError.unauthorized
+        case 401:
             throw APIError.unauthorized
         case 409:
             throw APIError.conflict(message: parseErrorMessage(from: data))

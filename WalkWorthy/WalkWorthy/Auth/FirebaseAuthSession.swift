@@ -150,6 +150,12 @@ actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
         try Auth.auth().signOut()
     }
 
+    /// Check and sign out without suspension so deletion of A cannot sign out B.
+    func signOut(ifUserSub expectedSub: String) throws {
+        guard Auth.auth().currentUser?.uid == expectedSub else { return }
+        try Auth.auth().signOut()
+    }
+
     /// Returns the current user's email, if any. Used by the account-deletion
     /// re-auth sheet to build an `EmailAuthProvider` credential without asking
     /// the user to retype their email.

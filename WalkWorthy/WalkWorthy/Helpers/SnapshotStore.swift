@@ -180,19 +180,25 @@ actor SnapshotStore {
     // MARK: - Delete (sign-out / account delete)
 
     func deleteAll(for userSub: String) {
+        try? deleteAllDurably(for: userSub)
+    }
+
+    /// Account erasure must retain its durable intent if disk cleanup fails.
+    func deleteAllDurably(for userSub: String) throws {
         // Tombstone first: an in-flight write that already passed its
         // cancellation check will see this in performWrite and abort instead
         // of recreating the directory. Only beginSession(for:) lifts this
         // tombstone (i.e. a fresh sign-in) — write() no longer clears it.
         deletedUsers.insert(userSub)
-        guard let dir = Self.userDirectory(userSub: userSub) else { return }
+        guard let dir = Self.userDirectory(userSub: userSub) else { throw CocoaError(.fileWriteUnknown) }
         // Cancel any queued writes for this user so they can't recreate the
         // directory after we delete it.
         for (url, task) in pendingWrites where url.deletingLastPathComponent().path == dir.path {
             task.cancel()
             pendingWrites[url] = nil
         }
-        try? fileManager.removeItem(at: dir)
+        do { try fileManager.removeItem(at: dir) }
+        catch let error as CocoaError where error.code == .fileNoSuchFile { /* Already erased. */ }
     }
 
     /// Re-enables writes for a user after a fresh sign-in. deleteAll(for:)

@@ -9,11 +9,14 @@ import SwiftUI
 import AuthenticationServices
 
 struct SettingsView: View {
+    @Environment(\.openURL) private var openURL
     @EnvironmentObject private var appState: AppState
     private let config = Config.shared
 
     // MARK: - Account deletion state
     // Account deletion is required for App Store Guideline 5.1.1(v).
+    @State private var showAIConsent = false
+    @State private var didCopySupportAddress = false
     @State private var showDeleteConfirmation = false
     @State private var showReauthSheet = false
     @State private var isDeletingAccount = false
@@ -51,11 +54,21 @@ struct SettingsView: View {
                     Section {
                         Toggle(isOn: Binding(
                             get: { appState.aiConsentGiven },
-                            set: { appState.setAIConsentGiven($0) }
+                            set: { enabled in
+                                if enabled { showAIConsent = true }
+                                else { appState.withdrawAIConsent() }
+                            }
                         )) {
                             Text("Share check-ins with OpenAI")
                         }
                         .listRowBackground(Color.wwCardBackground)
+
+                        if let error = appState.aiConsentError {
+                            Text(error).font(.footnote)
+                            Button("Retry privacy request") { appState.retryAIConsent() }
+                                .disabled(appState.aiConsentBusy)
+                        }
+                        if appState.aiConsentBusy { ProgressView("Updating permission…") }
 
                         Toggle(isOn: Binding(
                             get: { appState.useProfilePersonalization },
@@ -71,11 +84,12 @@ struct SettingsView: View {
                         )) {
                             Text("Share app usage analytics")
                         }
+                        .disabled(appState.consentAgeGroup != "18+")
                         .listRowBackground(Color.wwCardBackground)
                     } header: {
                         Text("AI & Your Data")
                     } footer: {
-                        Text("When OpenAI sharing is on, check-ins send your mood score and level, follow-up rating, tags, life areas, check-in period, and optional note. Daily reflections send a seven-day summary of check-in dates, mood levels, and overall sentiment. With profile personalization on, your age range, occupation or major, and hobbies are also included — never your name or gender. You can withdraw either permission here at any time. Firebase Analytics is separate, off by default, and never receives check-ins or notes.\n\nWalkWorthy offers Scripture-based encouragement, not medical or mental-health care. If you're struggling, call or text 988.")
+                        Text("OpenAI processes shared data for generation and safety screening. Provider abuse-monitoring logs may be retained for up to 30 days, or longer where legally required. Notes may reveal sensitive health or religious information. When OpenAI sharing is on, check-ins send your mood score and level, follow-up rating, tags, life areas, check-in period, and optional note. Daily reflections send a seven-day summary of check-in dates, mood levels, and overall sentiment. With profile personalization on, your age range, occupation or major, and hobbies are also included — never your name or gender. You can withdraw either permission here at any time. Withdrawal stops future AI requests after the server confirms it; it does not erase history or data already processed. Optional analytics unlock once you have granted AI sharing and confirmed you are 18 or older; if you decline AI sharing, analytics stays off too. Firebase Analytics never receives check-ins, notes, or profile details, and is off by default.\n\nWalkWorthy offers Scripture-based encouragement, not medical or mental-health care. If you're struggling, call or text 988.")
                     }
 
                     Section("Notifications") {
@@ -142,6 +156,15 @@ struct SettingsView: View {
                             }
                         }
                         .listRowBackground(Color.wwCardBackground)
+                        Link(destination: URL(string: "https://walkworthy-app.web.app/ai-safety")!) {
+                            HStack {
+                                Text("AI Safety Information")
+                                Spacer()
+                                Image(systemName: "arrow.up.right.square")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .listRowBackground(Color.wwCardBackground)
                         Link(destination: URL(string: "https://walkworthy-app.web.app/terms")!) {
                             HStack {
                                 Text("Terms of Use")
@@ -151,15 +174,36 @@ struct SettingsView: View {
                             }
                         }
                         .listRowBackground(Color.wwCardBackground)
-                        Link(destination: URL(string: "mailto:walkworthyofficial@gmail.com")!) {
+                        // Not a Link: `mailto:` is inert with no mail client
+                        // (Simulator, or Mail removed / no account), and a dead
+                        // tap is unacceptable for the only rights-request and
+                        // support channel. Fall back to copying the address.
+                        Button {
+                            SupportContact.compose(
+                                subject: "WalkWorthy support",
+                                openURL: openURL
+                            ) { opened in didCopySupportAddress = !opened }
+                        } label: {
                             HStack {
-                                Text("Contact Support")
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Contact Support")
+                                    Text(SupportContact.address)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                }
                                 Spacer()
                                 Image(systemName: "envelope")
                                     .foregroundStyle(.secondary)
                             }
                         }
                         .listRowBackground(Color.wwCardBackground)
+                        if didCopySupportAddress {
+                            Text("No mail app is available on this device. The address was copied to your clipboard.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .listRowBackground(Color.wwCardBackground)
+                        }
                     }
                 }
                 .scrollContentBackground(.hidden)
@@ -174,7 +218,11 @@ struct SettingsView: View {
                     }
                     Button("Cancel", role: .cancel) {}
                 } message: {
-                    Text("This permanently removes your profile, mood history, journal entries, daily reflections, and encouragements. This cannot be undone.")
+                    Text("This permanently removes your profile, mood history, journal entries, daily reflections, and encouragements. Device data removal starts immediately, even if server deletion needs a retry. This cannot be undone.")
+                }
+                .sheet(isPresented: $showAIConsent) {
+                    AIConsentView(onContinue: { showAIConsent = false }, onDecline: { showAIConsent = false })
+                        .interactiveDismissDisabled(appState.aiConsentBusy)
                 }
                 .sheet(isPresented: $showReauthSheet) {
                     ReauthenticationSheet(
@@ -204,8 +252,8 @@ struct SettingsView: View {
     // MARK: - Account deletion flow
     //
     // Provider-aware: Apple accounts reauthorize and revoke their Apple token;
-    // stale password sessions use the password sheet. Local cleanup only runs
-    // after the backend confirms success.
+    // stale password sessions use the password sheet. Local and server cleanup
+    // are recorded independently after the user confirms deletion.
 
     private func startAccountDeletion() async {
         guard appState.isAuthenticated, !isDeletingAccount else { return }
@@ -242,11 +290,7 @@ struct SettingsView: View {
 
         do {
             try await appState.deleteAccount()
-            // Success: the Firebase auth state listener will flip
-            // isAuthenticated to false, which drives the RootView back to
-            // TitleScreenView. Belt-and-suspenders signOut() in case the
-            // listener is slow on a flaky network.
-            appState.signOut()
+            // AppState signs out the captured account after confirming deletion.
         } catch APIError.unauthorized, APIError.notAuthenticated {
             deleteAccountError = "Please sign in again, then try deleting your account."
             // Force a sign-out so the user returns to TitleScreenView. The
@@ -385,6 +429,7 @@ struct NotificationSettingsView: View {
     @State private var eveningEnabled = true
     @State private var showNotificationDeniedAlert = false
     @State private var pendingAuthorizationFor: ReminderType?
+    @State private var reminderSession: NotificationScheduler.Session?
 
     private let defaults = UserDefaults.standard
 
@@ -393,7 +438,7 @@ struct NotificationSettingsView: View {
     /// Falls back to the bare key only for pre-auth reads — those should
     /// never occur in practice because this view requires authentication.
     private func scopedKey(_ baseKey: String) -> String {
-        guard let userSub = appState.authenticatedUserSub else { return baseKey }
+        guard let userSub = reminderSession?.userSub else { return baseKey }
         return "\(baseKey)::\(userSub)"
     }
 
@@ -457,6 +502,8 @@ struct NotificationSettingsView: View {
             .navigationTitle("Check-in Reminders")
             .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            guard let sub = appState.authenticatedUserSub, !appState.accountDeletionPending else { return }
+            reminderSession = NotificationScheduler.shared.session(for: sub)
             loadSavedSettings()
         }
         .onChange(of: morningTime) { _, _ in
@@ -513,11 +560,13 @@ struct NotificationSettingsView: View {
     }
 
     private func checkAuthorizationAndSchedule() {
+        guard let session = reminderSession, NotificationScheduler.shared.isCurrent(session) else { return }
         Task {
             // Resolves the current permission state, prompting the user if it
             // hasn't been determined yet.
             let outcome = await NotificationScheduler.shared.resolveAuthorization()
             await MainActor.run {
+                guard NotificationScheduler.shared.isCurrent(session), !appState.accountDeletionPending else { return }
                 switch outcome {
                 case .authorized:
                     self.saveAndSchedule()
@@ -559,7 +608,8 @@ struct NotificationSettingsView: View {
     /// first read and removes the bare key so we don't migrate twice.
     /// Idempotent: once the scoped slot exists the helper is a no-op.
     private func migrateReminderKeyIfNeeded(bare: String) {
-        guard let userSub = appState.authenticatedUserSub else { return }
+        guard let session = reminderSession, NotificationScheduler.shared.isCurrent(session) else { return }
+        let userSub = session.userSub
         let scoped = "\(bare)::\(userSub)"
         if defaults.object(forKey: scoped) == nil,
            let value = defaults.object(forKey: bare) {
@@ -623,6 +673,8 @@ struct NotificationSettingsView: View {
     }
 
     private func saveAndSchedule() {
+        guard let session = reminderSession, NotificationScheduler.shared.isCurrent(session),
+              !appState.accountDeletionPending else { return }
         // Save enabled states
         defaults.set(morningEnabled, forKey: scopedKey(StorageKeys.morningEnabled))
         defaults.set(middayEnabled, forKey: scopedKey(StorageKeys.middayEnabled))
@@ -643,11 +695,12 @@ struct NotificationSettingsView: View {
 
         // Schedule notifications
         Task {
-            await scheduleReminders()
+            await scheduleReminders(session: session)
         }
     }
 
-    private func scheduleReminders() async {
+    private func scheduleReminders(session: NotificationScheduler.Session) async {
+        guard NotificationScheduler.shared.isCurrent(session), !appState.accountDeletionPending else { return }
         let calendar = Calendar.current
         var reminders: [NotificationScheduler.DailyReminder] = []
 
@@ -686,11 +739,7 @@ struct NotificationSettingsView: View {
 
         // The scheduler always clears the old requests first so disabled
         // reminders are removed even when nothing new is scheduled.
-        await NotificationScheduler.shared.replaceDailyReminders(reminders, clearing: [
-            StorageKeys.morningNotificationId,
-            StorageKeys.middayNotificationId,
-            StorageKeys.eveningNotificationId
-        ])
+        await NotificationScheduler.shared.replaceDailyReminders(reminders, session: session)
     }
 
     private static func defaultTime(hour: Int, minute: Int) -> Date {
