@@ -1,7 +1,7 @@
 # CI tooling
 
 Firebase CLI dependencies are isolated from the deployed Functions package.
-The deployment workflow installs this lockfile with `npm ci --ignore-scripts`
+The backend checks and deploy workflows install this lockfile with `npm ci --ignore-scripts`
 and invokes `node_modules/.bin/firebase` directly. A missing installation fails
 instead of downloading a replacement through `npx` or using a global CLI.
 
@@ -17,7 +17,7 @@ Review both package files together and run the existing Firestore emulator
 `test:ci` suite before accepting an update. Keep changes to the Functions
 dependency lockfile separate.
 
-The three workflows pin actions by full upstream commit SHA, with release
+All workflows pin actions by full upstream commit SHA, with release
 comments for maintenance. Verify both the release and its resolved commit when
 updating a pin; annotated tag objects are not commit SHAs.
 
