@@ -16,7 +16,7 @@ export const NO_PERSONALIZATION: PersonalizationAttempt = Object.freeze({
 /** Request-local state: never share between requests or cache on an agent. */
 export interface AiPersonalization {
   /** Recheck after moderation/backoff and rebuild the prompt from this attempt. */
-  forGeneration(): Promise<PersonalizationAttempt>;
+  forGeneration(transaction?: Transaction): Promise<PersonalizationAttempt>;
   /** Validate the last attempt when committing its generated result. */
   isResultCurrent(transaction: Transaction): Promise<boolean>;
 }
@@ -60,8 +60,8 @@ export async function createAiPersonalization(
 
   let lastAttempt = NO_PERSONALIZATION;
   return {
-    async forGeneration() {
-      lastAttempt = await permitted.isCurrent() ? permitted : NO_PERSONALIZATION;
+    async forGeneration(transaction?: Transaction) {
+      lastAttempt = await permitted.isCurrent(transaction) ? permitted : NO_PERSONALIZATION;
       return lastAttempt;
     },
     isResultCurrent: transaction => lastAttempt.isCurrent(transaction),

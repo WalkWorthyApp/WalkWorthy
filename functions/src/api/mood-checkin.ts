@@ -344,7 +344,10 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       const aiResponse = await runMoodAgent(agentInput, openaiApiKey.value(), async () => {
         await requireAiConsent(db, userId, undefined, consent.revision);
       }, undefined, undefined,
-        () => markMoodGenerationConsumed(claim));
+        () => markMoodGenerationConsumed(claim, async transaction => {
+          await requireAiConsent(db, userId, transaction, consent.revision);
+          return personalization.forGeneration(transaction);
+        }));
       logger.info('AI response generated');
 
       // Step 3: Atomically write check-in and summary in final transaction

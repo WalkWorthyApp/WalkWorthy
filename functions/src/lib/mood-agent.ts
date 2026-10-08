@@ -39,7 +39,7 @@ import {
   resolveScripture,
 } from "./scripture-catalog";
 import { moderateText } from "./content-safety";
-import { NO_PERSONALIZATION, type AiPersonalization } from "../shared/ai-personalization";
+import { NO_PERSONALIZATION, type AiPersonalization, type PersonalizationAttempt } from "../shared/ai-personalization";
 
 // ============================================================================
 // Types
@@ -303,7 +303,7 @@ export async function runMoodAgent(
   generate: GenerationRunner = async (serializedInput, signal) =>
     // Empty model output can otherwise trigger another SDK turn without a check.
     (await run(ensureAgent(model, apiKey), serializedInput, { signal, maxTurns: 1 })).finalOutput,
-  beforeGeneration: () => Promise<void> = async () => {},
+  beforeGeneration?: () => Promise<PersonalizationAttempt>,
 ): Promise<AIEncouragementResponse> {
   logger.info("[MoodAgent] Starting encouragement");
 
@@ -346,15 +346,16 @@ export async function runMoodAgent(
     // Checks live outside provider catches: denial/read failure must stop work,
     // including when consent changes during backoff. Sent requests cannot be recalled.
     await checkConsent();
-    // Resolve after moderation, retry backoff and the base-consent await. No serialized profile
-    // from an earlier attempt may survive a permission/revision change.
-    const personalization = await input.personalization?.forGeneration() ?? NO_PERSONALIZATION;
+    // Admission resolves live consent and the exact profile in its consumption
+    // transaction. Serialize only its committed result; no asynchronous quota
+    // boundary may separate profile validation from prompt construction.
+    // Denial/ownership errors remain outside the provider retry loop.
+    const personalization = beforeGeneration
+      ? await beforeGeneration()
+      : await input.personalization?.forGeneration() ?? NO_PERSONALIZATION;
     const profile = personalization.profile;
     const serializedInput = JSON.stringify({ ...payload, profile }, null, 2);
     logger.info(`[MoodAgent] Attempt ${attempt + 1}/${MAX_RETRIES}`);
-    // Consume only after consent and personalization checks permit this attempt.
-    // Ownership errors must abort outside the provider retry loop.
-    await beforeGeneration();
     let parsed: AIEncouragementResponse;
     try {
       logger.info("[MoodAgent] Calling OpenAI agent...");

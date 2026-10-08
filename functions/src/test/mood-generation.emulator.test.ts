@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import test, { type TestContext } from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { deleteApp, initializeApp } from 'firebase-admin/app';
-import { getFirestore, Timestamp } from 'firebase-admin/firestore';
+import { getFirestore, Timestamp, type Transaction, type DocumentReference } from 'firebase-admin/firestore';
 import type { Request } from 'firebase-functions/v2/https';
 import type { Response } from 'express';
 import firebase = require('../shared/firebase');
@@ -77,7 +77,7 @@ async function owner(f: Awaited<ReturnType<typeof fixture>>, input = identity())
 
 function paidStub(t: TestContext) {
   return t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string,
-    _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: () => Promise<void>) => {
+    _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: Parameters<typeof agent.runMoodAgent>[5]) => {
     await beforeGeneration?.();
     return agent.CRISIS_RESPONSE;
   });
@@ -162,12 +162,87 @@ for (const scenario of ['before-input', 'after-input', 'during-backoff', 'flagge
   });
 }
 
+for (const change of ['consent', 'profile-withdrawal', 'profile-edit'] as const) {
+  test(`consumption transaction: ${change} is resolved before dispatch`, { ...emulator, timeout: 20_000 }, async t => {
+    const f = await fixture(t);
+    const started = gate();
+    const finish = gate();
+    const joined = gate();
+    t.after(finish.release);
+    const profileRef = f.db.doc(`users/${f.uid}/profile/data`);
+    await profileRef.set({ optInTailored: true, major: 'SYNTHETIC_OLD_PROFILE' });
+    const realMood = agent.runMoodAgent;
+    const realMark = generation.markMoodGenerationConsumed;
+    const realWait = generation.waitForMoodGeneration;
+    const realTransaction = f.db.runTransaction.bind(f.db);
+    let claimPath: string | undefined;
+    let paused = false;
+    const sent: Array<{ profile: unknown }> = [];
+    const screened: string[] = [];
+    // Pause inside the actual consumption transaction, after account-active
+    // validation but before the claim read. No provider or live auth is used.
+    t.mock.method(generation, 'markMoodGenerationConsumed', (...args: Parameters<typeof realMark>) => {
+      claimPath = args[0].ref.path;
+      return realMark(...args);
+    });
+    t.mock.method(f.db, 'runTransaction', <T>(update: (tx: Transaction) => Promise<T>) =>
+      realTransaction(async tx => {
+        const realGet = tx.get.bind(tx);
+        t.mock.method(tx, 'get', async (ref: DocumentReference) => {
+          if (!paused && ref.path === claimPath) {
+            paused = true;
+            started.release();
+            await finish.promise;
+          }
+          return realGet(ref);
+        });
+        return update(tx);
+      }));
+    t.mock.method(generation, 'waitForMoodGeneration', (claim: generation.MoodGenerationClaim) => {
+      joined.release();
+      return realWait(claim);
+    });
+    t.mock.method(globalThis, 'fetch', async (_url: unknown, init?: RequestInit) => {
+      screened.push((JSON.parse(String(init?.body)) as { input: string }).input);
+      return globalThis.Response.json({ results: [{ flagged: false, categories: {
+        'self-harm': false, 'self-harm/intent': false, 'self-harm/instructions': false,
+      } }] });
+    });
+    t.mock.method(agent, 'runMoodAgent', (...[input, _key, check, model, _generate, before]: Parameters<typeof realMood>) =>
+      realMood(input, 'synthetic-key', check, model, async serialized => {
+        sent.push(JSON.parse(serialized) as { profile: unknown });
+        return { message: 'Take a quiet moment today.', verseId: 'psalm_46_1' };
+      }, before));
+    const first = f.post();
+    await Promise.race([started.promise, delay(5000).then(() => { throw new Error('Consumption did not pause'); })]);
+    const second = f.post();
+    try {
+      await Promise.race([joined.promise, delay(5000).then(() => { throw new Error('Follower did not join'); })]);
+      if (change === 'consent') await savePrivacyConsent(f.db, f.uid, { aiSharing: false });
+      else await profileRef.update(change === 'profile-withdrawal'
+        ? { optInTailored: false } : { major: 'SYNTHETIC_NEW_PROFILE' });
+    } finally { finish.release(); }
+    const responses = await Promise.all([first, second]);
+    const denied = change === 'consent';
+    assert.deepEqual(responses.map(r => r.status), denied ? [403, 403] : [201, 201]);
+    assert.deepEqual(responses[0].body, responses[1].body);
+    assert.equal(sent.length, denied ? 0 : 1);
+    if (!denied) assert.equal(sent[0].profile, null);
+    assert.equal(screened.length, denied ? 1 : 2);
+    assert.equal((await f.budget()).get('callCount'), denied ? 0 : 1);
+    const claims = await f.db.collection(`users/${f.uid}/moodGenerationClaims`).get();
+    assert.equal(claims.size, 1);
+    assert.equal(claims.docs[0].get('consumed'), !denied);
+    assert.equal(claims.docs[0].get('status'), denied ? 'failed' : 'completed');
+  });
+}
+
 test('overlapping identical mood requests generate once and keep the hourly admissions', emulator, async t => {
   const f = await fixture(t);
   const started = gate();
   const finish = gate();
   let generations = 0;
-  t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string, _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: () => Promise<void>) => {
+  t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string, _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: Parameters<typeof agent.runMoodAgent>[5]) => {
     await beforeGeneration?.();
     generations++;
     started.release();
@@ -190,7 +265,7 @@ test('overlapping identical mood requests generate once and keep the hourly admi
 
 test('failed generation retains the reservation once provider work has started', emulator, async t => {
   const f = await fixture(t);
-  t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string, _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: () => Promise<void>) => {
+  t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string, _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: Parameters<typeof agent.runMoodAgent>[5]) => {
     await beforeGeneration?.();
     throw new Error('Synthetic provider error after dispatch');
   });
@@ -214,7 +289,7 @@ for (const regenerate of [false, true]) {
     });
     let generations = 0;
     t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string,
-      _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: () => Promise<void>) => {
+      _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: Parameters<typeof agent.runMoodAgent>[5]) => {
       await beforeGeneration?.();
       generations++;
       started.release();
@@ -267,7 +342,7 @@ test('consent errors keep their response and only refund before provider dispatc
   assert.equal((await f.budget()).get('callCount'), 0);
   await savePrivacyConsent(f.db, f.uid, { aiSharing: true, noticeVersion: NOTICE_VERSION, ageGroup: '18+', expectedRevision: 2 });
   t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string,
-    _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: () => Promise<void>) => {
+    _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: Parameters<typeof agent.runMoodAgent>[5]) => {
     await beforeGeneration?.();
     await savePrivacyConsent(f.db, f.uid, { aiSharing: false });
     return agent.CRISIS_RESPONSE;
@@ -295,18 +370,18 @@ test('claim admission atomically shares one reservation and enforces the remaini
 test('expired consumed claims retain charges and fence the former owner at every boundary', emulator, async t => {
   const f = await fixture(t);
   const first = await owner(f);
-  await generation.markMoodGenerationConsumed(first);
+  await generation.markMoodGenerationConsumed(first, async () => {});
   await first.ref.update({ leaseUntil: Timestamp.fromMillis(0) });
   const replacement = await owner(f);
   assert.notEqual(replacement.owner, first.owner);
   assert.equal((await f.budget()).get('callCount'), 2);
-  await assert.rejects(generation.markMoodGenerationConsumed(first), generation.MoodGenerationConflictError);
+  await assert.rejects(generation.markMoodGenerationConsumed(first, async () => {}), generation.MoodGenerationConflictError);
   await assert.rejects(f.db.runTransaction(tx => generation.readMoodGenerationSettlement(tx, first)), generation.MoodGenerationConflictError);
   await assert.rejects(generation.waitForMoodGeneration(first), generation.MoodGenerationConflictError);
   await generation.failMoodGeneration(first);
   assert.equal((await replacement.ref.get()).get('owner'), replacement.owner);
   assert.equal((await f.budget()).get('callCount'), 2);
-  await generation.markMoodGenerationConsumed(replacement);
+  await generation.markMoodGenerationConsumed(replacement, async () => {});
   const result = { checkInId: 'replacement', aiResponse: agent.CRISIS_RESPONSE, createdAt: 'now', expiresAt: 'later' };
   await f.db.runTransaction(async tx => {
     const settlement = await generation.readMoodGenerationSettlement(tx, replacement);
@@ -347,7 +422,7 @@ test('deletion prevents claim dispatch, settlement, cleanup and resurrection', e
   const marker = deletionRef(f.db, f.uid);
   try {
     await marker.set({ status: 'deleting' });
-    await assert.rejects(generation.markMoodGenerationConsumed(claim), AccountDeletingError);
+    await assert.rejects(generation.markMoodGenerationConsumed(claim, async () => {}), AccountDeletingError);
     await assert.rejects(generation.claimMoodGeneration(f.db, f.uid, identity('Other')), AccountDeletingError);
     await assert.rejects(f.db.runTransaction(tx => generation.readMoodGenerationSettlement(tx, claim)), AccountDeletingError);
     await deleteAllUserFirestoreData(f.db, f.uid);
@@ -363,7 +438,7 @@ test('a consumed loser across intervening input versions keeps its charge', emul
   const finish = gate();
   let calls = 0;
   t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string,
-    _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: () => Promise<void>) => {
+    _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: Parameters<typeof agent.runMoodAgent>[5]) => {
     await beforeGeneration?.();
     if (++calls === 1) { started.release(); await finish.promise; }
     return agent.CRISIS_RESPONSE;
@@ -391,7 +466,7 @@ test('coalesced failures preserve consent errors, while saved content remains re
     return originalWait(claim);
   });
   const mock = t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string,
-    _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: () => Promise<void>) => {
+    _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: Parameters<typeof agent.runMoodAgent>[5]) => {
     await beforeGeneration?.();
     started.release();
     await finish.promise;

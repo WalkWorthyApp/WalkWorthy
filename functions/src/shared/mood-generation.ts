@@ -122,10 +122,16 @@ async function ownedClaim(tx: Transaction, claim: MoodGenerationClaim): Promise<
 /** Persist before dispatch, including retries. Unknown provider outcomes count.
  * One daily unit remains one generation operation with the existing bounded
  * agent retries; this counter does not represent tokens or exact billed cost. */
-export async function markMoodGenerationConsumed(claim: MoodGenerationClaim): Promise<void> {
-  await claim.ref.firestore.runTransaction(async tx => {
+export async function markMoodGenerationConsumed<T>(
+  claim: MoodGenerationClaim, authorize: (transaction: Transaction) => Promise<T>,
+): Promise<T> {
+  return claim.ref.firestore.runTransaction(async tx => {
     await ownedClaim(tx, claim);
+    // Authorization and the exact prompt context must remain current through
+    // this commit. A known denial leaves the reservation unconsumed/refundable.
+    const authorized = await authorize(tx);
     tx.update(claim.ref, { consumed: true });
+    return authorized;
   });
 }
 

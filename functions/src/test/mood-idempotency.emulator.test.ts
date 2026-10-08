@@ -29,7 +29,7 @@ test('mood retries reuse identical content but persist changed context, includin
   let started: () => void = () => {};
   const gate = new Promise<void>(resolve => { release = resolve; });
   const ready = new Promise<void>(resolve => { started = resolve; });
-  t.mock.method(agent, 'runMoodAgent', async (input: agent.MoodAgentInput, _key: string, _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: () => Promise<void>) => {
+  t.mock.method(agent, 'runMoodAgent', async (input: agent.MoodAgentInput, _key: string, _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: Parameters<typeof agent.runMoodAgent>[5]) => {
     await beforeGeneration?.();
     generations++;
     if (input.moodSpectrumData.note === 'Waiting context') {
@@ -102,7 +102,7 @@ test('regeneration targets the displayed check-in and cannot create or replace a
   t.mock.method(auth, 'requireAuth', async (req: Request) => Object.assign(req, { userId: uid }));
   t.mock.method(profile, 'getUserProfileOnce', async () => ({ timezone: 'UTC', optInTailored: false }));
   let generations = 0;
-  t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string, _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: () => Promise<void>) => {
+  t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string, _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: Parameters<typeof agent.runMoodAgent>[5]) => {
     await beforeGeneration?.();
     generations++;
     return agent.CRISIS_RESPONSE;
@@ -146,7 +146,7 @@ test('regeneration targets the displayed check-in and cannot create or replace a
     assert.equal((await saved.get()).get('id'), checkInId);
 
     // Recheck identity at the write boundary, after generation yields.
-    t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string, _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: () => Promise<void>) => {
+    t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string, _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: Parameters<typeof agent.runMoodAgent>[5]) => {
       await beforeGeneration?.();
       await saved.update({ id: 'replacement-id' });
       return agent.CRISIS_RESPONSE;

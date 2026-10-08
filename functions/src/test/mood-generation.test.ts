@@ -5,6 +5,7 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
 import { moodGenerationRef, type MoodGenerationIdentity } from '../shared/mood-generation';
 import { runMoodAgent, CRISIS_RESPONSE, type MoodAgentInput } from '../lib/mood-agent';
+import { NO_PERSONALIZATION } from '../shared/ai-personalization';
 import { validateMoodSpectrumData } from '../shared/types';
 
 const input: MoodAgentInput = { checkInType: 'morning', moodSpectrumData: {
@@ -42,7 +43,7 @@ test('generation admission runs before each dispatch, and admission errors never
   await assert.rejects(runMoodAgent(input, 'synthetic-key', async () => {}, undefined, async () => {
     events.push('dispatch');
     throw new Error('Synthetic provider failure');
-  }, async () => { events.push('admit'); }));
+  }, async () => { events.push('admit'); return NO_PERSONALIZATION; }));
   assert.deepEqual(events, ['admit', 'dispatch', 'admit', 'dispatch']);
   events.length = 0;
   const denied = new Error('Ownership lost');
