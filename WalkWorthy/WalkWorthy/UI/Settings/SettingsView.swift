@@ -601,41 +601,9 @@ struct NotificationSettingsView: View {
         UIApplication.shared.open(settingsUrl)
     }
 
-    /// One-shot migration: older TestFlight builds wrote reminder preferences
-    /// under the bare (unscoped) key. When we introduced per-user scoping, any
-    /// existing value stopped being read — which looked like "reminders silently
-    /// reset" to those users. This copies the bare value to the scoped slot on
-    /// first read and removes the bare key so we don't migrate twice.
-    /// Idempotent: once the scoped slot exists the helper is a no-op.
-    private func migrateReminderKeyIfNeeded(bare: String) {
-        guard let session = reminderSession, NotificationScheduler.shared.isCurrent(session) else { return }
-        let userSub = session.userSub
-        let scoped = "\(bare)::\(userSub)"
-        if defaults.object(forKey: scoped) == nil,
-           let value = defaults.object(forKey: bare) {
-            defaults.set(value, forKey: scoped)
-            defaults.removeObject(forKey: bare)
-        }
-    }
-
     private func loadSavedSettings() {
-        // Migrate any legacy unscoped reminder keys into the per-user scope so
-        // existing TestFlight users retain their reminder times and toggles.
-        let legacyKeys = [
-            StorageKeys.morningEnabled,
-            StorageKeys.middayEnabled,
-            StorageKeys.eveningEnabled,
-            StorageKeys.morningHour,
-            StorageKeys.morningMinute,
-            StorageKeys.middayHour,
-            StorageKeys.middayMinute,
-            StorageKeys.eveningHour,
-            StorageKeys.eveningMinute,
-        ]
-        for key in legacyKeys {
-            migrateReminderKeyIfNeeded(bare: key)
-        }
-
+        // Legacy bare values have no owner provenance. Read only this account's
+        // scoped settings; auth transitions discard ambiguous upgrade residue.
         let morningEnabledKey = scopedKey(StorageKeys.morningEnabled)
         let middayEnabledKey = scopedKey(StorageKeys.middayEnabled)
         let eveningEnabledKey = scopedKey(StorageKeys.eveningEnabled)

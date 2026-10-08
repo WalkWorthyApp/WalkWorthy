@@ -911,6 +911,7 @@ final class AppState: ObservableObject {
     }
 
     func signOut() {
+        ReminderPreferences.discardOwnerlessValues(in: defaults)
         authenticationNotice = "You have been signed out. Please sign in again."
         if let sub = authenticatedUserSub {
             NotificationScheduler.shared.invalidateSession(for: sub)
@@ -1006,6 +1007,8 @@ final class AppState: ObservableObject {
     }
 
     private func setAuthenticatedUserSub(_ sub: String?) {
+        // Also retire legacy residue on the initial nil-to-nil auth callback.
+        ReminderPreferences.discardOwnerlessValues(in: defaults)
         if authenticatedUserSub == sub {
             return
         }
