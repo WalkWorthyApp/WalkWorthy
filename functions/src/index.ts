@@ -30,3 +30,6 @@ export { journal } from './api/journal';
 // Delete Account - Apple App Store Guideline 5.1.1(v) compliance: erase all
 // user data (Firestore + Auth) when the user requests account deletion.
 export { deleteAccount } from './api/delete-account';
+export { retryAccountDeletions } from './api/retry-account-deletions';
+
+export { privacyConsent } from './api/privacy-consent';

@@ -16,6 +16,8 @@ import SwiftUI
 struct AIConsentView: View {
     @EnvironmentObject private var appState: AppState
 
+    @State private var ageGroup = ""
+
     let onContinue: () -> Void
     let onDecline: () -> Void
 
@@ -26,7 +28,7 @@ struct AIConsentView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: scaled(20)) {
-                    Text("Before your first check-in")
+                    Text("Choose AI sharing")
                         .font(.newsreaderSemiBoldItalic(size: scaled(30)))
                         .foregroundStyle(.white)
                         .padding(.top, scaled(24))
@@ -34,7 +36,7 @@ struct AIConsentView: View {
 
                     VStack(alignment: .leading, spacing: scaled(14)) {
                         Label {
-                            Text("WalkWorthy uses **OpenAI** to write your encouragement and daily reflection.")
+                            Text("WalkWorthy uses **OpenAI** to write your encouragement and daily reflection and screen submitted text and generated responses for safety.")
                         } icon: {
                             Image(systemName: "sparkles")
                         }
@@ -45,12 +47,12 @@ struct AIConsentView: View {
                         VStack(alignment: .leading, spacing: scaled(6)) {
                             bulletRow("Your mood score and level, follow-up rating, emotion tags, and check-in period")
                             bulletRow("The life areas you select")
-                            bulletRow("Your optional note, if you write one")
+                            bulletRow("Your optional note, if you write one — it may reveal sensitive health or religious information")
                             bulletRow("For daily reflections: a seven-day summary of check-in dates, mood levels, and overall sentiment")
                             bulletRow("If personalization is on: your age range, occupation or major, and hobbies — never your name or gender")
                         }
 
-                        Text("OpenAI processes this information to generate a response. WalkWorthy disables API response storage and AI tracing, and OpenAI says API data is not used to train its models unless a customer opts in. Your generated responses are saved in your WalkWorthy account.")
+                        Text("OpenAI processes this information for generation and safety screening. Avoid names, contact information, medical records, or details about other people in notes. WalkWorthy disables API response storage and AI tracing, and OpenAI says API data is not used to train its models unless a customer opts in. OpenAI may retain abuse-monitoring logs for up to 30 days, or longer where legally required; disabling response storage does not eliminate that retention. Your generated responses are saved in your WalkWorthy account.")
                             .foregroundStyle(.white.opacity(0.85))
 
                         // HIG (Generative AI → Transparency): "Set clear
@@ -58,22 +60,28 @@ struct AIConsentView: View {
                         // and can't do." Every Scripture quotation comes from a
                         // reviewed server-side catalog, so the passage itself is
                         // never model-written — only the surrounding words are.
-                        Text("What to expect: the encouragement is written by AI, so it can be off or occasionally get something wrong — you can ask for a different one any time. Scripture quotations are not written by AI; they come from a reviewed ESV list. This is general spiritual encouragement, not medical or mental-health care.")
+                        Text("What to expect: the encouragement is written by AI, so it can be off or occasionally get something wrong — you can report a concern using the report link beside a response. Scripture quotations are not written by AI; they come from a fixed ESV list. This is general spiritual encouragement, not medical or mental-health care.")
                             .foregroundStyle(.white.opacity(0.85))
                     }
                     .glassCard()
 
                     VStack(alignment: .leading, spacing: scaled(10)) {
+                        Text("Confirm your age").fontWeight(.semibold)
+                        // A one-option picker is not a control. With WalkWorthy
+                        // adults-only, this is a single affirmative declaration,
+                        // so a Toggle states it plainly and leaves "Agree and
+                        // continue" disabled until it is switched on.
                         Toggle(isOn: Binding(
-                            get: { appState.analyticsEnabled },
-                            set: { appState.setAnalyticsEnabled($0) }
+                            get: { ageGroup == "18+" },
+                            set: { ageGroup = $0 ? "18+" : "" }
                         )) {
-                            Text("Share app usage analytics")
-                                .fontWeight(.semibold)
+                            Text("I am 18 or older")
                         }
-                        Text("Optional and off by default. Firebase Analytics uses an app-instance identifier to count feature use, but never receives your check-ins, notes, or profile details. You can change this anytime in Settings.")
+                        .accessibilityHint("Required. WalkWorthy is available only to adults.")
+                        Text("No birth date is needed. This is your declaration, not age verification. WalkWorthy is for ages 18 and older.")
                             .font(.footnote)
-                            .foregroundStyle(.white.opacity(0.75))
+                        Text("Optional usage analytics are separate and off by default. Adults can choose whether to enable them in Settings.")
+                            .font(.footnote)
                     }
                     .glassCard()
 
@@ -103,17 +111,30 @@ struct AIConsentView: View {
                     .padding(.horizontal, scaled(4))
 
                     VStack(spacing: scaled(12)) {
-                        Button(action: onContinue) {
-                            Text("Continue")
+                        if let error = appState.aiConsentError {
+                            Text(error).font(.footnote).accessibilityLabel(error)
+                            Button("Retry connection") { appState.retryAIConsent() }
+                                .disabled(appState.aiConsentBusy)
+                        }
+                        Button {
+                            Task {
+                                if await appState.grantAIConsent(ageGroup: ageGroup) { onContinue() }
+                            }
+                        } label: {
+                            Text(appState.aiConsentBusy ? "Saving permission…" : "Agree and continue")
                                 .fontWeight(.semibold)
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, scaled(14))
                                 .background(Color.white, in: Capsule())
                                 .foregroundStyle(.black)
                         }
-                        .accessibilityHint("Agrees to share check-in data with OpenAI to generate encouragement")
+                        .disabled(ageGroup.isEmpty || appState.aiConsentBusy)
+                        .accessibilityHint("Agrees to share check-in data with OpenAI for generation and safety screening")
 
-                        Button(action: onDecline) {
+                        Button {
+                            if appState.aiConsentBusy { appState.withdrawAIConsent() }
+                            onDecline()
+                        } label: {
                             Text("Not now")
                                 .fontWeight(.medium)
                                 .frame(maxWidth: .infinity)

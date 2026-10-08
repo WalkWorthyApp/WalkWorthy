@@ -1,3 +1,6 @@
+import { safeErrorMetadata } from '../shared/safe-logging';
+import { FUNCTIONS_REVISION } from '../shared/version';
+import { assertAccountActive, AccountDeletingError } from '../shared/account-lifecycle';
 import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
@@ -6,7 +9,7 @@ import { validateUserProfileInput, validateAgeRange, validateCheckInTimes } from
 import type { UserProfile } from '../shared/profile';
 import { clearUserProfileCache } from '../shared/profile';
 import { FieldValue } from 'firebase-admin/firestore';
-import { checkRateLimit, getClientIp, sendRateLimitResponse, STANDARD_USER_LIMIT, STANDARD_IP_LIMIT } from '../shared/rate-limiter';
+import { checkRateLimit, sendLimitCheckResponse, STANDARD_USER_LIMIT } from '../shared/rate-limiter';
 
 // Initialize Firebase on module load
 initializeFirebase();
@@ -26,18 +29,12 @@ const httpsOptions: HttpsOptions = {
  * DELETE /user-profile - Delete user's profile
  */
 export const userProfile = onRequest(httpsOptions, async (req, res) => {
+  logger.info('userProfile invoked', { revision: FUNCTIONS_REVISION });
   // App Check verification
   const appCheckValid = await verifyAppCheck(req, res);
   if (!appCheckValid) return;
 
-  // IP-based rate limiting
   const db = getDb();
-  const clientIp = getClientIp(req);
-  const ipResult = await checkRateLimit(db, `ip:${clientIp}:userProfile`, STANDARD_IP_LIMIT);
-  if (!ipResult.allowed) {
-    sendRateLimitResponse(res, 'ip', ipResult.retryAfterSeconds, { endpoint: 'userProfile' });
-    return;
-  }
 
   // Authenticate request
   const authReq = await requireAuth(req, res);
@@ -46,14 +43,15 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
   const { userId } = authReq;
 
   // User-based rate limiting
-  const userRateResult = await checkRateLimit(db, `user:${userId}:userProfile`, STANDARD_USER_LIMIT);
+  const userRateResult = await checkRateLimit(db, `user:${userId}:userProfile`, STANDARD_USER_LIMIT, userId);
   if (!userRateResult.allowed) {
-    sendRateLimitResponse(res, 'user', userRateResult.retryAfterSeconds, { userId, endpoint: 'userProfile' });
+    sendLimitCheckResponse(res, 'user', userRateResult, { userId, endpoint: 'userProfile' });
     return;
   }
   const profileRef = db.collection(COLLECTIONS.users).doc(userId).collection('profile').doc('data');
 
   try {
+    if (req.method !== 'GET' && req.method !== 'DELETE' && (!req.body || typeof req.body !== 'object' || Array.isArray(req.body))) return errorResponse(res, 400, 'Invalid profile data');
     switch (req.method) {
       case 'GET': {
         const doc = await profileRef.get();
@@ -63,7 +61,7 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
         }
 
         const profile = doc.data() as UserProfile;
-        logger.info('Profile retrieved', { userId });
+        logger.info('Profile retrieved');
         return successResponse(res, { profile });
       }
 
@@ -86,10 +84,10 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
           updatedAt: new Date().toISOString(),
         };
 
-        await profileRef.set(profileData);
+        await db.runTransaction(async tx => { await assertAccountActive(db, userId, tx); tx.set(profileRef, profileData); });
         clearUserProfileCache(userId);
 
-        logger.info('Profile created/replaced', { userId });
+        logger.info('Profile created/replaced');
         return successResponse(res, { profile: profileData }, 200);
       }
 
@@ -176,7 +174,8 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
         }
 
         if (req.body.optInTailored !== undefined) {
-          updates.optInTailored = Boolean(req.body.optInTailored);
+          if (typeof req.body.optInTailored !== 'boolean') return errorResponse(res, 400, 'Invalid optInTailored value');
+          updates.optInTailored = req.body.optInTailored;
         }
 
         if (req.body.timezone !== undefined) {
@@ -211,11 +210,11 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
 
         // Atomically create or update the document using merge
         // This avoids race conditions between checking existence and updating
-        await profileRef.set(updates, { merge: true });
+        await db.runTransaction(async tx => { await assertAccountActive(db, userId, tx); tx.set(profileRef, updates, { merge: true }); });
 
         clearUserProfileCache(userId);
 
-        logger.info('Profile updated', { userId, fields: Object.keys(updates) });
+        logger.info('Profile updated');
 
         // Return updated profile
         const updatedDoc = await profileRef.get();
@@ -223,10 +222,10 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
       }
 
       case 'DELETE': {
-        await profileRef.delete();
+        await db.runTransaction(async tx => { await assertAccountActive(db, userId, tx); tx.delete(profileRef); });
         clearUserProfileCache(userId);
 
-        logger.info('Profile deleted', { userId });
+        logger.info('Profile deleted');
         return successResponse(res, { deleted: true });
       }
 
@@ -235,11 +234,8 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
         return errorResponse(res, 405, `Method ${req.method} not allowed`);
     }
   } catch (error) {
-    logger.error('Profile operation failed', {
-      userId,
-      method: req.method,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
+    if (error instanceof AccountDeletingError) return errorResponse(res, 403, 'Account deletion in progress', undefined, 'ACCOUNT_DELETING');
+    logger.error('Profile operation failed', safeErrorMetadata(error));
     return errorResponse(res, 500, 'Internal server error');
   }
 });

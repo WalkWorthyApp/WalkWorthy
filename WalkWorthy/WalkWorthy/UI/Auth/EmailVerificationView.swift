@@ -144,8 +144,7 @@ struct EmailVerificationView: View {
         defer { isWorking = false }
         do {
             try await appState.deleteAccount()
-            // Auth listener flips isAuthenticated; belt-and-suspenders:
-            appState.signOut()
+            // AppState signs out the captured account when both sides finish.
         } catch APIError.unauthorized, APIError.notAuthenticated {
             deleteError = "Please sign in again, then try deleting your account."
             appState.signOut()

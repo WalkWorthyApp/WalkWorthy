@@ -127,8 +127,11 @@ struct WalkWorthyApp: App {
                 // morning fetch cached. AppState itself throttles redundant
                 // fetches within a 60s window.
                 .onChange(of: scenePhase) { _, newPhase in
-                    guard newPhase == .active, appState.isAuthenticated else { return }
+                    guard newPhase == .active else { return }
                     Task {
+                        await appState.resumePendingLocalDeletions()
+                        guard appState.isAuthenticated else { return }
+                        await appState.refreshAIConsent()
                         await appState.loadMoodStatus()
                     }
                 }

@@ -11,6 +11,7 @@ import { setDefaultOpenAIKey, setOpenAIAPI } from "@openai/agents-openai";
 import { z } from "zod";
 import Ajv from "ajv";
 import { logger } from "firebase-functions/v2";
+import { safeErrorMetadata } from "../shared/safe-logging";
 import type {
   CheckInType,
   AIEncouragementResponse,
@@ -30,6 +31,8 @@ import {
   piiGuardrail,
   sleep,
   withTimeout,
+  ENCOURAGEMENT_SAFETY_INSTRUCTIONS,
+  type GenerationRunner,
 } from "./model-config";
 import {
   SCRIPTURE_CATALOG,
@@ -85,10 +88,10 @@ const validateEncouragement = ajv.compile<AgentEncouragementOutput>(
 // System Prompt - Friend-like, Warm, Conversational
 // ============================================================================
 
-const MOOD_SYSTEM_PROMPT = `You are a warm, compassionate Christian friend who provides daily encouragement through Scripture.
+const MOOD_SYSTEM_PROMPT = `${ENCOURAGEMENT_SAFETY_INSTRUCTIONS}
 
 ## Your Personality
-- Speak like you're texting a close, supportive friend - NOT like a pastor, therapist, or robot
+- Use a warm, supportive tone without pretending to be a person or therapist
 - Use natural, conversational language with contractions (you're, it's, don't, etc.)
 - Be genuine and empathetic - acknowledge their feelings FIRST before offering wisdom
 - Keep your message brief but meaningful (2-3 sentences maximum)
@@ -303,16 +306,23 @@ export const BLOCKED_OUTPUT_RESPONSE: AIEncouragementResponse = {
   isGenerated: false,
 };
 
+/** Screening failed; this expresses no assessment of the user's mental state. */
+export const UNAVAILABLE_INPUT_RESPONSE: AIEncouragementResponse = {
+  message: "Your check-in is saved. We could not prepare a written encouragement this time, so here is a passage to sit with instead. Try again in a little while.",
+  verseRef: SCRIPTURE_CATALOG.psalm_46_1.ref,
+  verseText: SCRIPTURE_CATALOG.psalm_46_1.text,
+  translation: "ESV",
+  isGenerated: false,
+};
+
 export async function runMoodAgent(
   input: MoodAgentInput,
   apiKey: string,
   model: string = MOOD_MODEL,
+  generate: GenerationRunner = async (serializedInput, signal) =>
+    (await run(ensureAgent(model, apiKey), serializedInput, { signal })).finalOutput,
 ): Promise<AIEncouragementResponse> {
-  logger.info("[MoodAgent] Starting with model:", model);
-
-  // Create or retrieve cached agent; ensureAgent handles SDK configuration
-  const agent = ensureAgent(model, apiKey);
-  logger.info("[MoodAgent] Agent created");
+  logger.info("[MoodAgent] Starting encouragement");
 
   const { moodSpectrumData } = input;
   // The optional free-text note is moderated before it is sent to the
@@ -334,6 +344,7 @@ export async function runMoodAgent(
     return CRISIS_RESPONSE;
   }
   if (inputSafety === "block") return BLOCKED_INPUT_RESPONSE;
+  if (inputSafety === "unavailable") return UNAVAILABLE_INPUT_RESPONSE;
 
   const serializedInput = JSON.stringify(payload, null, 2);
 
@@ -351,10 +362,10 @@ export async function runMoodAgent(
     try {
       logger.info("[MoodAgent] Calling OpenAI agent...");
       const result = await withTimeout((signal) =>
-        run(agent, serializedInput, { signal }),
+        generate(serializedInput, signal),
       );
       logger.info("[MoodAgent] Agent returned response");
-      const parsed = parseEncouragement(result.finalOutput);
+      const parsed = parseEncouragement(result);
       // A flagged OUTPUT says the model misbehaved, not that the user is at
       // risk — fall back to a neutral response, never the crisis card.
       const outputSafety = await moderateText(parsed.message, apiKey, "output");
@@ -380,7 +391,7 @@ export async function runMoodAgent(
       }
       logger.error("[MoodAgent] Attempt failed", {
         attempt: attempt + 1,
-        errorName: err instanceof Error ? err.name : "UnknownError",
+        ...safeErrorMetadata(err),
       });
     }
   }
@@ -407,20 +418,8 @@ function parseEncouragement(
   }
 
   if (!validateEncouragement(data)) {
-    // Log detailed validation errors to aid debugging
-    const validationErrors = validateEncouragement.errors
-      ? validateEncouragement.errors
-          .map(
-            (err) =>
-              `${err.instancePath || "root"}: ${err.message} (${err.keyword})`,
-          )
-          .join("; ")
-      : "unknown validation error";
-
-    logger.error("[MoodAgent] Validation errors:", validationErrors);
-    throw new Error(
-      `Agent output failed schema validation: ${validationErrors}`,
-    );
+    logger.error("[MoodAgent] Output failed schema validation");
+    throw new Error("Agent output failed schema validation");
   }
 
   const passage = resolveScripture(data.verseId as string);
@@ -433,6 +432,7 @@ function parseEncouragement(
     verseRef: passage.ref,
     verseText: passage.text,
     translation: "ESV",
+    isGenerated: true,
   };
 }
 

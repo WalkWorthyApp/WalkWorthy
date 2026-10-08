@@ -18,6 +18,8 @@ enum APIError: LocalizedError {
     case missingConfiguration(String)
     case unauthorized
     case notAuthenticated
+    case aiConsentRequired
+    case accountDeleting
     case appCheckFailed
     case conflict(message: String?)
     case rateLimited(retryAfterSeconds: Int?, scope: RateLimitScope)
@@ -33,6 +35,10 @@ enum APIError: LocalizedError {
             return "Missing configuration value for \(key)."
         case .unauthorized, .notAuthenticated:
             return "Please sign in to continue."
+        case .aiConsentRequired:
+            return "Please review AI sharing permission before continuing."
+        case .accountDeleting:
+            return "Account deletion is in progress."
         case .appCheckFailed:
             return "Device verification unavailable. Please try again in a moment."
         case .conflict(let message):

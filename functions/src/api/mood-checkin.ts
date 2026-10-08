@@ -1,3 +1,7 @@
+import { FUNCTIONS_REVISION } from '../shared/version';
+import { safeErrorMetadata } from '../shared/safe-logging';
+import { AccountDeletingError } from '../shared/account-lifecycle';
+import { requireAiConsent, AiConsentRequiredError } from '../shared/privacy-consent';
 /**
  * Mood Check-in API
  *
@@ -9,7 +13,6 @@
 
 import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
 import { defineSecret } from 'firebase-functions/params';
-import { FUNCTIONS_REVISION } from '../shared/version';
 import { logger } from 'firebase-functions/v2';
 import type { Request, Response } from 'express';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
@@ -36,15 +39,15 @@ import {
   checkDailyAiBudget,
   refundDailyAiBudget,
   getTodayUtcDateString,
-  getClientIp,
-  sendRateLimitResponse,
+  sendLimitCheckResponse,
   MOOD_CHECKIN_USER_LIMIT,
-  MOOD_CHECKIN_IP_LIMIT,
   MOOD_DAILY_AI_BUDGET,
   STANDARD_USER_LIMIT,
-  STANDARD_IP_LIMIT,
 } from '../shared/rate-limiter';
 import { getLogicalDateString, getDateStringInTimezone } from '../shared/time';
+import { sameMoodInput } from '../shared/mood-input';
+
+class CheckInConflictError extends Error {}
 
 // Initialize Firebase on module load
 initializeFirebase();
@@ -161,19 +164,11 @@ function calculateOverallSentiment(
  * Mood Check-in API Handler
  */
 export const moodCheckIn = onRequest(httpsOptions, async (req, res) => {
-  logger.info('moodCheckIn function invoked', {
-    method: req.method,
-    path: req.path,
-    hasAuthHeader: !!req.headers.authorization,
-  });
+  logger.info('moodCheckIn function invoked', { revision: FUNCTIONS_REVISION });
 
   // App Check verification
   const appCheckValid = await verifyAppCheck(req, res);
   if (!appCheckValid) return;
-
-  // IP-based rate limiting is now split per-method inside `handlePostCheckIn`
-  // and `handleGetCheckIn` so cheap GET bursts (status / history) cannot drain
-  // the IP budget reserved for expensive POST traffic.
 
   // Route based on method
   switch (req.method) {
@@ -198,20 +193,11 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
   const db = getDb();
 
   try {
-    // IP-based rate limiting for writes (separate bucket from reads so a GET
-    // burst from a shared NAT can't drain the POST budget).
-    const clientIp = getClientIp(req);
-    const ipRateResult = await checkRateLimit(db, `ip:${clientIp}:moodCheckIn:write`, MOOD_CHECKIN_IP_LIMIT);
-    if (!ipRateResult.allowed) {
-      sendRateLimitResponse(res, 'ip', ipRateResult.retryAfterSeconds, { endpoint: 'moodCheckIn' });
-      return;
-    }
-
     // User-based rate limiting for writes. The `:write` suffix isolates the
     // expensive AI-call bucket from cheap status/history GETs.
-    const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn:write`, MOOD_CHECKIN_USER_LIMIT);
+    const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn:write`, MOOD_CHECKIN_USER_LIMIT, userId);
     if (!userRateResult.allowed) {
-      sendRateLimitResponse(res, 'user', userRateResult.retryAfterSeconds, { userId, endpoint: 'moodCheckIn' });
+      sendLimitCheckResponse(res, 'user', userRateResult, { userId, endpoint: 'moodCheckIn' });
       return;
     }
 
@@ -231,22 +217,14 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     // the agent again and so consumes the same rate limit and daily AI budget
     // as a first generation, which is what keeps it from being abusable.
     const regenerateRequested = req.body?.regenerate === true;
+    const expectedCheckInId: unknown = req.body?.expectedCheckInId;
 
     // Get user profile
     const profile = await getUserProfileOnce(userId);
     const timezone = profile?.timezone || 'America/New_York';
     const todayDate = getLogicalDateString(timezone);
 
-    logger.info('Processing mood check-in', {
-      userId,
-      checkInType: input.checkInType,
-      moodLevel: input.moodSpectrumData.moodLevel,
-      moodScore: input.moodSpectrumData.moodScore,
-      // Which build answered — see shared/version.ts. `firebase deploy` can
-      // silently skip functions and report success, so trust this over the
-      // deploy output.
-      functionsRevision: FUNCTIONS_REVISION,
-    });
+    logger.info('Processing mood check-in');
 
     // Use deterministic docID to prevent duplicate documents from concurrent requests
     // Format: ${todayDate}_${checkInType} ensures same document is targeted
@@ -267,18 +245,16 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     // Returns either: { type: 'existing', data } | { type: 'update', data } | { type: 'create' }
     let transactionResult = await db.runTransaction(async (transaction) => {
       const existingDoc = await transaction.get(checkInRef);
+      if (regenerateRequested && (typeof expectedCheckInId !== 'string' ||
+          !existingDoc.exists || existingDoc.get('id') !== expectedCheckInId)) {
+        throw new CheckInConflictError();
+      }
       if (existingDoc.exists) {
         const existingData = existingDoc.data() as MoodCheckIn;
-        // If same mood score, return existing response (avoid redundant AI call)
+        // Reuse a response only when every submitted context field is unchanged.
         // Guard: old check-ins lack moodSpectrumData entirely — treat as needing update
-        if (existingData.moodSpectrumData &&
-            existingData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&
-            existingData.moodSpectrumData.followUpScore === input.moodSpectrumData.followUpScore) {
-          logger.info('Returning existing check-in (same mood)', {
-            userId,
-            checkInId: existingData.id,
-            moodLevel: input.moodSpectrumData.moodLevel,
-          });
+        if (sameMoodInput(existingData.moodSpectrumData, input.moodSpectrumData)) {
+          logger.info('Returning existing check-in (same mood)');
           return { type: 'existing' as const, data: existingData };
         }
         // Different mood - will update after transaction
@@ -301,10 +277,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     let overwriteExistingResponse = false;
     if (transactionResult.type === 'existing') {
       if (regenerateRequested) {
-        logger.info('Regenerating check-in response at user request', {
-          userId,
-          checkInId: transactionResult.data.id,
-        });
+        logger.info('Regenerating check-in response at user request');
         overwriteExistingResponse = true;
         transactionResult = { type: 'update' as const, data: transactionResult.data };
       } else {
@@ -318,10 +291,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
             isExisting: true,
           });
         }
-        logger.warn('Stored check-in response failed guardrail screen; regenerating', {
-          userId,
-          checkInId: transactionResult.data.id,
-        });
+        logger.warn('Stored check-in response failed guardrail screen; regenerating');
         overwriteExistingResponse = true;
         transactionResult = { type: 'update' as const, data: transactionResult.data };
       }
@@ -332,7 +302,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     // `refundDailyAiBudget` so users aren't penalized by server-side errors.
     const budgetResult = await checkDailyAiBudget(db, userId, MOOD_DAILY_AI_BUDGET);
     if (!budgetResult.allowed) {
-      sendRateLimitResponse(res, 'dailyBudget', budgetResult.retryAfterSeconds, { userId, endpoint: 'moodCheckIn' });
+      sendLimitCheckResponse(res, 'dailyBudget', budgetResult, { userId, endpoint: 'moodCheckIn' });
       return;
     }
 
@@ -352,7 +322,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       // Profile sharing is opt-in. Missing/legacy values remain off.
       const useProfile = profile?.optInTailored === true;
       if (!useProfile) {
-        logger.info('personalization.optedOut', { userId, endpoint: 'moodCheckIn' });
+        logger.info('personalization.optedOut');
       }
       const agentInput: MoodAgentInput = {
         profile: useProfile ? (profile as UserProfilePayload | null) : null,
@@ -360,8 +330,9 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         moodSpectrumData: input.moodSpectrumData,
       };
 
+      const consent = await requireAiConsent(db, userId);
       const aiResponse = await runMoodAgent(agentInput, openaiApiKey.value());
-      logger.info('AI response generated', { userId, verseRef: aiResponse.verseRef });
+      logger.info('AI response generated');
 
       // Step 3: Atomically write check-in and summary in final transaction
       const now = new Date();
@@ -386,6 +357,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
 
       try {
         await db.runTransaction(async (transaction) => {
+          await requireAiConsent(db, userId, transaction, consent.revision);
           // Optimistic concurrency check: if a concurrent request already wrote this check-in
           // with the same mood, return that instead to avoid duplicate responses.
           // Skipped when we are deliberately overwriting the stored response
@@ -393,16 +365,14 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
           // "existing identical" doc is exactly the one we must replace, and
           // this short-circuit would re-serve it.
           const existingCheckInDoc = await transaction.get(checkInRef);
+          if (regenerateRequested && (!existingCheckInDoc.exists ||
+              existingCheckInDoc.get('id') !== expectedCheckInId)) {
+            throw new CheckInConflictError();
+          }
           if (existingCheckInDoc.exists && !overwriteExistingResponse) {
             const existingCheckInData = existingCheckInDoc.data() as MoodCheckIn;
-            if (existingCheckInData.moodSpectrumData &&
-                existingCheckInData.moodSpectrumData.moodScore === input.moodSpectrumData.moodScore &&
-                existingCheckInData.moodSpectrumData.followUpScore === input.moodSpectrumData.followUpScore) {
-              logger.info('Concurrent request already created identical check-in, skipping write', {
-                userId,
-                checkInId: existingCheckInData.id,
-                checkInType: input.checkInType,
-              });
+            if (sameMoodInput(existingCheckInData.moodSpectrumData, input.moodSpectrumData)) {
+              logger.info('Concurrent request already created identical check-in, skipping write');
               finalCheckInData = existingCheckInData;
               concurrentDuplicate = true;
               // Abort transaction gracefully - we'll use the existing check-in
@@ -463,13 +433,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         budgetReserved = false;
       }
 
-      logger.info('Mood check-in complete', {
-        userId,
-        checkInId: finalCheckInData.id,
-        checkInType: input.checkInType,
-        isUpdate: transactionResult.type === 'update',
-        wasConcurrentDuplicate: concurrentDuplicate,
-      });
+      logger.info('Mood check-in complete');
 
       const response: MoodCheckInResponse = {
         checkInId: finalCheckInData.id,
@@ -494,22 +458,14 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       throw aiOrWriteError;
     }
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    const errorStack = error instanceof Error ? error.stack : undefined;
-    const errorName = error instanceof Error ? error.name : 'Unknown';
+    if (error instanceof CheckInConflictError) return errorResponse(res, 409, 'This check-in has changed. Close and reopen it before trying again.');
+    if (error instanceof AiConsentRequiredError) return errorResponse(res, 403, 'Current AI sharing consent required', undefined, 'AI_CONSENT_REQUIRED');
+    if (error instanceof AccountDeletingError) return errorResponse(res, 403, 'Account deletion in progress', undefined, 'ACCOUNT_DELETING');
 
-    logger.error('Mood check-in failed', {
-      userId,
-      errorName,
-      errorMessage,
-      errorStack,
-      fullError: JSON.stringify(error, Object.getOwnPropertyNames(error)),
-    });
+    logger.error('Mood check-in failed', safeErrorMetadata(error));
 
     // Only include detailed error message in non-production environments
-    const message = process.env.NODE_ENV === 'development'
-      ? `Failed to process check-in: ${errorMessage}`
-      : 'Failed to process check-in';
+    const message = 'Failed to process check-in';
     return errorResponse(res, 500, message);
   }
 }
@@ -525,20 +481,11 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
   const { userId } = authReq;
   const db = getDb();
 
-  // IP-based rate limiting for reads (separate `:read` bucket so cheap status
-  // and history fetches cannot drain the write budget).
-  const clientIp = getClientIp(req);
-  const ipRateResult = await checkRateLimit(db, `ip:${clientIp}:moodCheckIn:read`, STANDARD_IP_LIMIT);
-  if (!ipRateResult.allowed) {
-    sendRateLimitResponse(res, 'ip', ipRateResult.retryAfterSeconds, { endpoint: 'moodCheckIn' });
-    return;
-  }
-
   // User-based rate limiting for reads. Separate from `:write` so GETs from
   // scenePhase/onAppear handlers do not consume the AI-call budget.
-  const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn:read`, STANDARD_USER_LIMIT);
+  const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn:read`, STANDARD_USER_LIMIT, userId);
   if (!userRateResult.allowed) {
-    sendRateLimitResponse(res, 'user', userRateResult.retryAfterSeconds, { userId, endpoint: 'moodCheckIn' });
+    sendLimitCheckResponse(res, 'user', userRateResult, { userId, endpoint: 'moodCheckIn' });
     return;
   }
 
@@ -631,18 +578,11 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
             summary,
           });
         }
-        logger.warn('Stored check-in response failed guardrail screen on read; returning pending', {
-          userId,
-          checkInId: storedCheckIn.id,
-        });
+        logger.warn('Stored check-in response failed guardrail screen on read; returning pending');
         // Fall through to return pending status
       } else {
         // Summary indicates completion but document not found - log inconsistency
-        logger.warn('Summary indicates completed check-in but document not found', {
-          userId,
-          todayDate,
-          checkInType: currentCheckInType,
-        });
+        logger.warn('Summary indicates completed check-in but document not found');
         // Fall through to return pending status
       }
     }
@@ -661,10 +601,11 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
       summary,
     });
   } catch (error) {
-    logger.error('Get check-in failed', {
-      userId,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
+    // No AiConsentRequiredError branch: reads never call requireAiConsent.
+    // Mood history is the user's own stored data and must stay readable after
+    // AI sharing is withdrawn.
+    if (error instanceof AccountDeletingError) return errorResponse(res, 403, 'Account deletion in progress', undefined, 'ACCOUNT_DELETING');
+    logger.error('Get check-in failed');
 
     return errorResponse(res, 500, 'Failed to retrieve check-in data.');
   }
@@ -700,23 +641,15 @@ async function handleGetHistory(userId: string, days: number, db: FirebaseFirest
       (doc) => doc.data() as DailyMoodSummary,
     );
 
-    logger.info('Mood history retrieved', {
-      userId,
-      days,
-      timezone,
-      startDateString,
-      count: summaries.length,
-    });
+    logger.info('Mood history retrieved');
 
     return successResponse(res, {
       summaries,
       daysRequested: days,
     });
   } catch (error) {
-    logger.error('Get history failed', {
-      userId,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
+    if (error instanceof AccountDeletingError) return errorResponse(res, 403, 'Account deletion in progress', undefined, 'ACCOUNT_DELETING');
+    logger.error('Get history failed');
 
     return errorResponse(res, 500, 'Failed to retrieve mood history.');
   }
@@ -762,29 +695,18 @@ async function handleGetFullHistory(userId: string, days: number, db: FirebaseFi
       (c) => isCleanStoredAiContent(c.aiResponse, profileValues),
     );
     if (checkIns.length < allCheckIns.length) {
-      logger.warn('Omitted stored check-ins that failed guardrail screen', {
-        userId,
-        omitted: allCheckIns.length - checkIns.length,
-      });
+      logger.warn('Omitted stored check-ins that failed guardrail screen');
     }
 
-    logger.info('Mood full history retrieved', {
-      userId,
-      days,
-      timezone,
-      startDateString,
-      count: checkIns.length,
-    });
+    logger.info('Mood full history retrieved');
 
     return successResponse(res, {
       checkIns,
       daysRequested: days,
     });
   } catch (error) {
-    logger.error('Get full history failed', {
-      userId,
-      error: error instanceof Error ? error.message : 'Unknown error',
-    });
+    if (error instanceof AccountDeletingError) return errorResponse(res, 403, 'Account deletion in progress', undefined, 'ACCOUNT_DELETING');
+    logger.error('Get full history failed');
 
     return errorResponse(res, 500, 'Failed to retrieve check-in log.');
   }

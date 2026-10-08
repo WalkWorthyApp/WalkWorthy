@@ -9,7 +9,6 @@ import Foundation
 import SwiftUI
 import Combine
 import SwiftData
-import UserNotifications
 import FirebaseAnalytics
 import FirebaseCrashlytics
 
@@ -22,6 +21,26 @@ final class AppState: ObservableObject {
     /// the app must obtain explicit in-app consent before the first AI call.
     /// Scoped per user; false blocks mood check-in AI + daily reflection fetch.
     @Published private(set) var aiConsentGiven: Bool = false
+    @Published private(set) var aiConsentBusy = false
+    @Published private(set) var aiConsentError: String?
+    @Published private(set) var consentAgeGroup = "unknown"
+    @Published private(set) var accountDeletionPending = false
+    @Published private(set) var accountDeletionBusy = false
+    @Published private(set) var accountDeletionError: String?
+    private var consentRevision = 0
+    private var consentEpoch = UUID()
+    private var consentOperation: Task<Bool, Never>?
+    /// Monotonic token identifying the newest enqueued consent operation.
+    private var consentTicket: UInt64 = 0
+    /// Only the newest refresh may publish a receipt or a refresh error.
+    private var consentRefreshTicket: UInt64 = 0
+    private var moodSubmissionTask: Task<MoodCheckInResponse, Error>?
+    /// Identifies the newest submission so a finished one cannot clear a newer task.
+    private var moodSubmissionTicket: UInt64 = 0
+    private var pendingWithdrawal: Bool {
+        get { defaults.bool(forKey: storageKey(StorageKey.pendingWithdrawal)) }
+        set { defaults.set(newValue, forKey: storageKey(StorageKey.pendingWithdrawal)) }
+    }
     /// Firebase Analytics collection toggle. Collection is disabled in
     /// Info.plist (FIREBASE_ANALYTICS_COLLECTION_ENABLED = NO) and turned on
     /// only when the user independently enables this setting.
@@ -97,6 +116,7 @@ final class AppState: ObservableObject {
     private let config: Config
     private let authSession: FirebaseAuthSession
     private var isObservingAuth = false
+    private var isResumingDeletionCleanup = false
     private var reflectionFetchTask: Task<Void, Never>?
     /// Background profile fetch spawned by the auth listener. The listener can
     /// fire more than once per session (foreground, token refresh); each new
@@ -129,6 +149,8 @@ final class AppState: ObservableObject {
         StorageKey.onboardingCompleted,
         StorageKey.useProfilePersonalization,
         StorageKey.aiConsentGiven,
+        StorageKey.pendingWithdrawal,
+        StorageKey.pendingWithdrawalId,
         StorageKey.analyticsEnabled,
         StorageKey.dismissedNameBackfill,
         StorageKey.hasCompletedProfileSetup,
@@ -229,13 +251,13 @@ final class AppState: ObservableObject {
     /// sees the last in-memory value (nil on a cold launch). Called at
     /// sign-in and after auth state changes.
     func refreshProfileFromBackend() async {
-        guard isAuthenticated, let requestSub = authenticatedUserSub else { return }
+        guard isAuthenticated, !accountDeletionPending, let requestSub = authenticatedUserSub else { return }
         do {
             let response = try await apiClient.fetchUserProfile()
             // User switched accounts while the fetch was in flight — discard.
             // Applying the stale result would leak the previous user's PII into
             // the new user's in-memory profile and on-disk snapshot.
-            guard authenticatedUserSub == requestSub else { return }
+            guard authenticatedUserSub == requestSub, !accountDeletionPending else { return }
             guard !Task.isCancelled else { return }
             if let response {
                 let profile = Self.profile(from: response)
@@ -340,7 +362,7 @@ final class AppState: ObservableObject {
         currentProfile?.optIn = isOn
         defaults.set(isOn, forKey: storageKey(StorageKey.useProfilePersonalization))
 
-        guard isAuthenticated, let requestSub = authenticatedUserSub else { return }
+        guard isAuthenticated, !accountDeletionPending, let requestSub = authenticatedUserSub else { return }
         profileSyncTask?.cancel()
         profileSyncTask = Task { [weak self] in
             await self?.sendPersonalizationPreference(
@@ -351,28 +373,151 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Records the user's explicit consent to AI data sharing (App Review
-    /// Guideline 5.1.2(i)) after they've seen `AIConsentView`.
-    func setAIConsentGiven(_ given: Bool) {
-        aiConsentGiven = given
-        defaults.set(given, forKey: storageKey(StorageKey.aiConsentGiven))
-        applyAnalyticsCollectionState()
-        // The reflection fetch was blocked pre-consent; populate Home now.
-        if given {
+    /// A local preference is never proof of permission. Only the server's
+    /// versioned receipt enables AI requests. A queued withdrawal wins over grants.
+    func refreshAIConsent() async {
+        guard let sub = authenticatedUserSub, !accountDeletionPending, !aiConsentBusy else { return }
+        if pendingWithdrawal {
+            withdrawAIConsent(retrying: true)
+            return
+        }
+        let epoch = consentEpoch
+        consentRefreshTicket &+= 1
+        let ticket = consentRefreshTicket
+        do {
+            let receipt = try await apiClient.fetchPrivacyConsent()
+            guard !Task.isCancelled, authenticatedUserSub == sub, consentEpoch == epoch,
+                  consentRefreshTicket == ticket, !aiConsentBusy,
+                  receipt.revision >= consentRevision else { return }
+            applyConsent(receipt)
+            aiConsentError = nil
             checkAndFetchDailyReflection()
+        } catch {
+            guard !Task.isCancelled, authenticatedUserSub == sub, consentEpoch == epoch,
+                  consentRefreshTicket == ticket, !aiConsentBusy else { return }
+            // Only a definitive answer changes the flag. Clearing it up front
+            // made every foreground swap `MoodCheckInView` to the consent
+            // screen, and that teardown fires `checkInFlow.onDisappear`, which
+            // cancels an in-flight submission. An unreachable server cannot
+            // revoke a permission the server already granted, so leave the
+            // last known state alone and surface the failure instead.
+            aiConsentError = "AI sharing could not be verified. Connect to the internet and retry."
+        }
+    }
+
+    private func applyConsent(_ receipt: PrivacyConsent) {
+        consentRevision = receipt.revision
+        consentAgeGroup = receipt.ageGroup
+        aiConsentGiven = receipt.aiSharing && receipt.noticeVersion == "2026-09-04"
+            && receipt.ageGroup == "18+" && !pendingWithdrawal
+        applyAnalyticsCollectionState()
+    }
+
+    func grantAIConsent(ageGroup: String) async -> Bool {
+        guard !accountDeletionPending, !aiConsentBusy, !pendingWithdrawal, ageGroup == "18+" else { return false }
+        return await enqueueConsent(given: true, ageGroup: ageGroup).value
+    }
+
+    func withdrawAIConsent(retrying: Bool = false) {
+        guard authenticatedUserSub != nil else { return }
+        if !retrying || defaults.string(forKey: storageKey(StorageKey.pendingWithdrawalId)) == nil {
+            defaults.set(UUID().uuidString, forKey: storageKey(StorageKey.pendingWithdrawalId))
+        }
+        pendingWithdrawal = true
+        aiConsentGiven = false
+        reflectionFetchTask?.cancel()
+        moodSubmissionTask?.cancel()
+        _ = enqueueConsent(given: false, ageGroup: nil)
+    }
+
+    func retryAIConsent() {
+        if pendingWithdrawal { withdrawAIConsent(retrying: true) }
+        else { Task { await refreshAIConsent() } }
+    }
+
+    private func enqueueConsent(given: Bool, ageGroup: String?) -> Task<Bool, Never> {
+        let previous = consentOperation
+        let sub = authenticatedUserSub
+        let withdrawalId = given ? nil : defaults.string(forKey: storageKey(StorageKey.pendingWithdrawalId))
+        // A refresh that began before this choice cannot overwrite its result,
+        // even if it finishes after the mutation has released the busy flag.
+        consentEpoch = UUID()
+        let epoch = consentEpoch
+        consentTicket &+= 1
+        let ticket = consentTicket
+        aiConsentBusy = true
+        aiConsentError = nil
+        let operation = Task { @MainActor [weak self] in
+            _ = await previous?.value
+            guard let self else { return false }
+            // Every exit must release the busy flag, or the whole consent
+            // system locks: `grantAIConsent` and `refreshAIConsent` both guard
+            // on `!aiConsentBusy`, and an early return on a stale epoch (e.g.
+            // `handleAIConsentRejection` bumping it mid-flight) used to strand
+            // it at `true` with nothing left to clear it. Only the newest
+            // enqueue releases it, so an older task finishing cannot clear the
+            // flag a newer one is still relying on.
+            defer { if self.consentTicket == ticket { self.aiConsentBusy = false } }
+            guard !Task.isCancelled, let sub, self.authenticatedUserSub == sub,
+                  self.consentEpoch == epoch, self.consentTicket == ticket else { return false }
+            do {
+                let update: PrivacyConsentUpdate
+                if given {
+                    // Grants compare-and-set against a freshly read revision.
+                    // Conflicts require another explicit action, never a retry.
+                    let current = try await self.apiClient.fetchPrivacyConsent()
+                    guard !Task.isCancelled, self.authenticatedUserSub == sub,
+                          self.consentEpoch == epoch, self.consentTicket == ticket else { return false }
+                    update = .init(aiSharing: true, ageGroup: ageGroup, expectedRevision: current.revision)
+                } else {
+                    // Withdrawal is unconditional and idempotent. It must not
+                    // depend on a GET quota, a notice version, or a stale revision.
+                    // Waiting for `previous` above ensures it follows any grant
+                    // already sent by this device.
+                    update = .init(aiSharing: false, noticeVersion: nil, ageGroup: nil, expectedRevision: nil, withdrawalId: withdrawalId)
+                }
+                let result = try await self.apiClient.updatePrivacyConsent(update)
+                guard !Task.isCancelled, self.authenticatedUserSub == sub,
+                      self.consentEpoch == epoch, self.consentTicket == ticket else { return false }
+                self.pendingWithdrawal = false
+                self.defaults.removeObject(forKey: self.storageKey(StorageKey.pendingWithdrawalId))
+                self.applyConsent(result)
+                if given { self.checkAndFetchDailyReflection() }
+                return given ? self.aiConsentGiven : !result.aiSharing
+            } catch {
+                guard !Task.isCancelled, self.authenticatedUserSub == sub,
+                      self.consentEpoch == epoch, self.consentTicket == ticket else { return false }
+                self.aiConsentGiven = false
+                self.aiConsentError = given
+                    ? "Permission was not confirmed. Review your choice and try again."
+                    : "AI is off on this device, but withdrawal is not yet confirmed by the server. Retry when connected; other devices may still share data."
+                return false
+            }
+        }
+        consentOperation = operation
+        return operation
+    }
+
+    private func handleAIConsentRejection(_ error: Error) {
+        if case APIError.aiConsentRequired = error {
+            aiConsentGiven = false
+            consentEpoch = UUID()
+            reflectionFetchTask?.cancel()
+            moodSubmissionTask?.cancel()
+            aiConsentError = "AI sharing permission has changed. Review your choice before continuing."
         }
     }
 
     func setAnalyticsEnabled(_ isOn: Bool) {
-        analyticsEnabled = isOn
-        defaults.set(isOn, forKey: storageKey(StorageKey.analyticsEnabled))
+        analyticsEnabled = isOn && consentAgeGroup == "18+"
+        defaults.set(analyticsEnabled, forKey: storageKey(StorageKey.analyticsEnabled))
         applyAnalyticsCollectionState()
     }
 
     /// Collection stays off (Info.plist FIREBASE_ANALYTICS_COLLECTION_ENABLED
     /// = NO) until the user independently opts in to analytics.
     private func applyAnalyticsCollectionState() {
-        Analytics.setAnalyticsCollectionEnabled(analyticsEnabled)
+        Analytics.setAnalyticsCollectionEnabled(analyticsEnabled && consentAgeGroup == "18+")
     }
 
     /// Record the user's dismissal of the "add your first name" banner on Home.
@@ -394,6 +539,8 @@ final class AppState: ObservableObject {
     func startObservingAuthState() async {
         guard !isObservingAuth else { return }
         isObservingAuth = true
+        // Finish erasure before auth callbacks can hydrate any saved account.
+        await resumePendingLocalDeletions()
         await authSession.observeAuthState { [weak self] isSignedIn in
             Task { @MainActor [weak self] in
                 guard let self else { return }
@@ -403,6 +550,10 @@ final class AppState: ObservableObject {
                     // Load UID + user-scoped prefs (onboardingCompleted, translation,
                     // etc). No network — reads Auth.auth().currentUser.uid + UserDefaults.
                     await self.refreshAuthenticatedUser()
+                    if self.accountDeletionPending {
+                        self.isCheckingAuth = false
+                        return
+                    }
                     self.needsEmailVerification = await self.authSession.needsEmailVerification(reload: false)
                     // Fast path: returning user who's completed onboarding. UI can
                     // render MainTabView immediately using cached prefs; profile +
@@ -500,7 +651,7 @@ final class AppState: ObservableObject {
                 #if DEBUG
                 print("[AppState] sendEmailVerification failed: \(error)")
                 #else
-                Crashlytics.crashlytics().record(error: error)
+                Crashlytics.crashlytics().record(error: NSError(domain: "WalkWorthy.AuthEmailVerification", code: 1, userInfo: nil))
                 #endif
             }
             needsEmailVerification = await authSession.needsEmailVerification(reload: false)
@@ -574,69 +725,172 @@ final class AppState: ObservableObject {
         try await authSession.reauthenticate(password: password)
     }
 
-    /// Permanently deletes the authenticated user's account.
-    ///
-    /// Flow:
-    ///   1. Call the backend — it deletes all Firestore data AND the Firebase
-    ///      Auth user. On success the backend returns `{ deleted: true }`.
-    ///   2. Proactively clear local state (journal entries, mood cache,
-    ///      per-user UserDefaults) so the UI never flashes stale data in the
-    ///      window between the backend response and the Firebase auth listener
-    ///      firing with `user == nil`.
-    ///   3. Firebase's `addStateDidChangeListener` observes the server-side
-    ///      user deletion and flips `isAuthenticated` to false, which drives
-    ///      the UI back to `TitleScreenView` via `RootView`.
-    ///
-    /// On backend failure this method throws and leaves local state untouched
-    /// so the user can retry without losing their on-device journal entries.
-    /// Required for App Store Guideline 5.1.1(v).
+    /// Confirming deletion immediately erases this device's data. A durable
+    /// UID intent survives network errors and process termination so startup
+    /// finishes local erasure even if the worker has already deleted Auth.
     func deleteAccount() async throws {
-        // Capture the sub before the backend call so we can clean up its
-        // scoped UserDefaults keys after — once the auth listener fires,
-        // `authenticatedUserSub` becomes nil.
-        let departingSub = authenticatedUserSub
-
-        try await apiClient.deleteAccount()
-
-        // Backend succeeded: wipe everything tied to the deleted account.
-        // Journal entries live in SwiftData scoped by userSub — clearJournalState
-        // already deletes the departing user's rows and any legacy empty-sub rows.
-        clearJournalState()
-        clearMoodState()
-
-        // Remove per-user UserDefaults (onboarding flags, personalization toggle,
-        // translation preference, dismissed-banner flags, cached reflections,
-        // reminder prefs). The account is gone — these keys should not linger.
-        if let sub = departingSub {
-            removeUserScopedDefaults(for: sub)
-            // Remove all on-disk caches for the deleted user (legacy
-            // reflection keys + the SnapshotStore directory). Uses the sub
-            // captured BEFORE the backend await — the auth listener may have
-            // already observed the server-side deletion and nil'd
-            // authenticatedUserSub by now.
-            clearOnDiskUserCaches(for: sub)
+        guard let sub = authenticatedUserSub else { throw APIError.notAuthenticated }
+        guard !accountDeletionBusy else { return }
+        if pendingAccountDeletionIntents[sub] == nil {
+            // Capture legacy ownership before any await, sign-out or defaults cleanup.
+            setDeletionIntent(AccountDeletionIntent(includeLegacy: true), for: sub)
         }
-
-        // Cancel any in-flight sync tasks so a stale PATCH doesn't land after
-        // the backend has deleted the user.
+        NotificationScheduler.shared.invalidateSession(for: sub)
+        accountDeletionPending = true
+        accountDeletionBusy = true
+        accountDeletionError = nil
+        consentEpoch = UUID()
+        consentTicket &+= 1
+        consentOperation?.cancel()
+        consentOperation = nil
+        aiConsentBusy = false
+        aiConsentGiven = false
+        analyticsEnabled = false
+        applyAnalyticsCollectionState()
+        moodSubmissionTask?.cancel()
         reflectionFetchTask?.cancel()
-        reflectionFetchTask = nil
         profileRefreshTask?.cancel()
-        profileRefreshTask = nil
         profileSyncTask?.cancel()
-        profileSyncTask = nil
+        clearMoodState()
+        currentProfile = nil
+        journalEntries = []
+        defer { accountDeletionBusy = false }
+        var localError: Error?
+        do { try await eraseLocalAccountData(for: sub) }
+        catch { localError = error }
 
-        // Wipe scheduled local notifications so the deleted account's reminder
-        // times don't fire on the next sign-in from a different account.
-        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
+        // Local failure must never prevent the cloud request. Persist each side's
+        // completion separately so a successful cloud deletion is not retried
+        // using an Auth user that no longer exists.
+        var serverError: Error?
+        if pendingAccountDeletionIntents[sub]?.serverComplete != true {
+            do {
+                guard authenticatedUserSub == sub else { throw CancellationError() }
+                try await apiClient.deleteAccount()
+                updateDeletionIntent(for: sub) { $0.serverComplete = true }
+            } catch { serverError = error }
+        }
+        if let error = localError ?? serverError {
+            if authenticatedUserSub == sub {
+                let localMessage = localError == nil ? nil : "Device cleanup is unfinished. Unlock your device and retry cleanup."
+                let cloudMessage = serverError.map {
+                    ($0 as? APIError)?.errorDescription ?? "Server deletion is not yet confirmed. Retry or contact support."
+                }
+                accountDeletionError = [localMessage, cloudMessage].compactMap { $0 }.joined(separator: " ")
+            }
+            throw error
+        }
+        do { try await finishDeletionIfComplete(for: sub) }
+        catch {
+            if authenticatedUserSub == sub {
+                accountDeletionError = "Your data was deleted. Please retry signing out."
+            }
+            throw error
+        }
+    }
 
-        configurationError = nil
+    private struct AccountDeletionIntent: Codable {
+        var includeLegacy: Bool
+        var localComplete = false
+        var serverComplete = false
+    }
 
-        // The Firebase auth state listener (started in `startObservingAuthState`)
-        // will fire asynchronously when the server-side user deletion reaches the
-        // client, flipping `isAuthenticated = false` and routing the UI back to
-        // the title screen. Don't loop waiting for it here — SwiftUI re-renders
-        // the moment the `@Published` property changes.
+    private var pendingAccountDeletionIntents: [String: AccountDeletionIntent] {
+        if let data = defaults.data(forKey: StorageKey.accountDeletionIntents),
+           let intents = try? JSONDecoder().decode([String: AccountDeletionIntent].self, from: data) {
+            return intents
+        }
+        // Every v1 intent was recorded by the authenticated owner and included
+        // legacy rows in its original cleanup. Preserve that decision even if
+        // sign-out has since removed lastAuthenticatedUser.
+        return Dictionary(uniqueKeysWithValues: Set(defaults.stringArray(forKey: StorageKey.pendingAccountDeletions) ?? []).map {
+            ($0, AccountDeletionIntent(includeLegacy: true))
+        })
+    }
+
+    private var pendingAccountDeletionUsers: Set<String> {
+        Set(pendingAccountDeletionIntents.keys)
+    }
+
+    /// Runs without authentication, including after cloud deletion removed Auth.
+    /// Foreground retries handle file protection lifting after a locked launch.
+    func resumePendingLocalDeletions() async {
+        guard !accountDeletionBusy, !isResumingDeletionCleanup else { return }
+        isResumingDeletionCleanup = true
+        defer { isResumingDeletionCleanup = false }
+        for sub in pendingAccountDeletionUsers {
+            do {
+                try await eraseLocalAccountData(for: sub)
+                try await finishDeletionIfComplete(for: sub)
+            } catch { accountDeletionError = "Device cleanup is unfinished. Unlock your device and retry cleanup." }
+        }
+    }
+
+    private func setDeletionIntent(_ intent: AccountDeletionIntent?, for sub: String) {
+        var intents = pendingAccountDeletionIntents
+        intents[sub] = intent
+        // Only Bool/String records are encoded; failure is not expected.
+        guard let data = try? JSONEncoder().encode(intents) else { return }
+        defaults.set(data, forKey: StorageKey.accountDeletionIntents)
+        defaults.removeObject(forKey: StorageKey.pendingAccountDeletions)
+    }
+
+    private func updateDeletionIntent(for sub: String, _ update: (inout AccountDeletionIntent) -> Void) {
+        // Re-read after each await rather than overwriting another side's progress.
+        guard var intent = pendingAccountDeletionIntents[sub] else { return }
+        update(&intent)
+        setDeletionIntent(intent, for: sub)
+    }
+
+    private func finishDeletionIfComplete(for sub: String) async throws {
+        guard let intent = pendingAccountDeletionIntents[sub], intent.localComplete, intent.serverComplete else { return }
+        // At startup AppState may not yet know the cached Auth UID. Check the
+        // actual session atomically, before removing the recovery record.
+        try await authSession.signOut(ifUserSub: sub)
+        if authenticatedUserSub == sub {
+            isAuthenticated = false
+            setAuthenticatedUserSub(nil)
+        }
+        setDeletionIntent(nil, for: sub)
+    }
+
+    /// UID-specific, repeatable cleanup; never depends on the current Auth user.
+    private func eraseLocalAccountData(for sub: String) async throws {
+        guard let intent = pendingAccountDeletionIntents[sub] else { return }
+        // Write migration/ownership before any local operation can fail.
+        setDeletionIntent(intent, for: sub)
+        NotificationScheduler.shared.invalidateSession(for: sub)
+        var cleanupError: Error?
+        if !intent.localComplete {
+            let includeLegacy = intent.includeLegacy
+            let descriptor = FetchDescriptor<JournalEntry>(
+                predicate: #Predicate { $0.userSub == sub || (includeLegacy && $0.userSub == "") }
+            )
+            do {
+                let rows = try modelContext.fetch(descriptor)
+                for row in rows { modelContext.delete(row) }
+                try modelContext.save()
+            } catch { cleanupError = error }
+            // Complete the other local stores even when SwiftData fails.
+            removeUserScopedDefaults(for: sub)
+            if includeLegacy {
+                // Older reminder settings used bare keys. Do not let the next
+                // account's migration inherit a deleted user's schedule.
+                for key in defaults.dictionaryRepresentation().keys
+                    where key.hasPrefix("walkworthy.reminders.") && !key.contains("::") {
+                    defaults.removeObject(forKey: key)
+                }
+            }
+            let prefix = "\(StorageKey.dailyReflectionPrefix)::\(sub)::"
+            for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+                defaults.removeObject(forKey: key)
+            }
+        }
+        await NotificationScheduler.shared.removeReminders(for: sub, includingLegacy: intent.includeLegacy)
+        do { try await SnapshotStore.shared.deleteAllDurably(for: sub) }
+        catch { if cleanupError == nil { cleanupError = error } }
+        if let cleanupError { throw cleanupError }
+        updateDeletionIntent(for: sub) { $0.localComplete = true }
     }
 
     /// Removes every UserDefaults key scoped to the given Firebase sub.
@@ -658,6 +912,10 @@ final class AppState: ObservableObject {
 
     func signOut() {
         authenticationNotice = "You have been signed out. Please sign in again."
+        if let sub = authenticatedUserSub {
+            NotificationScheduler.shared.invalidateSession(for: sub)
+            Task { await NotificationScheduler.shared.removeReminders(for: sub, includingLegacy: true) }
+        }
 
         // Cancel any in-flight per-user work so stale writes can't land
         // after the user signs out. Each task honors cooperative
@@ -693,7 +951,6 @@ final class AppState: ObservableObject {
         // Wipe any pending local reminders so the next account doesn't
         // inherit a stranger's notification schedule. The new user will
         // re-register their own from Settings → Check-in Reminders.
-        UNUserNotificationCenter.current().removeAllPendingNotificationRequests()
 
         // Cancel any previous in-flight sign-out so stacked taps don't queue
         // duplicate `authSession.signOut()` calls.
@@ -753,7 +1010,26 @@ final class AppState: ObservableObject {
             return
         }
 
+        if let departingSub = authenticatedUserSub {
+            NotificationScheduler.shared.invalidateSession(for: departingSub)
+            Task { await NotificationScheduler.shared.removeReminders(for: departingSub, includingLegacy: true) }
+        }
+
+        consentEpoch = UUID()
+        consentTicket &+= 1
+        consentOperation?.cancel()
+        consentOperation = nil
+        aiConsentBusy = false
+        aiConsentError = nil
+        consentAgeGroup = "unknown"
+        consentRevision = 0
+        moodSubmissionTask?.cancel()
+        reflectionFetchTask?.cancel()
         authenticatedUserSub = sub
+        accountDeletionPending = sub.map { pendingAccountDeletionUsers.contains($0) } ?? false
+        if let sub, !accountDeletionPending {
+            NotificationScheduler.shared.beginSession(for: sub)
+        }
 
         if let sub {
             // Purge sensitive drafts written by releases that used UserDefaults.
@@ -770,11 +1046,30 @@ final class AppState: ObservableObject {
         do {
             let sub = try await authSession.currentUserSub()
             setAuthenticatedUserSub(sub)
+            if pendingAccountDeletionUsers.contains(sub) {
+                accountDeletionPending = true
+                do {
+                    try await eraseLocalAccountData(for: sub)
+                    try await finishDeletionIfComplete(for: sub)
+                } catch { accountDeletionError = "Device cleanup is unfinished. Unlock your device and retry cleanup." }
+                return
+            }
             // Lift any deleteAll tombstone from a prior session for this sub
             // before hydrating — this is the one legitimate way a new
             // session may resurrect on-disk snapshot writes.
             await SnapshotStore.shared.beginSession(for: sub)
+            guard authenticatedUserSub == sub else { return }
+            if accountDeletionPending {
+                // Deletion may have begun while the actor call was suspended.
+                // Restore its tombstone before any snapshot can be hydrated.
+                do {
+                    try await eraseLocalAccountData(for: sub)
+                    try await finishDeletionIfComplete(for: sub)
+                } catch { accountDeletionError = "Device cleanup is unfinished. Unlock your device and retry cleanup." }
+                return
+            }
             hydrateFromSnapshots(userSub: sub)
+            await refreshAIConsent()
         } catch {
             setAuthenticatedUserSub(nil)
         }
@@ -803,7 +1098,7 @@ final class AppState: ObservableObject {
 
         onboardingCompleted = defaults.bool(forKey: storageKey(StorageKey.onboardingCompleted))
         useProfilePersonalization = defaults.object(forKey: storageKey(StorageKey.useProfilePersonalization)) as? Bool ?? false
-        aiConsentGiven = defaults.bool(forKey: storageKey(StorageKey.aiConsentGiven))
+        aiConsentGiven = false // Legacy local consent does not authorize server sharing.
         analyticsEnabled = defaults.object(forKey: storageKey(StorageKey.analyticsEnabled)) as? Bool ?? false
         applyAnalyticsCollectionState()
 
@@ -832,7 +1127,7 @@ final class AppState: ObservableObject {
     }
 
     private func sendProfileUpdate(_ profile: OnboardingProfile) async {
-        guard isAuthenticated, let requestSub = authenticatedUserSub else { return }
+        guard isAuthenticated, !accountDeletionPending, let requestSub = authenticatedUserSub else { return }
         let trimmedFirstName = profile.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOccupation = profile.occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = profile.major.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -867,7 +1162,7 @@ final class AppState: ObservableObject {
             let updated = try await apiClient.updateUserProfile(payload)
             // User switched accounts while the PATCH was in flight — don't
             // persist this user's merged profile into the new user's snapshot.
-            guard authenticatedUserSub == requestSub else { return }
+            guard authenticatedUserSub == requestSub, !accountDeletionPending else { return }
             if let updated {
                 await SnapshotStore.shared.write(updated, kind: .profile, userSub: requestSub)
             }
@@ -899,12 +1194,13 @@ final class AppState: ObservableObject {
 
         do {
             let updated = try await apiClient.updateUserProfile(payload)
-            guard authenticatedUserSub == requestSub else { return }
+            guard authenticatedUserSub == requestSub, !accountDeletionPending else { return }
             if let updated {
                 await SnapshotStore.shared.write(updated, kind: .profile, userSub: requestSub)
             }
         } catch {
-            guard authenticatedUserSub == requestSub,
+            guard !Task.isCancelled, !accountDeletionPending,
+                  authenticatedUserSub == requestSub,
                   useProfilePersonalization == isOn else { return }
             useProfilePersonalization = previousValue
             currentProfile?.optIn = previousValue
@@ -917,14 +1213,15 @@ final class AppState: ObservableObject {
 
     /// Maps a user-entered age to the backend `AgeRange` bucket used for
     /// personalization. The backend only supports 18+ buckets today, so
-    /// onboarding-gated teens (13-17, per `OnboardingForm.minimumAge`) map
-    /// to `nil` and the agents fall back to other profile fields
+    /// Sign-up is gated at 18 (`OnboardingForm.minimumAge`), so every value
+    /// here lands in a real bucket; anything below 18 maps to `nil` purely as
+    /// a defensive fallback and the agents fall back to other profile fields
     /// (occupation/major/hobbies) for tone. This is personalization-only —
     /// auth/usage is gated separately in the onboarding form, not here.
     private func ageRangeString(for age: Int?) -> String? {
         guard let age else { return nil }
         switch age {
-        case ..<18: return nil // 13-17 allowed (gated in onboarding); no teen bucket on backend.
+        case ..<18: return nil // Unreachable: sign-up requires 18+. Defensive only.
         case 18...24: return "18-24"
         case 25...34: return "25-34"
         case 35...44: return "35-44"
@@ -949,7 +1246,7 @@ final class AppState: ObservableObject {
     private static let moodStatusStaleness: TimeInterval = 60
 
     func loadMoodStatus() async {
-        guard isAuthenticated, let requestSub = authenticatedUserSub else { return }
+        guard isAuthenticated, !accountDeletionPending, let requestSub = authenticatedUserSub else { return }
         if let lastFetch = lastMoodStatusFetch,
            Date().timeIntervalSince(lastFetch) < Self.moodStatusStaleness {
             return
@@ -960,7 +1257,7 @@ final class AppState: ObservableObject {
             // User switched accounts while the fetch was in flight — discard.
             // Applying the stale result would render the previous user's mood
             // in the new user's session and persist it into their snapshot.
-            guard authenticatedUserSub == requestSub else { return }
+            guard authenticatedUserSub == requestSub, !accountDeletionPending else { return }
             currentMoodStatus = status
             lastMoodStatusFetch = Date()
             // Date-scoped: the check-in type is a time-of-day claim, so the
@@ -976,11 +1273,40 @@ final class AppState: ObservableObject {
     }
 
     func submitMoodCheckIn(_ request: MoodCheckInRequest) async throws -> MoodCheckInResponse {
+        try Task.checkCancellation()
         guard isAuthenticated else {
             throw MoodError.notAuthenticated
         }
 
-        let response = try await apiClient.submitMoodCheckIn(request)
+        guard aiConsentGiven else { throw APIError.aiConsentRequired }
+        let sub = authenticatedUserSub
+        let epoch = consentEpoch
+        let submission = Task {
+            try Task.checkCancellation()
+            return try await apiClient.submitMoodCheckIn(request)
+        }
+        moodSubmissionTask = submission
+        moodSubmissionTicket &+= 1
+        let ticket = moodSubmissionTicket
+        let response: MoodCheckInResponse
+        defer { if moodSubmissionTicket == ticket { moodSubmissionTask = nil } }
+        do {
+            response = try await withTaskCancellationHandler {
+                try await submission.value
+            } onCancel: {
+                submission.cancel()
+            }
+        }
+        catch {
+            guard !Task.isCancelled, !submission.isCancelled,
+                  authenticatedUserSub == sub, consentEpoch == epoch,
+                  moodSubmissionTicket == ticket else { throw CancellationError() }
+            handleAIConsentRejection(error)
+            throw error
+        }
+        guard !Task.isCancelled, !submission.isCancelled, aiConsentGiven,
+              authenticatedUserSub == sub, consentEpoch == epoch,
+              moodSubmissionTicket == ticket else { throw CancellationError() }
         latestMoodResponse = response
         // Intentionally do NOT write a nil snapshot here — the disk snapshot
         // is the last-known server view and should stay until the async
@@ -1018,7 +1344,7 @@ final class AppState: ObservableObject {
     /// result must be dropped rather than persisted into the new user's
     /// `@Published` state and on-disk snapshot.
     func publishWeekSummary(_ summaries: [DailyMoodSummary], requestSub: String) async {
-        guard authenticatedUserSub == requestSub else { return }
+        guard authenticatedUserSub == requestSub, !accountDeletionPending else { return }
         weekSummary = summaries
         await SnapshotStore.shared.write(summaries, kind: .weekSummary, userSub: requestSub)
     }
@@ -1026,7 +1352,7 @@ final class AppState: ObservableObject {
     /// Publishes a freshly fetched mood-log first page and snapshots it, with
     /// the same cross-account guard as `publishWeekSummary(_:requestSub:)`.
     func publishMoodLogFirstPage(_ page: [MoodCheckIn], requestSub: String) async {
-        guard authenticatedUserSub == requestSub else { return }
+        guard authenticatedUserSub == requestSub, !accountDeletionPending else { return }
         moodLogFirstPage = page
         await SnapshotStore.shared.write(page, kind: .moodLogFirstPage, userSub: requestSub)
     }
@@ -1074,7 +1400,7 @@ final class AppState: ObservableObject {
             #if DEBUG
             print("[AppState] loadJournalEntries failed: \(error)")
             #else
-            Crashlytics.crashlytics().record(error: error)
+            Crashlytics.crashlytics().record(error: NSError(domain: "WalkWorthy.JournalLoad", code: 2, userInfo: nil))
             #endif
         }
     }
@@ -1199,7 +1525,7 @@ final class AppState: ObservableObject {
             #if DEBUG
             print("[AppState] clearJournalState cleanup failed: \(error)")
             #else
-            Crashlytics.crashlytics().record(error: error)
+            Crashlytics.crashlytics().record(error: NSError(domain: "WalkWorthy.JournalCleanup", code: 3, userInfo: nil))
             #endif
         }
     }
@@ -1257,7 +1583,7 @@ final class AppState: ObservableObject {
     }
 
     func checkAndFetchDailyReflection() {
-        guard isAuthenticated else { return }
+        guard isAuthenticated, !accountDeletionPending else { return }
         // Reflections are AI-generated from mood summaries — no fetch until
         // the user has given AI consent (Guideline 5.1.2(i)).
         guard aiConsentGiven else { return }
@@ -1269,18 +1595,22 @@ final class AppState: ObservableObject {
         }
         reflectionFetchTask?.cancel()
         let requestSub = authenticatedUserSub
+        let epoch = consentEpoch
         reflectionFetchTask = Task { @MainActor in
             do {
                 let result = try await apiClient.fetchDailyReflection()
                 // User switched accounts mid-fetch — applying A's reflection
                 // would render it in B's session and persist it to B's snapshot.
-                guard self.authenticatedUserSub == requestSub else { return }
+                guard !Task.isCancelled, self.aiConsentGiven, self.consentEpoch == epoch, self.authenticatedUserSub == requestSub else { return }
                 self.dailyReflection = result
                 await self.cacheReflection(result)
                 Analytics.logEvent("reflection_viewed", parameters: ["source": "network"])
             } catch {
+                guard !Task.isCancelled, self.authenticatedUserSub == requestSub,
+                      self.consentEpoch == epoch else { return }
+                self.handleAIConsentRejection(error)
                 #if DEBUG
-                print("[AppState] Daily reflection fetch failed: \(error)")
+                print("[AppState] Daily reflection fetch failed")
                 #endif
             }
         }
@@ -1313,6 +1643,10 @@ extension AppState {
     enum StorageKey {
         static let onboardingCompleted = "walkworthy.onboardingCompleted"
         static let useProfilePersonalization = "walkworthy.settings.useProfilePersonalization"
+        static let pendingWithdrawal = "walkworthy.ai.pendingWithdrawal.v1"
+        static let pendingWithdrawalId = "walkworthy.ai.pendingWithdrawalId.v1"
+        static let pendingAccountDeletions = "walkworthy.pendingAccountDeletions.v1"
+        static let accountDeletionIntents = "walkworthy.accountDeletionIntents.v2"
         static let aiConsentGiven = "walkworthy.ai.consentGiven.v2"
         static let analyticsEnabled = "walkworthy.settings.analyticsOptIn.v2"
         static let dismissedNameBackfill = "walkworthy.dismissed.nameBackfill"

@@ -113,6 +113,9 @@ struct CinematicTransitionView: View {
             // .task ties the animation lifetime to the view — auto-cancels on dismiss
             .task {
                 imageOffsetX = screenW * 0.5
+                // A re-created view can already have a response/error; onChange
+                // only observes later changes and cannot establish initial readiness.
+                responseArrivedEarly = response != nil || errorMessage != nil
                 if reduceMotion {
                     showReducedMotionState(screenW: screenW)
                 } else {
@@ -209,19 +212,19 @@ struct CinematicTransitionView: View {
         }
 
         // Phase 2: Pan begins at 0.4s, runs for 5.0s (settles at ~5.4s)
-        try? await Task.sleep(for: .milliseconds(400))
+        do { try await Task.sleep(for: .milliseconds(400)) } catch { return }
         withAnimation(.timingCurve(0.25, 0.1, 0.05, 1.0, duration: 5.0)) {
             imageOffsetX = -screenW * 0.15
         }
 
         // Phase 3: Sun bloom starts as pan decelerates (4.0s mark)
-        try? await Task.sleep(for: .milliseconds(3600))
+        do { try await Task.sleep(for: .milliseconds(3600)) } catch { return }
         withAnimation(.easeIn(duration: 1.8)) {
             sunBloomOpacity = 1.0
         }
 
         // Phase 4: Pan settled (~5.4s total). Show cards or start breathing.
-        try? await Task.sleep(for: .milliseconds(1400))
+        do { try await Task.sleep(for: .milliseconds(1400)) } catch { return }
 
         panComplete = true
         if responseArrivedEarly {

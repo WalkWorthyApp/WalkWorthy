@@ -17,7 +17,11 @@
         --bg-elevated: #ffffff;
         --fg: #1a2236;
         --fg-muted: #5a6a82;
-        --accent: #b98610;
+        /* Darkened from #b98610, which gave only 3.11:1 against --bg and so
+           failed WCAG 2.2 AA (1.4.3) for the inline links in these documents.
+           #946b0d keeps the same hue at 4.61:1 on --bg and 4.81:1 on
+           --bg-elevated. Dark mode already passed at 10.76:1 and is unchanged. */
+        --accent: #946b0d;
         --border: #e5dfd0;
     }
 }

@@ -1,31 +1,32 @@
+import { assertAccountActive, AccountDeletingError } from './account-lifecycle';
 import type { Firestore } from 'firebase-admin/firestore';
 import { Timestamp, FieldValue } from 'firebase-admin/firestore';
-import type { Request, Response } from 'express';
+import type { Response } from 'express';
 import { logger } from 'firebase-functions/v2';
+import { safeErrorMetadata } from './safe-logging';
+import { errorResponse } from './auth';
 
 export interface RateLimitConfig {
   maxRequests: number;
   windowMs: number;
 }
-
 export interface RateLimitResult {
   allowed: boolean;
   retryAfterSeconds: number;
+  /** Failed checks deny access without claiming the user's quota is exhausted. */
+  failure?: 'unavailable' | 'accountDeleting';
 }
 
-export interface DailyBudgetResult {
-  allowed: boolean;
+export interface DailyBudgetResult extends RateLimitResult {
   remaining: number;
   /**
-   * Hint passed to `Retry-After` on 429 responses. Zero (the normal case)
-   * means the user has exhausted their daily quota and should wait until the
-   * day rolls over. A non-zero value is returned when the budget check itself
-   * failed (fail-closed) so the client can retry shortly.
+   * Zero for exhausted daily quota (429). An unavailable check carries a
+   * short retry delay alongside failure:'unavailable' and maps to 503.
    */
   retryAfterSeconds: number;
 }
 
-export type RateLimitScope = 'user' | 'ip' | 'dailyBudget';
+export type RateLimitScope = 'user' | 'dailyBudget';
 
 export const RATE_LIMIT_SCHEMA_VERSION = 1 as const;
 
@@ -45,12 +46,7 @@ export function sendRateLimitResponse(
   retryAfterSeconds: number,
   context: { userId?: string; endpoint: string }
 ): void {
-  logger.warn('Rate limit exceeded', {
-    userId: context.userId,
-    endpoint: context.endpoint,
-    scope,
-    retryAfterSeconds,
-  });
+  logger.warn('Rate limit exceeded', { endpoint: context.endpoint, scope, retryAfterSeconds });
 
   res.set('Retry-After', String(retryAfterSeconds));
 
@@ -62,6 +58,23 @@ export function sendRateLimitResponse(
   };
 
   res.status(429).json(body);
+}
+
+/** Keep database failures and deletion barriers distinct from actual quota use. */
+export function sendLimitCheckResponse(
+  res: Response,
+  scope: RateLimitScope,
+  result: RateLimitResult,
+  context: { userId?: string; endpoint: string },
+): void {
+  if (result.failure === 'accountDeleting') {
+    return errorResponse(res, 403, 'Account deletion is in progress', undefined, 'ACCOUNT_DELETING');
+  }
+  if (result.failure === 'unavailable') {
+    res.set('Retry-After', String(result.retryAfterSeconds));
+    return errorResponse(res, 503, 'Service temporarily unavailable; please retry', undefined, 'LIMIT_CHECK_UNAVAILABLE');
+  }
+  return sendRateLimitResponse(res, scope, result.retryAfterSeconds, context);
 }
 
 interface RateLimitDoc {
@@ -78,13 +91,10 @@ interface DailyBudgetDoc {
 
 // AI endpoints (expensive)
 export const MOOD_CHECKIN_USER_LIMIT: RateLimitConfig = { maxRequests: 10, windowMs: 3600000 };
-export const MOOD_CHECKIN_IP_LIMIT: RateLimitConfig = { maxRequests: 30, windowMs: 3600000 };
 export const DAILY_REFLECTION_USER_LIMIT: RateLimitConfig = { maxRequests: 5, windowMs: 3600000 };
-export const DAILY_REFLECTION_IP_LIMIT: RateLimitConfig = { maxRequests: 20, windowMs: 3600000 };
 
 // Standard endpoints
 export const STANDARD_USER_LIMIT: RateLimitConfig = { maxRequests: 30, windowMs: 3600000 };
-export const STANDARD_IP_LIMIT: RateLimitConfig = { maxRequests: 60, windowMs: 3600000 };
 
 // Daily AI budgets
 export const MOOD_DAILY_AI_BUDGET = 15;
@@ -97,14 +107,25 @@ export const REFLECTION_DAILY_AI_BUDGET = 5;
 export async function checkRateLimit(
   db: Firestore,
   key: string,
-  config: RateLimitConfig
+  config: RateLimitConfig,
+  userId: string,
+  options?: { allowDuringDeletion?: boolean }
 ): Promise<RateLimitResult> {
+  if (!key.startsWith('user:')) throw new Error('Only authenticated rate limits supported');
+  if (!key.startsWith(`user:${userId}:`)) throw new Error('Rate limit owner mismatch');
   const docRef = db.collection('_rateLimits').doc(key);
   const now = Date.now();
   const windowStart = now - config.windowMs;
 
   try {
     return await db.runTransaction(async (tx) => {
+      // `deleteAccount` must stay throttled while the deletion barrier exists,
+      // because a failed cleanup is retried against the SAME marker. Applying
+      // the barrier here would reject every retry and strand the account, so
+      // that one caller opts out of the barrier while keeping the limit.
+      if (options?.allowDuringDeletion !== true) {
+        await assertAccountActive(db, userId, tx);
+      }
       const snap = await tx.get(docRef);
       const data = snap.exists ? (snap.data() as RateLimitDoc) : null;
 
@@ -136,15 +157,9 @@ export async function checkRateLimit(
       return { allowed: true, retryAfterSeconds: 0 };
     });
   } catch (err) {
-    logger.error('Rate limit check failed', {
-      code: 'RATE_LIMIT_CHECK_FAILED',
-      key,
-      error: err instanceof Error ? err.message : String(err),
-    });
-    // Fail open for per-user sliding window: blocking legitimate users on
-    // transient Firestore errors is worse than allowing one extra request.
-    // Distinct error code (above) enables targeted alerting.
-    return { allowed: true, retryAfterSeconds: 0 };
+    if (err instanceof AccountDeletingError) return { allowed: false, retryAfterSeconds: 0, failure: 'accountDeleting' };
+    logger.error('Rate limit check failed', safeErrorMetadata(err));
+    return { allowed: false, retryAfterSeconds: 60, failure: 'unavailable' };
   }
 }
 
@@ -176,6 +191,7 @@ export async function checkDailyAiBudget(
 
   try {
     return await db.runTransaction(async (tx) => {
+      await assertAccountActive(db, userId, tx);
       const snap = await tx.get(docRef);
 
       // Firestore TTL policy on `_dailyBudgets.expiresAt` auto-deletes stale docs — see README / Firestore Console.
@@ -205,14 +221,12 @@ export async function checkDailyAiBudget(
       return { allowed: true, remaining: maxCallsPerDay - updatedCount, retryAfterSeconds: 0 };
     });
   } catch (err) {
-    logger.error('AI budget check failed', {
-      userId,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    if (err instanceof AccountDeletingError) return { allowed: false, remaining: 0, retryAfterSeconds: 0, failure: 'accountDeleting' };
+    logger.error('AI budget check failed', safeErrorMetadata(err));
     // FAIL CLOSED: denying the request is the safe default when we cannot
     // verify the user is within their daily spend cap. Give the client a
     // short retry window so the eventual consistency can clear.
-    return { allowed: false, remaining: 0, retryAfterSeconds: 60 };
+    return { allowed: false, remaining: 0, retryAfterSeconds: 60, failure: 'unavailable' };
   }
 }
 
@@ -222,7 +236,7 @@ export async function checkDailyAiBudget(
  * Called from API handlers when the work that was charged against the budget
  * (OpenAI call, Firestore write) failed, so the user is not penalized by
  * server-side errors. Uses `FieldValue.increment(-1)` for an atomic,
- * transaction-free refund; missing documents are ignored (nothing to refund).
+ * guarded refund; missing documents are ignored (nothing to refund).
  *
  * Intentionally best-effort: a failure here is logged but must not propagate
  * further, because the caller is already in an error path.
@@ -238,6 +252,7 @@ export async function refundDailyAiBudget(
     // Use a transaction so we never decrement below 0 or a document
     // belonging to a different day (rollover between reserve and refund).
     await db.runTransaction(async (tx) => {
+      await assertAccountActive(db, userId, tx);
       const snap = await tx.get(docRef);
       if (!snap.exists) return;
       const data = snap.data() as DailyBudgetDoc;
@@ -245,27 +260,9 @@ export async function refundDailyAiBudget(
       if (typeof data.callCount !== 'number' || data.callCount <= 0) return;
       tx.update(docRef, { callCount: FieldValue.increment(-1) });
     });
-    logger.info('AI budget refunded', { userId, date: todayDate });
+    logger.info('AI budget refunded');
   } catch (err) {
-    logger.error('AI budget refund failed', {
-      userId,
-      date: todayDate,
-      error: err instanceof Error ? err.message : String(err),
-    });
+    logger.error('AI budget refund failed', safeErrorMetadata(err));
     // Intentionally swallow — caller is already handling an error path.
   }
-}
-
-/**
- * Extracts the client IP from an Express request.
- * Prefers the first address in X-Forwarded-For, falls back to req.ip.
- */
-export function getClientIp(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (forwarded) {
-    const raw = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-    const first = raw.split(',')[0].trim();
-    if (first) return first;
-  }
-  return req.ip ?? 'unknown';
 }

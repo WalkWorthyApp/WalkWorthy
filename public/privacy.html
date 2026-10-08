@@ -12,7 +12,7 @@
     <header class="doc-header">
         <a class="doc-home" href="/">WalkWorthy</a>
         <h1>Privacy Policy</h1>
-        <p class="doc-meta">Effective date: <time datetime="2026-09-03">September 3, 2026</time></p>
+        <p class="doc-meta">Effective date: <time datetime="2026-09-04">September 4, 2026</time></p>
     </header>
 
     <section>
@@ -22,7 +22,7 @@
             is offered by Nathan Jones ("<strong>we</strong>", "<strong>us</strong>").
         </p>
         <p>
-            We take privacy seriously. Mood information can be sensitive, and the sections below
+            We take privacy seriously. Mood information and religious beliefs can be sensitive, and the sections below
             describe what happens to it. Journal entries remain on your device in the current iOS
             app and are not collected by us.
         </p>
@@ -55,8 +55,10 @@
             <li><strong>Display name</strong> — optional and shown only in the home-screen greeting.</li>
             <li>
                 <strong>Age eligibility and optional profile details</strong> — the age you enter
-                is used on-device to enforce the 13+ minimum. For adults, we may store an age
-                range. You may also provide an occupation, field of study, and hobbies. Earlier
+                is used on-device to enforce the 18+ minimum. When you grant AI permission,
+                we store your self-declared confirmation that you are 18 or older with your
+                permission record. This is a declaration, not identity verification. We may also store
+                an optional profile age range. You may also provide an occupation, field of study, and hobbies. Earlier
                 test versions also collected gender; that field is no longer collected or sent to
                 our AI provider and is removed when the profile is next updated or the account is
                 deleted.
@@ -68,7 +70,9 @@
             <li>
                 <strong>Journal entries</strong> — the free-text content you write. Journal entries
                 are stored on your device only and are not sent to our servers or AI provider by
-                the current iOS app.
+                the current iOS app. Earlier versions or clients may have stored cloud journal
+                entries; existing cloud entries can still be accessed or deleted, but new cloud
+                journal writes are no longer accepted.
             </li>
             <li>
                 <strong>Notification preferences</strong> — your chosen check-in reminder times,
@@ -77,8 +81,16 @@
             </li>
         </ul>
 
+        <p>Free-text notes, hobbies, and other optional fields may reveal health information,
+            religious beliefs, or identifying details about you or others. Avoid entering names,
+            contact information, medical records, or other details unnecessary for your reflection.</p>
         <h3>Information we generate or receive automatically</h3>
         <ul>
+            <li><strong>Derived content</strong> — mood summaries, inferred overall sentiment,
+                generated encouragements and daily reflections linked to your account.</li>
+            <li><strong>AI permission record</strong> — your sharing choice, disclosure version,
+                self-declared age group, revision and server-recorded update time. We use this to
+                enforce your choice across devices and prevent outdated requests from changing it.</li>
             <li>
                 <strong>Firebase user identifier (UID)</strong> — an opaque internal identifier
                 assigned when you sign up. Used to link your data to your account.
@@ -98,7 +110,9 @@
             <li>
                 <strong>Network and request data</strong> — our cloud providers receive IP
                 addresses, timestamps, endpoint and request metadata, and security signals needed
-                to deliver the service, diagnose failures, prevent abuse, and enforce rate limits.
+                to deliver the service, diagnose failures, and prevent abuse. Our application no
+                longer creates IP-address-based Firestore rate-limit records; older such records
+                and provider network logs may remain subject to retention and deletion processes.
             </li>
             <li>
                 <strong>Optional analytics</strong> — only if you turn analytics on, Firebase
@@ -151,17 +165,25 @@
                 sentiment. If you separately
                 enable profile personalization, we may also send an adult age range, occupation or
                 field of study, and hobbies. The app asks for explicit permission before the first
-                AI request, and you can withdraw that permission in Settings. We do not send your
-                email address, display name, Firebase UID, gender, or on-device journal entries to
-                OpenAI. API response storage and Agents SDK tracing are disabled for these
+                AI request, including safety screening, and you can withdraw that permission in
+                Settings. We do not deliberately include your account email address, display name,
+                Firebase UID, gender, or on-device journal entries in OpenAI requests. Optional text
+                can still contain identifying or sensitive information that you enter. API response storage and Agents SDK tracing are disabled for these
                 requests. OpenAI states that API data is not used to train its models unless a
-                customer opts in. We do not opt in. We also use OpenAI's moderation service to
+                customer opts in. We do not opt in. Disabling response storage and tracing does
+                not mean zero retention: OpenAI documents standard generation abuse-monitoring
+                retention of up to 30 days, subject to legal exceptions and any approved account
+                controls; moderation has a separate retention policy. See
+                <a href="https://developers.openai.com/api/docs/guides/your-data" target="_blank" rel="noopener">OpenAI API data controls</a>. We also use OpenAI's moderation service to
                 screen an optional note before generation and generated prose before it is shown.
                 If a note is classified as a self-harm signal, we skip AI generation entirely and
                 return a fixed, human-written response that offers crisis-support contact
                 information. The app only displays that information — it never contacts anyone on
-                your behalf. If the moderation service is unavailable, the check-in still
-                proceeds.
+                your behalf. If safety screening is unavailable, the app uses fixed, human-written
+                content instead of delivering unscreened generated prose. Automated screening can
+                miss concerning language; it is not a crisis assessment or a monitored service.
+                Our <a href="/ai-safety">AI safety information</a> explains the limitations and
+                ways to find support or report a concern.
             </li>
             <li>
                 <strong>Firebase Analytics</strong> — only if you opt in, we count app interactions
@@ -188,19 +210,35 @@
     <section>
         <h2>How long we keep your information</h2>
         <ul>
-            <li>Mood check-ins, generated encouragements, profile data, and daily reflections — until you delete your account.</li>
+            <li>Mood check-ins, generated encouragements, profile data, daily reflections, AI permission records, and any legacy cloud journals — retained to provide your account history until you delete your account or make an applicable deletion request.</li>
             <li>Journal entries — stored only on your device and removed when you sign out or delete your account. If you reinstall or switch devices, journal entries are not recoverable.</li>
             <li>Local server-response snapshots — cached on your device for faster loading and removed when you sign out or delete your account.</li>
-            <li>Rate-limit records — used only for short hourly/daily abuse-prevention windows and marked for automatic expiration. Cloud request logs follow our provider-console retention settings.</li>
+            <li>Account rate-limit and daily AI-budget records — used for short abuse-prevention
+                windows and marked for automatic expiration. A timestamp does not mean immediate
+                deletion; provider expiration processing can take additional time. Legacy IP-based
+                records are not reliably attributable to one account and follow the applicable
+                security-retention and deletion process. Cloud request logs follow provider retention settings.</li>
+            <li>Deletion-security record — a minimal account identifier and deletion state prevent
+                in-flight requests from recreating your data. Completed records are marked to expire
+                after seven days. Unfinished records remain until cleanup is resolved, and we
+                automatically retry failed cleanup. You can also retry deletion in the app or contact support. These records contain
+                no mood notes or generated content.</li>
             <li>Crash and analytics records — retained according to our configured Firebase/Google retention settings or deleted when no longer needed for the stated purpose.</li>
         </ul>
         <p>
             When you delete your account via Settings → Account → Delete Account, we permanently
             remove your profile, mood history, daily reflections, encouragements, authentication
-            record, local journal, local response snapshots, and local notification preferences.
-            The app does not store push tokens. Deletion is irreversible; provider backup and log
-            copies may age out under the providers' normal deletion schedules and applicable
-            legal deadlines.
+            record, permission record, any legacy cloud journals, local journal, local response
+            snapshots, and local notification preferences. Device data removal starts as soon
+            as you confirm deletion, even if the server request fails. The app retains a minimal
+            local account identifier and cleanup status to finish device cleanup after a restart and prevent data
+            from being loaded again while deletion is unresolved. Once the server confirms
+            acceptance, failed server cleanup is retried automatically. If acceptance cannot be
+            confirmed, retry the request or contact support.
+            The app does not store push tokens. Account deletion cannot be undone. It does
+            not mean every separate security log or provider backup disappears instantly. We handle
+            remaining copies and recipient deletion under applicable law, as described in our
+            <a href="/health-data#rights">Consumer Health Data Privacy Policy</a>.
         </p>
     </section>
 
@@ -208,9 +246,10 @@
         <h2>Your rights and choices</h2>
         <ul>
             <li>
-                <strong>Access</strong> — you can see all of your data directly in the app (mood
+                <strong>Access</strong> — you can see your main account content directly in the app (mood
                 history, journal entries, profile). If you need an export in another format,
-                email us and we will provide it within 30 days.
+                email us for an authenticated access or portability request. We respond within the
+                applicable deadlines described below.
             </li>
             <li>
                 <strong>Correction</strong> — you can update your profile in Settings at any time.
@@ -229,8 +268,12 @@
             </li>
             <li>
                 <strong>Withdraw AI permission</strong> — turn off “Share check-ins with OpenAI”
-                in Settings. New check-ins and daily-reflection requests will not be sent to
-                OpenAI while it is off.
+                in Settings. After the withdrawal is saved to your account, the server blocks new AI requests
+                across devices. If saving fails, the app stops AI locally and offers a retry; other
+                devices are not updated until the server receives the change. A request already sent
+                to OpenAI cannot reliably be recalled. Existing history, on-device journaling and
+                account deletion remain available. The current combined check-in/generation flow
+                requires AI permission to submit new check-ins.
             </li>
             <li>
                 <strong>Disable analytics</strong> — analytics is off by default and can be
@@ -238,25 +281,41 @@
             </li>
         </ul>
         <p>
-            If you are a resident of California, the European Union, the United Kingdom, or
-            another jurisdiction with specific data protection rights, you have the rights
-            described above plus the right to lodge a complaint with your local data protection
-            authority. Contact us first and we will do our best to resolve any concern directly.
+            Depending on applicable law, you may also request restriction, object to processing,
+            or appeal a refused request. We do not discriminate for exercising privacy rights.
+            Contact <a href="mailto:walkworthyofficial@gmail.com">walkworthyofficial@gmail.com</a>;
+            we may request proportionate identity verification. General requests are handled
+            without undue delay and within the applicable legal period: one calendar month under
+            GDPR/UK GDPR where applicable, or generally 45 days under applicable US privacy laws.
+            Any permitted extension will be explained within the initial period. For consumer
+            health deletion and appeals, see the specific deadlines in our
+            <a href="/health-data#rights">Consumer Health Data Privacy Policy</a>.
+            You may complain directly to the relevant regulator without contacting us first.
+        </p>
+        <p>
+            We do not sell personal data or share it for cross-context behavioral advertising.
+            We do not track your activity across other companies' services. The app does not
+            interpret browser Do Not Track signals; our no-tracking practice applies regardless.
+            We do not enable third parties to collect data through the app for tracking across
+            unrelated services. Optional service analytics remains subject to your separate choice.
         </p>
     </section>
 
     <section>
         <h2>Children's privacy</h2>
         <p>
-            WalkWorthy is intended for users age 13 and older. We do not knowingly collect
-            information from children under 13. Before account creation, the app requires the
-            person signing up to confirm that they are at least 13; onboarding also rejects an age
-            below 13. If you believe a child under 13 has created an account, please email us and
-            we will delete it promptly.
+            WalkWorthy is an adults-only service, intended for users age 18 and older. It is
+            not directed to children, and we do not knowingly collect information from anyone
+            under 18. Before account creation, the app requires the person signing up to confirm
+            that they are at least 18; onboarding also rejects an age below 18, and AI permission
+            requires a separate adult confirmation. If you believe someone under 18 has created an
+            account, please email us and we will delete it promptly.
         </p>
         <p>
-            Parents and guardians of users aged 13-17: we encourage you to review this policy
-            with your child and supervise their use of the app.
+            Our age confirmation is self-declared: it is a statement by the user, not verified
+            identity or age assurance. We do not use it for advertising. If you are a parent or
+            guardian and believe a minor is using WalkWorthy, contact us and we will remove the
+            account.
         </p>
     </section>
 
@@ -305,7 +364,8 @@
         <p>
             We may update this Privacy Policy from time to time. The current version lives at this
             URL and its effective date is shown at the top. If we make material changes, we will
-            notify you in-app or by email before the changes take effect.
+            notify you in-app or by email before the changes take effect. Where required, we will
+            obtain a new affirmative permission before a new purpose or disclosure begins.
         </p>
     </section>
 

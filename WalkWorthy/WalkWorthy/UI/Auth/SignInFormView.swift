@@ -80,7 +80,7 @@ struct SignInFormView: View {
 
     private var minimumAgeConfirmation: some View {
         Toggle(isOn: $minimumAgeConfirmed) {
-            Text("I confirm I am 13 or older. If I am under 18, my parent or guardian permits my use of WalkWorthy.")
+            Text("I confirm I am 18 or older. WalkWorthy is not available to anyone under 18.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

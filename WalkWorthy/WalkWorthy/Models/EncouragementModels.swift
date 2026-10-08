@@ -7,7 +7,25 @@
 
 import Foundation
 
+struct PrivacyConsent: Codable {
+    var aiSharing: Bool
+    var noticeVersion: String
+    var ageGroup: String
+    var revision: Int
+    var updatedAt: String?
+}
+
+struct PrivacyConsentUpdate: Encodable {
+    var aiSharing: Bool
+    var noticeVersion: String? = "2026-09-04"
+    var ageGroup: String?
+    var expectedRevision: Int?
+    var withdrawalId: String? = nil
+}
+
 protocol EncouragementAPI {
+    func fetchPrivacyConsent() async throws -> PrivacyConsent
+    func updatePrivacyConsent(_ update: PrivacyConsentUpdate) async throws -> PrivacyConsent
     /// Sends a partial profile update (backend PATCH is a merge) and returns
     /// the fully merged profile document from the response so callers can
     /// persist the authoritative post-merge state (e.g. snapshot cache).
@@ -28,8 +46,7 @@ protocol EncouragementAPI {
 
     /// Permanently deletes the authenticated user's Firestore data AND their
     /// Firebase Auth user. Required for App Store Guideline 5.1.1(v).
-    /// On success the backend returns `{ "deleted": true }`; the Firebase Auth
-    /// state listener then flips the client to signed-out.
+    /// On success the backend returns `{ "deleted": true }`; AppState signs out.
     func deleteAccount() async throws
 
 }

@@ -166,7 +166,7 @@ struct JournalEditorView: View {
                         #if DEBUG
                         print("[JournalEditorView] delete failed: \(error)")
                         #else
-                        Crashlytics.crashlytics().record(error: error)
+                        Crashlytics.crashlytics().record(error: NSError(domain: "WalkWorthy.Operation", code: 1, userInfo: nil))
                         #endif
                     }
                 }
@@ -282,7 +282,7 @@ struct JournalEditorView: View {
             #if DEBUG
             print("[JournalEditorView] save failed: \(error)")
             #else
-            Crashlytics.crashlytics().record(error: error)
+            Crashlytics.crashlytics().record(error: NSError(domain: "WalkWorthy.Operation", code: 1, userInfo: nil))
             #endif
         }
     }

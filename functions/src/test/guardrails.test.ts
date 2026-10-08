@@ -18,6 +18,7 @@ import {
 import { collectProfileValues } from "../lib/profile-sanitize";
 import { sanitizeProfile } from "../lib/profile-sanitize";
 import type { UserProfilePayload } from "../lib/profile-sanitize";
+import { CRISIS_RESPONSE } from "../lib/mood-agent";
 
 // ============================================================================
 // containsPii — regex classes
@@ -149,6 +150,32 @@ test("isCleanStoredAiContent fails stored content with a profile echo", () => {
 test("isCleanStoredAiContent fails stored content with regex-class PII", () => {
   const stored = { message: "reach out to pastor@example.com" };
   assert.equal(isCleanStoredAiContent(stored, []), false);
+});
+
+test("stored crisis encouragement remains readable without changing its help card", () => {
+  const before = JSON.stringify(CRISIS_RESPONSE);
+  assert.equal(isCleanStoredAiContent(CRISIS_RESPONSE, []), true);
+  assert.equal(JSON.stringify(CRISIS_RESPONSE), before);
+});
+
+test("reviewed support link never exempts unsafe prose or other resource fields", () => {
+  for (const message of ["Email private@example.com", "Visit https://988lifeline.org"]) {
+    assert.equal(isCleanStoredAiContent({ ...CRISIS_RESPONSE, message }, []), false);
+  }
+  assert.equal(isCleanStoredAiContent({ ...CRISIS_RESPONSE, message: "Your nursing studies matter." }, ["nursing"]), false);
+  assert.equal(isCleanStoredAiContent({
+    ...CRISIS_RESPONSE,
+    supportResource: { ...CRISIS_RESPONSE.supportResource, body: "Email private@example.com" },
+  }, []), false);
+});
+
+test("unreviewed support URLs remain blocked even on purported fixed responses", () => {
+  for (const url of ["https://example.com", "https://988lifeline.org.example.com", "https://988lifeline.org/private"]) {
+    assert.equal(isCleanStoredAiContent({
+      ...CRISIS_RESPONSE,
+      supportResource: { ...CRISIS_RESPONSE.supportResource, url },
+    }, []), false);
+  }
 });
 
 // ============================================================================

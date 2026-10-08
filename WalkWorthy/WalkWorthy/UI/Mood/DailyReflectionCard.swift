@@ -17,15 +17,15 @@ struct DailyReflectionCard: View {
                 Text("Today's Reflection")
                     .font(.newsreaderSemiBoldItalic(size: scaled(15)))
                 Spacer()
-                Text("AI-generated")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                if let reflection, reflection.isGenerated != false {
+                    Text("AI-generated").font(.caption2).foregroundStyle(.secondary)
+                }
             }
 
             if let reflection {
                 // HIG (Generative AI → Inputs): communicate that AI-generated
                 // content may contain errors, not just that it is AI-authored.
-                Text("Written by AI and can get things wrong.")
+                Text(reflection.isGenerated == false ? "A prepared reflection from WalkWorthy." : "Written by AI and can get things wrong.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -36,6 +36,7 @@ struct DailyReflectionCard: View {
                     .lineSpacing(scaled(4))
                     .fixedSize(horizontal: false, vertical: true)
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
+                ContentReportLink(context: "Daily reflection")
             } else {
                 // Shimmer placeholder — three lines of redacted text
                 VStack(alignment: .leading, spacing: scaled(6)) {
