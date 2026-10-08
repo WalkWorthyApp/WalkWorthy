@@ -119,10 +119,14 @@ test('authentication applies cache policy before token verification yields', asy
 });
 
 test('mood and journal reads retain owner-scoped responses with no-store', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-08T12:00:00Z') });
   const db = prepare(t);
   const mood = await invoke(moodCheckIn, 'GET', { fullHistory: '7' });
   assertPrivate(mood, 200);
-  assert.deepEqual(mood.body, { checkIns: [], daysRequested: 7 });
+  assert.deepEqual(mood.body, {
+    checkIns: [], daysRequested: 7,
+    windowStartDate: '2026-10-01', windowEndDate: '2026-10-08', hasMoreCheckIns: false,
+  });
   const entries = await invoke(journal, 'GET');
   assertPrivate(entries, 200);
   assert.deepEqual(entries.body, { entries: [syntheticEntry] });
