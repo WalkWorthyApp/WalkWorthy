@@ -202,7 +202,7 @@ test('HTTP new authorization failures return sign-in 401 without promising accep
       response as unknown as Response);
     assert.equal(status, 401);
     assert.deepEqual(payload, {error: 'Unauthorized', message: 'Sign in again to delete your account'});
-    assert.equal(headers['Cache-Control'], 'no-store');
+    assert.equal(headers['Cache-Control'], 'private, no-store');
     assertNoDeletion(state);
   }
 });
