@@ -325,8 +325,12 @@ export async function runMoodAgent(
   logger.info("[MoodAgent] Starting encouragement");
 
   const { moodSpectrumData } = input;
-  // The optional free-text note is moderated before it is sent to the
-  // generation model. Profile strings are sanitized and checked for echoes.
+  // Screen the entire normalized note; the generation budget must not hide
+  // safety signals later in an accepted note.
+  const normalizedNote = moodSpectrumData.note
+    ? sanitizeText(moodSpectrumData.note, moodSpectrumData.note.length)
+    : undefined;
+  // Profile strings are sanitized and checked for echoes.
   const payload = {
     profile: sanitizeProfile(input.profile),
     checkInType: input.checkInType,
@@ -335,10 +339,10 @@ export async function runMoodAgent(
     emotionTags: moodSpectrumData.emotionTags.slice(0, 10).map((t) => sanitizeText(t, 30)),
     impactCategories: moodSpectrumData.impactCategories.slice(0, 10).map((c) => sanitizeText(c, 30)),
     followUpScore: moodSpectrumData.followUpScore,
-    note: moodSpectrumData.note ? sanitizeText(moodSpectrumData.note, 300) : undefined,
+    note: normalizedNote?.slice(0, 300),
   };
 
-  const inputSafety = await moderateText(payload.note, apiKey, "input");
+  const inputSafety = await moderateText(normalizedNote, apiKey, "input");
   if (inputSafety === "crisis") {
     logger.info("[MoodAgent] Self-harm signal in note; returning fixed crisis response");
     return CRISIS_RESPONSE;
