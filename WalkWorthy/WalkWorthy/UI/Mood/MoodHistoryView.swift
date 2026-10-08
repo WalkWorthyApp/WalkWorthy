@@ -59,6 +59,20 @@ private let monthYearFormatter: DateFormatter = {
 
 struct MoodHistoryView: View {
     @EnvironmentObject private var appState: AppState
+
+    var body: some View {
+        if let session = appState.authenticatedSession {
+            MoodHistoryContent(session: session)
+                .id(session)
+        }
+    }
+}
+
+/// Replacing this content on session changes resets all view-local history,
+/// including selected ranges, errors and loading state, before new hydration.
+private struct MoodHistoryContent: View {
+    @EnvironmentObject private var appState: AppState
+    let session: AuthSessionIdentity
     @State private var selectedRange: DateRangeSelection = .days(7)
     @State private var summaries: [DailyMoodSummary] = []
     @State private var isLoading = false
@@ -221,12 +235,21 @@ struct MoodHistoryView: View {
             // network call so cold launch renders bars instantly. Only for
             // the default (7-day, offset 0) window — other windows always
             // fetch fresh.
-            if selectedRange == .days(7) && periodOffset == 0 && summaries.isEmpty {
-                summaries = appState.weekSummary
-            }
+            seedWeekSummaryIfNeeded()
             loadHistory()
             Task { await appState.loadMoodStatus() }
         }
+        .onChange(of: appState.weekSummary) {
+            // A new session's content can appear while beginSession is still
+            // suspended. Accept its later snapshot even if the network fails.
+            seedWeekSummaryIfNeeded()
+        }
+    }
+
+    private func seedWeekSummaryIfNeeded() {
+        guard appState.isCurrentSession(session), selectedRange == .days(7),
+              periodOffset == 0, summaries.isEmpty else { return }
+        summaries = appState.weekSummary
     }
 
     private var daysSelector: some View {
@@ -595,6 +618,7 @@ struct MoodHistoryView: View {
     }
 
     private func loadHistory() {
+        guard appState.isCurrentSession(session) else { return }
         isLoading = true
         errorMessage = nil
         Task {
@@ -603,6 +627,7 @@ struct MoodHistoryView: View {
     }
 
     private func loadHistoryAsync() async {
+        guard !Task.isCancelled, appState.isCurrentSession(session) else { return }
         // Capture the request window BEFORE the first await. The @State values
         // can change mid-flight (user taps the range picker while a fetch is
         // in the air); re-reading them after the await would let a stale
@@ -611,10 +636,8 @@ struct MoodHistoryView: View {
         let requestedRange = selectedRange
         let requestedOffset = periodOffset
         let window = window(for: requestedRange, offset: requestedOffset)
-        // Capture the account that owns this fetch, too. If it changes before
-        // the response lands (sign-out + another sign-in), publishWeekSummary
-        // drops the result so one user's summary can't land in another's cache.
-        let requestSub = appState.authenticatedUserSub
+        // `session` belongs to this content instance, so even a task started
+        // after its view disappears cannot adopt the next account's identity.
 
         do {
             // Compute days to fetch based on the requested range
@@ -625,6 +648,7 @@ struct MoodHistoryView: View {
             case .thisMonth:
                 guard let startDate = isoDateFormatter.date(from: window.startDate) else {
                     await MainActor.run {
+                        guard !Task.isCancelled, appState.isCurrentSession(session) else { return }
                         if requestedRange == selectedRange && requestedOffset == periodOffset {
                             isLoading = false
                         }
@@ -645,6 +669,7 @@ struct MoodHistoryView: View {
             )
             let fetched = response.summaries
             await MainActor.run {
+                guard !Task.isCancelled, appState.isCurrentSession(session) else { return }
                 // Only touch view state if the user is still on the window this
                 // response was requested for — a stale response must not
                 // overwrite the grid, clear a newer fetch's error banner, or
@@ -660,11 +685,9 @@ struct MoodHistoryView: View {
             // Only cache the default window so range-picker changes don't
             // overwrite the "instant launch" snapshot with a non-week view.
             // Guarded on the CAPTURED window, not live @State — see above.
-            // publishWeekSummary re-checks the account so an in-flight fetch
-            // from a signed-out user can't persist into the next user's cache.
-            if requestedRange == .days(7) && requestedOffset == 0,
-               let requestSub {
-                await appState.publishWeekSummary(fetched, requestSub: requestSub)
+            // The full session identity also rejects old A work after A → B → A.
+            if requestedRange == .days(7) && requestedOffset == 0 {
+                await appState.publishWeekSummary(fetched, session: session)
             }
         } catch {
             let errorDescription = error.localizedDescription
@@ -673,6 +696,7 @@ struct MoodHistoryView: View {
             #endif
 
             await MainActor.run {
+                guard !Task.isCancelled, appState.isCurrentSession(session) else { return }
                 // Same staleness guard as the success path: a failed stale
                 // fetch must not paint an error banner over the window the
                 // user is now viewing.

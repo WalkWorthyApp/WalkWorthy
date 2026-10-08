@@ -59,6 +59,9 @@ final class AppState: ObservableObject {
     /// stores NO PII — only a boolean. Cleared on sign-out.
     @Published private(set) var hasCompletedProfileSetup: Bool = false
     @Published private(set) var authenticatedUserSub: String?
+    /// Capture before starting account-owned work; validate again after awaits.
+    /// Same-UID refreshes retain this identity. Sign-out invalidates it eagerly.
+    @Published private(set) var authenticatedSession: AuthSessionIdentity?
     /// True while the signed-in email/password account hasn't verified its
     /// address. RootView blocks the main UI with EmailVerificationView and
     /// the backend independently rejects unverified tokens with 403
@@ -67,7 +70,7 @@ final class AppState: ObservableObject {
     @Published var isAuthenticated: Bool {
         didSet {
             if !isAuthenticated {
-                clearMoodState()
+                resetAccountMemory()
                 clearJournalState()
             }
         }
@@ -251,13 +254,13 @@ final class AppState: ObservableObject {
     /// sees the last in-memory value (nil on a cold launch). Called at
     /// sign-in and after auth state changes.
     func refreshProfileFromBackend() async {
-        guard isAuthenticated, !accountDeletionPending, let requestSub = authenticatedUserSub else { return }
+        guard let session = authenticatedSession, isCurrentSession(session) else { return }
         do {
             let response = try await apiClient.fetchUserProfile()
             // User switched accounts while the fetch was in flight — discard.
             // Applying the stale result would leak the previous user's PII into
             // the new user's in-memory profile and on-disk snapshot.
-            guard authenticatedUserSub == requestSub, !accountDeletionPending else { return }
+            guard isCurrentSession(session) else { return }
             guard !Task.isCancelled else { return }
             if let response {
                 let profile = Self.profile(from: response)
@@ -270,7 +273,7 @@ final class AppState: ObservableObject {
                 if !trimmedFirstName.isEmpty {
                     setHasCompletedProfileSetup(true)
                 }
-                await SnapshotStore.shared.write(response, kind: .profile, userSub: requestSub)
+                await SnapshotStore.shared.write(response, kind: .profile, userSub: session.userSub)
             } else {
                 currentProfile = nil
             }
@@ -284,9 +287,8 @@ final class AppState: ObservableObject {
     /// Synchronously hydrates server-backed @Published properties from the
     /// on-disk SnapshotStore so views render instantly on sign-in. Called
     /// from `refreshAuthenticatedUser` before any network fetch. Per-property
-    /// hydration is best-effort: a missing/corrupt snapshot leaves the current
-    /// in-memory value untouched, so the existing async fetch path still fills
-    /// it in without regression.
+    /// hydration is best-effort: a missing/corrupt snapshot retains only values
+    /// from this session. Account changes clear outgoing memory before this runs.
     private func hydrateFromSnapshots(userSub: String) {
         if let snapshot: Snapshot<RemoteUserProfileResponse> = SnapshotStore.shared.readSync(
             RemoteUserProfileResponse.self, kind: .profile, userSub: userSub
@@ -912,31 +914,16 @@ final class AppState: ObservableObject {
 
     func signOut() {
         ReminderPreferences.discardOwnerlessValues(in: defaults)
+        let departingSub = authenticatedUserSub
         authenticationNotice = "You have been signed out. Please sign in again."
+        // Invalidate publication before Firebase's asynchronous sign-out callback.
+        // Keep authenticatedUserSub until that callback for existing disk/journal
+        // cleanup; this reset itself never deletes persisted account data.
+        resetAccountMemory()
         if let sub = authenticatedUserSub {
             NotificationScheduler.shared.invalidateSession(for: sub)
             Task { await NotificationScheduler.shared.removeReminders(for: sub, includingLegacy: true) }
         }
-
-        // Cancel any in-flight per-user work so stale writes can't land
-        // after the user signs out. Each task honors cooperative
-        // cancellation; nothing here blocks.
-        reflectionFetchTask?.cancel()
-        reflectionFetchTask = nil
-        profileRefreshTask?.cancel()
-        profileRefreshTask = nil
-        profileSyncTask?.cancel()
-        profileSyncTask = nil
-
-        // Drop the previous user's cached response data from memory so a
-        // quick sign-in from another account never flashes the prior
-        // user's reflection or mood summary.
-        dailyReflection = nil
-        latestMoodResponse = nil
-        currentMoodStatus = nil
-        weekSummary = []
-        moodLogFirstPage = []
-        lastMoodStatusFetch = nil
 
         // Remove all on-disk caches for the outgoing user (legacy reflection
         // keys + the SnapshotStore directory). Scoped by Firebase sub so
@@ -958,8 +945,26 @@ final class AppState: ObservableObject {
         signOutTask?.cancel()
         signOutTask = Task { [weak self] in
             guard let self else { return }
-            try? await self.authSession.signOut()
-            // Listener fires and sets isAuthenticated = false, clears userSub
+            do {
+                try await self.authSession.signOut()
+                // Listener sets isAuthenticated = false and clears userSub.
+            } catch {
+                // Firebase can fail to remove its persisted session. Recover
+                // only after confirming it still owns the departing account;
+                // never revive an invalidated generation or override a new one.
+                guard let departingSub,
+                      let actualSub = try? await self.authSession.currentUserSub(),
+                      actualSub == departingSub,
+                      !Task.isCancelled, self.isAuthenticated,
+                      self.authenticatedUserSub == departingSub,
+                      self.authenticatedSession == nil else { return }
+                let recoveredSession = AuthSessionIdentity(userSub: departingSub)
+                self.authenticatedSession = recoveredSession
+                self.authenticationNotice = "Sign out could not be completed. Please try again."
+                await self.refreshAuthenticatedUser()
+                guard self.isCurrentSession(recoveredSession) else { return }
+                await self.refreshProfileFromBackend()
+            }
         }
     }
 
@@ -1006,6 +1011,46 @@ final class AppState: ObservableObject {
         }
     }
 
+    /// Publication guard, not transport authorization. A request also needs
+    /// expected-session credential binding at its network boundary.
+    /// Deletion callers may validate their captured confirmation identity while
+    /// cleanup is pending. Ordinary work must retain the default false value.
+    func isCurrentSession(
+        _ session: AuthSessionIdentity,
+        allowingAccountDeletion: Bool = false
+    ) -> Bool {
+        isAuthenticated && (allowingAccountDeletion || !accountDeletionPending)
+            && authenticatedSession == session && authenticatedUserSub == session.userSub
+    }
+
+    /// Purely in-memory teardown. Do not call clearJournalState here: it deletes
+    /// persisted rows and belongs to the existing explicit sign-out lifecycle.
+    private func resetAccountMemory() {
+        authenticatedSession = nil
+        profileRefreshTask?.cancel()
+        profileRefreshTask = nil
+        profileSyncTask?.cancel()
+        profileSyncTask = nil
+        reflectionFetchTask?.cancel()
+        reflectionFetchTask = nil
+        moodSubmissionTask?.cancel()
+        moodSubmissionTask = nil
+        consentEpoch = UUID()
+        consentTicket &+= 1
+        consentOperation?.cancel()
+        consentOperation = nil
+        aiConsentBusy = false
+        aiConsentGiven = false
+        aiConsentError = nil
+        consentAgeGroup = "unknown"
+        consentRevision = 0
+        currentProfile = nil
+        clearMoodState()
+        journalEntries = []
+        journalError = nil
+        accountDeletionError = nil
+    }
+
     private func setAuthenticatedUserSub(_ sub: String?) {
         // Also retire legacy residue on the initial nil-to-nil auth callback.
         ReminderPreferences.discardOwnerlessValues(in: defaults)
@@ -1018,16 +1063,7 @@ final class AppState: ObservableObject {
             Task { await NotificationScheduler.shared.removeReminders(for: departingSub, includingLegacy: true) }
         }
 
-        consentEpoch = UUID()
-        consentTicket &+= 1
-        consentOperation?.cancel()
-        consentOperation = nil
-        aiConsentBusy = false
-        aiConsentError = nil
-        consentAgeGroup = "unknown"
-        consentRevision = 0
-        moodSubmissionTask?.cancel()
-        reflectionFetchTask?.cancel()
+        resetAccountMemory()
         authenticatedUserSub = sub
         accountDeletionPending = sub.map { pendingAccountDeletionUsers.contains($0) } ?? false
         if let sub, !accountDeletionPending {
@@ -1043,6 +1079,7 @@ final class AppState: ObservableObject {
         }
 
         reloadUserScopedPreferences()
+        authenticatedSession = sub.map { AuthSessionIdentity(userSub: $0) }
     }
 
     func refreshAuthenticatedUser() async {
@@ -1060,8 +1097,9 @@ final class AppState: ObservableObject {
             // Lift any deleteAll tombstone from a prior session for this sub
             // before hydrating — this is the one legitimate way a new
             // session may resurrect on-disk snapshot writes.
+            guard let session = authenticatedSession else { return }
             await SnapshotStore.shared.beginSession(for: sub)
-            guard authenticatedUserSub == sub else { return }
+            guard authenticatedSession == session else { return }
             if accountDeletionPending {
                 // Deletion may have begun while the actor call was suspended.
                 // Restore its tombstone before any snapshot can be hydrated.
@@ -1105,10 +1143,8 @@ final class AppState: ObservableObject {
         analyticsEnabled = defaults.object(forKey: storageKey(StorageKey.analyticsEnabled)) as? Bool ?? false
         applyAnalyticsCollectionState()
 
-        // Profile PII is no longer cached in UserDefaults — hydrate via
-        // `refreshProfileFromBackend()` on sign-in. Leaving `currentProfile`
-        // untouched here so a sub-change during an active session doesn't
-        // blank out an in-memory value that was just populated.
+        // Profile PII hydrates from the current user's snapshot/backend.
+        // setAuthenticatedUserSub clears the outgoing profile before this runs.
         nameBackfillDismissed = defaults.bool(forKey: storageKey(StorageKey.dismissedNameBackfill))
         hasCompletedProfileSetup = defaults.bool(forKey: storageKey(StorageKey.hasCompletedProfileSetup))
     }
@@ -1249,7 +1285,7 @@ final class AppState: ObservableObject {
     private static let moodStatusStaleness: TimeInterval = 60
 
     func loadMoodStatus() async {
-        guard isAuthenticated, !accountDeletionPending, let requestSub = authenticatedUserSub else { return }
+        guard let session = authenticatedSession, isCurrentSession(session) else { return }
         if let lastFetch = lastMoodStatusFetch,
            Date().timeIntervalSince(lastFetch) < Self.moodStatusStaleness {
             return
@@ -1260,14 +1296,14 @@ final class AppState: ObservableObject {
             // User switched accounts while the fetch was in flight — discard.
             // Applying the stale result would render the previous user's mood
             // in the new user's session and persist it into their snapshot.
-            guard authenticatedUserSub == requestSub, !accountDeletionPending else { return }
+            guard !Task.isCancelled, isCurrentSession(session) else { return }
             currentMoodStatus = status
             lastMoodStatusFetch = Date()
             // Date-scoped: the check-in type is a time-of-day claim, so the
             // snapshot's validity is day-bounded — a previous-day snapshot
             // must not hydrate (prevents stale-card wrong-type submissions).
             let today = Self.isoDateFormatter.string(from: Self.logicalDate())
-            await SnapshotStore.shared.write(status, kind: .moodStatus, userSub: requestSub, dateSuffix: today)
+            await SnapshotStore.shared.write(status, kind: .moodStatus, userSub: session.userSub, dateSuffix: today)
         } catch {
             #if DEBUG
             print("[AppState] Failed to load mood status: \(error)")
@@ -1342,18 +1378,18 @@ final class AppState: ObservableObject {
 
     /// Publishes a freshly fetched 7-day summary and snapshots it — but only
     /// if the account that requested the fetch is still signed in. The caller
-    /// (MoodHistoryView) captures `requestSub` before its fetch await; a
+    /// (MoodHistoryView) captures `session` before its fetch await; a
     /// mismatch means the user switched accounts mid-fetch, so the stale
     /// result must be dropped rather than persisted into the new user's
     /// `@Published` state and on-disk snapshot.
-    func publishWeekSummary(_ summaries: [DailyMoodSummary], requestSub: String) async {
-        guard authenticatedUserSub == requestSub, !accountDeletionPending else { return }
+    func publishWeekSummary(_ summaries: [DailyMoodSummary], session: AuthSessionIdentity) async {
+        guard !Task.isCancelled, isCurrentSession(session) else { return }
         weekSummary = summaries
-        await SnapshotStore.shared.write(summaries, kind: .weekSummary, userSub: requestSub)
+        await SnapshotStore.shared.write(summaries, kind: .weekSummary, userSub: session.userSub)
     }
 
     /// Publishes a freshly fetched mood-log first page and snapshots it, with
-    /// the same cross-account guard as `publishWeekSummary(_:requestSub:)`.
+    /// a UID guard. Session-bound transport/publication is handled separately.
     func publishMoodLogFirstPage(_ page: [MoodCheckIn], requestSub: String) async {
         guard authenticatedUserSub == requestSub, !accountDeletionPending else { return }
         moodLogFirstPage = page
