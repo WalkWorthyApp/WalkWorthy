@@ -64,14 +64,23 @@ final class LiveAPIClient: EncouragementAPI {
         self.encoder.outputFormatting = .sortedKeys
     }
 
-    /// Builds a `URLSession` with a bounded overall deadline so retries + per-call
-    /// timeouts can't compound into a multi-minute stall. Per-request timeouts
-    /// are still set via `URLRequest.timeoutInterval` on each call.
+    /// Authenticated responses bypass HTTP caches; intentional offline snapshots
+    /// remain managed separately by SnapshotStore. Retain bounded deadlines.
     static func makeDefaultSession() -> URLSession {
-        let configuration = URLSessionConfiguration.default
+        purgeLegacyHTTPResponseCache()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 45
         return URLSession(configuration: configuration)
+    }
+
+    /// Evicts disposable HTTP responses left by older app versions. The shared
+    /// cache is app-wide, not user-scoped; this does not touch app snapshots.
+    /// Account lifecycle cleanup can call this again at identity boundaries.
+    static func purgeLegacyHTTPResponseCache() {
+        URLCache.shared.removeAllCachedResponses()
     }
 
     func fetchPrivacyConsent() async throws -> PrivacyConsent {
@@ -85,7 +94,7 @@ final class LiveAPIClient: EncouragementAPI {
     // MARK: - EncouragementAPI
 
     @discardableResult
-    func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws -> RemoteUserProfileResponse? {
+    func updateUserProfile(_ payload: RemoteUserProfileRequest, context: AuthenticatedRequestContext) async throws -> RemoteUserProfileResponse? {
         // The backend PATCH merges the update server-side and returns the
         // fully merged document in the same `{ profile: {...} }` envelope as
         // GET. A decode failure is non-fatal — the PATCH already succeeded —
@@ -96,6 +105,7 @@ final class LiveAPIClient: EncouragementAPI {
                 method: "PATCH",
                 body: payload,
                 endpointKind: .nonAI,
+                context: context,
                 decode: UserProfileEnvelope.self
             )
             return envelope.profile
@@ -124,11 +134,12 @@ final class LiveAPIClient: EncouragementAPI {
     /// `200` returns `{ "deleted": true }`. Any other shape, a `deleted: false`
     /// payload, or a non-2xx status surfaces as an `APIError` so the caller
     /// can abort local cleanup.
-    func deleteAccount() async throws {
+    func deleteAccount(context: AuthenticatedRequestContext) async throws {
         let response: DeleteAccountResponse = try await performRequest(
             path: "deleteAccount",
             method: "POST",
             endpointKind: .nonAI,
+            context: context,
             decode: DeleteAccountResponse.self
         )
         guard response.deleted else {
@@ -284,6 +295,7 @@ final class LiveAPIClient: EncouragementAPI {
         method: String,
         queryItems: [URLQueryItem]? = nil,
         endpointKind: EndpointKind,
+        context: AuthenticatedRequestContext? = nil,
         decode type: T.Type
     ) async throws -> T {
         let request = try await makeRequest(
@@ -291,22 +303,24 @@ final class LiveAPIClient: EncouragementAPI {
             method: method,
             queryItems: queryItems,
             endpointKind: endpointKind,
-            forcingTokenRefresh: false
+            forcingTokenRefresh: false,
+            context: context
         )
 
         do {
-            return try await send(request, decode: type)
+            return try await send(request, context: context, decode: type)
         } catch APIError.unauthorized {
             let retryRequest = try await makeRequest(
                 path: path,
                 method: method,
                 queryItems: queryItems,
                 endpointKind: endpointKind,
-                forcingTokenRefresh: true
+                forcingTokenRefresh: true,
+                context: context
             )
             // If this second send throws .unauthorized, it propagates to the
             // caller unchanged — we do not retry a second time.
-            return try await send(retryRequest, decode: type)
+            return try await send(retryRequest, context: context, decode: type)
         }
     }
 
@@ -317,6 +331,7 @@ final class LiveAPIClient: EncouragementAPI {
         body: Body,
         queryItems: [URLQueryItem]? = nil,
         endpointKind: EndpointKind,
+        context: AuthenticatedRequestContext? = nil,
         decode type: T.Type
     ) async throws -> T {
         let encodedBody = try encodeBody(body)
@@ -327,11 +342,12 @@ final class LiveAPIClient: EncouragementAPI {
             queryItems: queryItems,
             endpointKind: endpointKind,
             forcingTokenRefresh: false,
+            context: context,
             body: encodedBody
         )
 
         do {
-            return try await send(request, decode: type)
+            return try await send(request, context: context, decode: type)
         } catch APIError.unauthorized {
             let retryRequest = try await makeRequest(
                 path: path,
@@ -339,9 +355,10 @@ final class LiveAPIClient: EncouragementAPI {
                 queryItems: queryItems,
                 endpointKind: endpointKind,
                 forcingTokenRefresh: true,
+                context: context,
                 body: encodedBody
             )
-            return try await send(retryRequest, decode: type)
+            return try await send(retryRequest, context: context, decode: type)
         }
     }
 
@@ -351,6 +368,7 @@ final class LiveAPIClient: EncouragementAPI {
         queryItems: [URLQueryItem]? = nil,
         endpointKind: EndpointKind,
         forcingTokenRefresh: Bool,
+        context: AuthenticatedRequestContext? = nil,
         body: Data? = nil
     ) async throws -> URLRequest {
         var url = baseURL
@@ -383,8 +401,18 @@ final class LiveAPIClient: EncouragementAPI {
         }
 
         do {
-            let token = try await tokenProvider.validBearerToken(forcingRefresh: forcingTokenRefresh)
+            // Account-owned work must use the initiating session's credential;
+            // the ambient current user is only for requests that carry no context.
+            let token = if let context {
+                try await tokenProvider.validBearerToken(for: context, forcingRefresh: forcingTokenRefresh)
+            } else {
+                try await tokenProvider.validBearerToken(forcingRefresh: forcingTokenRefresh)
+            }
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        } catch is CancellationError {
+            // A superseded session is not an auth failure: callers must not
+            // sign out (or prompt) the account that replaced it.
+            throw CancellationError()
         } catch {
             throw APIError.notAuthenticated
         }
@@ -418,8 +446,14 @@ final class LiveAPIClient: EncouragementAPI {
         return request
     }
 
-    private func send<T: Decodable>(_ request: URLRequest, decode type: T.Type) async throws -> T {
+    private func send<T: Decodable>(
+        _ request: URLRequest,
+        context: AuthenticatedRequestContext? = nil,
+        decode type: T.Type
+    ) async throws -> T {
         try Task.checkCancellation()
+        // Revalidate after the App Check await, with no suspension before dispatch.
+        if let context { try tokenProvider.validateSession(for: context) }
         do {
             let (data, response) = try await urlSession.data(for: request)
             #if DEBUG

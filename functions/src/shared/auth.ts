@@ -13,6 +13,11 @@ export interface AuthenticatedRequest extends Request {
   userId: string;
 }
 
+/** Authenticated API payloads must not enter private or shared HTTP caches. */
+function setPrivateResponseCachePolicy(res: Response): void {
+  res.setHeader("Cache-Control", "private, no-store");
+}
+
 /**
  * Extract and verify Firebase ID token from Authorization header.
  *
@@ -66,6 +71,9 @@ export async function requireAuth(
   res: Response,
   options?: { allowUnverified?: boolean }
 ): Promise<AuthenticatedRequest | null> {
+  // Set before awaiting auth so direct responses (including 204/400/429)
+  // inherit the policy even when they bypass the JSON response helpers.
+  setPrivateResponseCachePolicy(res);
   const decodedToken = await verifyAuthToken(req);
 
   if (!decodedToken) {
@@ -157,6 +165,8 @@ export function errorResponse(
   details?: unknown,
   code?: ApiErrorCode
 ) {
+  // Also covers method/App Check failures before requireAuth runs.
+  setPrivateResponseCachePolicy(res);
   const response: {
     error: string;
     message: string;
@@ -184,5 +194,6 @@ export function errorResponse(
  * Standard success response format
  */
 export function successResponse<T>(res: Response, data: T, status = 200) {
+  setPrivateResponseCachePolicy(res);
   res.status(status).json(data);
 }

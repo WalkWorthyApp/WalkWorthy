@@ -43,6 +43,9 @@ struct RootView: View {
                     .transition(.asymmetric(insertion: .move(edge: .leading), removal: .opacity))
             }
         }
+        // Owns the deletion ceremony so it survives Settings or email
+        // verification being replaced by the pending-cleanup screen.
+        .modifier(AccountDeletionPresentation())
         // Adaptive during the cold-start splash so the SplashView picks the
         // LaunchSplash asset variant matching the device's system setting;
         // forced dark once auth resolves. SplashView locks its own scheme at
@@ -59,6 +62,7 @@ struct RootView: View {
 
 private struct PendingAccountDeletionView: View {
     @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var deletionFlow: AccountDeletionFlow
 
     var body: some View {
         VStack(spacing: 24) {
@@ -67,13 +71,15 @@ private struct PendingAccountDeletionView: View {
             if let error = appState.accountDeletionError {
                 Text(error).foregroundStyle(.secondary)
             }
-            if appState.accountDeletionBusy { ProgressView() }
+            if appState.accountDeletionBusy || deletionFlow.isWorking { ProgressView() }
+            // Preparation re-authenticates only while server deletion remains
+            // unconfirmed; completed cloud work needs only local recovery.
             Button("Retry Deletion", role: .destructive) {
-                Task { try? await appState.deleteAccount() }
+                deletionFlow.begin(using: appState, requireConfirmation: false)
             }
-            .disabled(appState.accountDeletionBusy)
+            .disabled(appState.accountDeletionBusy || deletionFlow.isWorking)
             Button("Sign Out") { appState.signOut() }
-                .disabled(appState.accountDeletionBusy)
+                .disabled(appState.accountDeletionBusy || deletionFlow.isWorking)
             Text("Support: walkworthyofficial@gmail.com")
                 .font(.footnote)
                 .textSelection(.enabled)

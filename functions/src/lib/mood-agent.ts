@@ -7,7 +7,7 @@
  */
 
 import { Agent, run, setTracingDisabled } from "@openai/agents";
-import { setDefaultOpenAIKey, setOpenAIAPI } from "@openai/agents-openai";
+import { createProviderModel, type ProviderConsentCheck } from "./provider-model";
 import { z } from "zod";
 import Ajv from "ajv";
 import { logger } from "firebase-functions/v2";
@@ -19,9 +19,7 @@ import type {
 } from "../shared/types";
 import {
   collectProfileValues,
-  sanitizeProfile,
   sanitizeText,
-  type UserProfilePayload,
 } from "./profile-sanitize";
 import {
   MOOD_MODEL,
@@ -41,6 +39,7 @@ import {
   resolveScripture,
 } from "./scripture-catalog";
 import { moderateText } from "./content-safety";
+import { NO_PERSONALIZATION, type AiPersonalization, type PersonalizationAttempt } from "../shared/ai-personalization";
 
 // ============================================================================
 // Types
@@ -51,7 +50,7 @@ import { moderateText } from "./content-safety";
 export type { UserProfilePayload } from "./profile-sanitize";
 
 export interface MoodAgentInput {
-  profile: UserProfilePayload | null;
+  personalization?: AiPersonalization;
   checkInType: CheckInType;
   moodSpectrumData: MoodSpectrumData;
 }
@@ -174,21 +173,7 @@ ${SCRIPTURE_SELECTION_GUIDE}
 
 let cachedAgent: Agent<object, typeof encouragementOutputSchema> | undefined;
 let cachedModel: string | undefined;
-let cachedApiKeyPrefix: string | undefined;
-
-/**
- * Initialize OpenAI SDK configuration with the provided API key.
- *
- * @param apiKey - The OpenAI API key (from Firebase secret or env var)
- */
-function ensureConfig(apiKey: string) {
-  // Configure OpenAI SDK with the provided key
-  setDefaultOpenAIKey(apiKey);
-  setOpenAIAPI("responses");
-  // Agent tracing captures model inputs and outputs by default and is not
-  // compatible with Zero Data Retention. Keep it disabled process-wide.
-  setTracingDisabled(true);
-}
+let cachedApiKey: string | undefined;
 
 // ============================================================================
 // Input Sanitization
@@ -204,9 +189,7 @@ function ensureConfig(apiKey: string) {
  * Create or retrieve a cached agent instance.
  *
  * The agent cache is keyed by both model and apiKey to prevent using
- * a stale agent when the OpenAI credentials change. The apiKey is included
- * in the cache validation (using the first 8 characters as a prefix) to ensure
- * the correct SDK configuration is maintained.
+ * a stale client when the OpenAI credentials change.
  *
  * @param model - The OpenAI model to use (e.g., 'gpt-4o-mini')
  * @param apiKey - The OpenAI API key; must match across calls or agent is recreated
@@ -216,29 +199,26 @@ function ensureAgent(
   model: string,
   apiKey: string,
 ): Agent<object, typeof encouragementOutputSchema> {
-  // Use first 8 characters of apiKey for cache key stability
-  const apiKeyPrefix = apiKey.slice(0, 8);
-
   // Return cached agent only if both model and apiKey match
   if (
     cachedAgent &&
     cachedModel === model &&
-    cachedApiKeyPrefix === apiKeyPrefix
+    cachedApiKey === apiKey
   ) {
     return cachedAgent;
   }
 
   // Update cache with new model and apiKey
   cachedModel = model;
-  cachedApiKeyPrefix = apiKeyPrefix;
+  cachedApiKey = apiKey;
 
-  // Ensure OpenAI SDK is configured with the provided apiKey
-  ensureConfig(apiKey);
+  // Tracing includes inputs/outputs. Keep it disabled for both provider models.
+  setTracingDisabled(true);
 
   cachedAgent = new Agent<object, typeof encouragementOutputSchema>({
     name: "WalkWorthyMoodAgent",
     instructions: MOOD_SYSTEM_PROMPT,
-    model,
+    model: createProviderModel(apiKey, model),
     modelSettings: {
       temperature: 0.4,
       topP: 1,
@@ -318,35 +298,40 @@ export const UNAVAILABLE_INPUT_RESPONSE: AIEncouragementResponse = {
 export async function runMoodAgent(
   input: MoodAgentInput,
   apiKey: string,
+  checkConsent: ProviderConsentCheck,
   model: string = MOOD_MODEL,
   generate: GenerationRunner = async (serializedInput, signal) =>
-    (await run(ensureAgent(model, apiKey), serializedInput, { signal })).finalOutput,
+    // Empty model output can otherwise trigger another SDK turn without a check.
+    (await run(ensureAgent(model, apiKey), serializedInput, { signal, maxTurns: 1 })).finalOutput,
+  beforeGeneration?: () => Promise<PersonalizationAttempt>,
 ): Promise<AIEncouragementResponse> {
   logger.info("[MoodAgent] Starting encouragement");
 
   const { moodSpectrumData } = input;
-  // The optional free-text note is moderated before it is sent to the
-  // generation model. Profile strings are sanitized and checked for echoes.
+  // Screen the entire normalized note; the generation budget must not hide
+  // safety signals later in an accepted note.
+  const normalizedNote = moodSpectrumData.note
+    ? sanitizeText(moodSpectrumData.note, moodSpectrumData.note.length)
+    : undefined;
+  // Profile strings are sanitized and checked for echoes.
   const payload = {
-    profile: sanitizeProfile(input.profile),
     checkInType: input.checkInType,
     moodScore: moodSpectrumData.moodScore,
     moodLevel: moodSpectrumData.moodLevel,
     emotionTags: moodSpectrumData.emotionTags.slice(0, 10).map((t) => sanitizeText(t, 30)),
     impactCategories: moodSpectrumData.impactCategories.slice(0, 10).map((c) => sanitizeText(c, 30)),
     followUpScore: moodSpectrumData.followUpScore,
-    note: moodSpectrumData.note ? sanitizeText(moodSpectrumData.note, 300) : undefined,
+    note: normalizedNote?.slice(0, 300),
   };
 
-  const inputSafety = await moderateText(payload.note, apiKey, "input");
+  await checkConsent();
+  const inputSafety = await moderateText(normalizedNote, apiKey, "input");
   if (inputSafety === "crisis") {
     logger.info("[MoodAgent] Self-harm signal in note; returning fixed crisis response");
     return CRISIS_RESPONSE;
   }
   if (inputSafety === "block") return BLOCKED_INPUT_RESPONSE;
   if (inputSafety === "unavailable") return UNAVAILABLE_INPUT_RESPONSE;
-
-  const serializedInput = JSON.stringify(payload, null, 2);
 
   let lastError: unknown;
 
@@ -358,28 +343,27 @@ export async function runMoodAgent(
       await sleep(delayMs);
     }
 
+    // Checks live outside provider catches: denial/read failure must stop work,
+    // including when consent changes during backoff. Sent requests cannot be recalled.
+    await checkConsent();
+    // Admission resolves live consent and the exact profile in its consumption
+    // transaction. Serialize only its committed result; no asynchronous quota
+    // boundary may separate profile validation from prompt construction.
+    // Denial/ownership errors remain outside the provider retry loop.
+    const personalization = beforeGeneration
+      ? await beforeGeneration()
+      : await input.personalization?.forGeneration() ?? NO_PERSONALIZATION;
+    const profile = personalization.profile;
+    const serializedInput = JSON.stringify({ ...payload, profile }, null, 2);
     logger.info(`[MoodAgent] Attempt ${attempt + 1}/${MAX_RETRIES}`);
+    let parsed: AIEncouragementResponse;
     try {
       logger.info("[MoodAgent] Calling OpenAI agent...");
       const result = await withTimeout((signal) =>
         generate(serializedInput, signal),
       );
       logger.info("[MoodAgent] Agent returned response");
-      const parsed = parseEncouragement(result);
-      // A flagged OUTPUT says the model misbehaved, not that the user is at
-      // risk — fall back to a neutral response, never the crisis card.
-      const outputSafety = await moderateText(parsed.message, apiKey, "output");
-      if (outputSafety !== "allow") {
-        logger.warn("[MoodAgent] Generated output flagged; returning neutral fallback", {
-          decision: outputSafety,
-        });
-        return BLOCKED_OUTPUT_RESPONSE;
-      }
-      // Deterministic echo-check: block a response that repeats the user's
-      // own profile strings back (the regex guardrail can't know them).
-      // Throws GuardrailTripError — caught below and rethrown without retry.
-      assertNoProfileEcho(parsed, collectProfileValues(payload.profile));
-      return parsed;
+      parsed = parseEncouragement(result);
     } catch (err) {
       lastError = err;
       // Guardrail trips are deterministic — retrying will produce the same
@@ -393,7 +377,24 @@ export async function runMoodAgent(
         attempt: attempt + 1,
         ...safeErrorMetadata(err),
       });
+      continue;
     }
+
+    await checkConsent();
+    // Generated prose can contain profile-derived details. Validate the exact
+    // attempt after the base-consent await, before disclosing it to moderation.
+    if (!(await personalization.isCurrent())) return BLOCKED_OUTPUT_RESPONSE;
+    // A flagged OUTPUT says the model misbehaved, not that the user is at risk.
+    const outputSafety = await moderateText(parsed.message, apiKey, "output");
+    if (outputSafety !== "allow") {
+      logger.warn("[MoodAgent] Generated output flagged; returning neutral fallback", {
+        decision: outputSafety,
+      });
+      return BLOCKED_OUTPUT_RESPONSE;
+    }
+    // Deterministic profile echoes fail without retrying generation.
+    assertNoProfileEcho(parsed, collectProfileValues(profile));
+    return parsed;
   }
 
   throw lastError instanceof Error

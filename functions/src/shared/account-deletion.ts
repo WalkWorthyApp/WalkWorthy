@@ -5,13 +5,14 @@ import { deletionRef } from './account-lifecycle';
 
 const CLIENT_WINDOW_MS = 60 * 60 * 1000;
 const CLIENT_ATTEMPT_LIMIT = 3;
+const RECENT_AUTH_WINDOW_SECONDS = 5 * 60;
 // Longer than the HTTP/worker timeout, preventing simultaneous cleanup.
 const LEASE_MS = 10 * 60 * 1000;
 const RETRY_MS = 15 * 60 * 1000;
 const COMPLETED_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface DeletionAuth {
-  verifyIdToken(token: string, checkRevoked?: boolean): Promise<{ uid: string }>;
+  verifyIdToken(token: string, checkRevoked?: boolean): Promise<{ uid: string; auth_time?: unknown }>;
   deleteUser(uid: string): Promise<void>;
 }
 
@@ -19,6 +20,21 @@ export type DeletionResult =
   | { status: 'completed' }
   | { status: 'busy' }
   | { status: 'rate-limited'; retryAfterSeconds: number };
+
+class RecentAuthenticationRequiredError extends Error {
+  readonly code = 'auth/requires-recent-login';
+  constructor() {
+    super('Sign in again to delete your account');
+    this.name = 'RecentAuthenticationRequiredError';
+  }
+}
+
+function requireRecentAuthentication(authTime: unknown, nowMs: number): void {
+  if (typeof authTime !== 'number' || !Number.isSafeInteger(authTime) || authTime <= 0
+    || authTime > nowMs / 1000 || nowMs / 1000 - authTime > RECENT_AUTH_WINDOW_SECONDS) {
+    throw new RecentAuthenticationRequiredError();
+  }
+}
 
 /** Only emitted after a durable deletion job has been confirmed. Keep the
  * original failure even when releasing the worker lease also fails. */
@@ -43,14 +59,26 @@ export async function deleteAllUserFirestoreData(db: Firestore, uid: string): Pr
   }
 }
 
-/** All callers share one lease. Attempts live in the barrier, never in a
- * separate quota record that a concurrent retry could recreate after erasure. */
+/** Resume an accepted job without granting authority to create a new one. */
 export async function resumeAccountDeletion(
   db: Firestore,
   auth: Pick<DeletionAuth, 'deleteUser'>,
   uid: string,
   source: 'client' | 'worker',
   cleanup = deleteAllUserFirestoreData,
+): Promise<DeletionResult> {
+  return runAccountDeletion(db, auth, uid, source, cleanup);
+}
+
+/** All callers share one lease. Only the request path supplies revocation-checked
+ * claims for creation; ordinary resumes and workers cannot create jobs. */
+async function runAccountDeletion(
+  db: Firestore,
+  auth: Pick<DeletionAuth, 'deleteUser'>,
+  uid: string,
+  source: 'client' | 'worker',
+  cleanup = deleteAllUserFirestoreData,
+  newJobAuthTime?: unknown,
 ): Promise<DeletionResult> {
   const marker = deletionRef(db, uid);
   const leaseId = randomUUID();
@@ -61,6 +89,9 @@ export async function resumeAccountDeletion(
     // Workers may only resume an authenticated request, never create one.
     if (data?.status !== 'deleting' && source === 'worker') return { status: 'busy' } as const;
     const now = Date.now();
+    // Use the transaction's state and time, including on retries. A preliminary
+    // pending read cannot authorize creation if its marker disappears.
+    if (data?.status !== 'deleting') requireRecentAuthentication(newJobAuthTime, now);
     if (data?.leaseUntil instanceof Timestamp && data.leaseUntil.toMillis() > now) {
       return { status: 'busy' } as const;
     }
@@ -111,8 +142,8 @@ export async function resumeAccountDeletion(
   }
 }
 
-/** Verify revocation before the first persistent write. A signed, unexpired
- * token can resume its existing deletion even after the Auth user was erased. */
+/** Verify revocation before authorizing a new job; check freshness at claim time.
+ * A signed, unexpired token can resume an accepted deletion after Auth erasure. */
 export async function requestAccountDeletion(
   db: Firestore, auth: DeletionAuth, token: string,
 ): Promise<DeletionResult> {
@@ -120,13 +151,14 @@ export async function requestAccountDeletion(
   const existing = await deletionRef(db, decoded.uid).get();
   if (existing.data()?.status === 'completed') return { status: 'completed' };
   const alreadyPending = existing.data()?.status === 'deleting';
-  if (!alreadyPending) await auth.verifyIdToken(token, true);
+  const newJobAuthTime = alreadyPending ? undefined : (await auth.verifyIdToken(token, true)).auth_time;
   try {
-    return await resumeAccountDeletion(db, auth, decoded.uid, 'client');
+    return await runAccountDeletion(db, auth, decoded.uid, 'client', deleteAllUserFirestoreData, newJobAuthTime);
   } catch (error) {
     // A failed claim is still resumable when this request read a saved job.
     // Otherwise its commit outcome is unknown: do not promise automatic retry.
-    if (alreadyPending && !(error instanceof PendingDeletionError)) {
+    if (alreadyPending && !(error instanceof PendingDeletionError)
+      && !(error instanceof RecentAuthenticationRequiredError)) {
       throw new PendingDeletionError(error);
     }
     throw error;

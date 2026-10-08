@@ -54,6 +54,33 @@ actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
         }
     }
 
+    @MainActor private static let credentials = SessionCredentialBinding<User> { $0.uid }
+
+    /// Pins the current Firebase sign-in to a new AppState session. Called
+    /// synchronously wherever AppState creates a session.
+    @MainActor
+    func pinCredential(for session: AuthSessionIdentity) {
+        Self.credentials.pin(session, to: Auth.auth().currentUser)
+    }
+
+    @MainActor
+    func validateSession(for context: AuthenticatedRequestContext) throws {
+        _ = try Self.credentials.owner(for: context, currentUser: Auth.auth().currentUser)
+    }
+
+    /// Fetches only the initiating sign-in's token; a later `currentUser`
+    /// (another account, or a new sign-in as the same UID) never substitutes.
+    @MainActor
+    func validBearerToken(for context: AuthenticatedRequestContext, forcingRefresh: Bool) async throws -> String {
+        do {
+            return try await withOwner(context) { try await $0.getIDToken(forcingRefresh: forcingRefresh) }
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            throw AuthError.tokenFetchFailed(error.localizedDescription)
+        }
+    }
+
     // MARK: - AppCheckTokenProviding
 
     func validAppCheckToken() async throws -> String {
@@ -156,67 +183,73 @@ actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
         try Auth.auth().signOut()
     }
 
-    /// Returns the current user's email, if any. Used by the account-deletion
-    /// re-auth sheet to build an `EmailAuthProvider` credential without asking
-    /// the user to retype their email.
+    /// Returns the current user's email, if any, for display on the email
+    /// verification gate.
     func currentUserEmail() async -> String? {
         Auth.auth().currentUser?.email
     }
 
-    func usesAppleSignIn() async -> Bool {
-        Auth.auth().currentUser?.providerData.contains {
-            $0.providerID == "apple.com"
-        } ?? false
+    // MARK: - Account deletion (bound to the confirming session)
+
+    @MainActor
+    private func withOwner<T>(
+        _ context: AuthenticatedRequestContext,
+        _ body: (User) async throws -> T
+    ) async throws -> T {
+        try await Self.credentials.run(for: context, currentUser: { Auth.auth().currentUser }, body)
     }
 
-    /// Apple and Firebase require a fresh Apple authorization code to revoke
-    /// Sign in with Apple access during account deletion.
-    func revokeAppleAuthorizationForDeletion() async throws {
-        guard await usesAppleSignIn() else { return }
+    /// Seconds since the owning sign-in last proved its credentials, from the
+    /// ID token's `auth_time` — the claim the backend's recent-auth rule checks.
+    @MainActor
+    func secondsSinceAuthentication(for context: AuthenticatedRequestContext) async throws -> TimeInterval {
+        try await withOwner(context) { user in
+            Date().timeIntervalSince(try await user.getIDTokenResult(forcingRefresh: false).authDate)
+        }
+    }
 
-        let coordinator = await SignInWithAppleCoordinator()
-        let authorization = try await coordinator.authorize()
+    @MainActor
+    func usesAppleSignIn(for context: AuthenticatedRequestContext) throws -> Bool {
+        try Self.credentials.owner(for: context, currentUser: Auth.auth().currentUser)
+            .providerData.contains { $0.providerID == "apple.com" }
+    }
+
+    /// Re-authenticates the owning sign-in with its password. Firebase keeps
+    /// the same `User` and swaps in fresh tokens, so later requests carry a
+    /// new `auth_time`. Firebase Auth errors (wrong password, network) propagate
+    /// unchanged so the view layer can map them via `FirebaseAuthErrorMapper`.
+    @MainActor
+    func reauthenticate(password: String, for context: AuthenticatedRequestContext) async throws {
+        try await withOwner(context) { user in
+            guard let email = user.email else { throw AuthError.userNotFound }
+            _ = try await user.reauthenticate(with: EmailAuthProvider.credential(withEmail: email, password: password))
+        }
+    }
+
+    /// One Apple authorization first re-authenticates the owning sign-in (a
+    /// fresh `auth_time` for the backend's recent-auth rule), then revokes Sign
+    /// in with Apple — Firebase's documented deletion sequence. Firebase
+    /// rejects a different Apple ID with `userMismatch`.
+    @MainActor
+    func reauthenticateAndRevokeApple(for context: AuthenticatedRequestContext) async throws {
+        let coordinator = SignInWithAppleCoordinator()
+        let authorization = try await withOwner(context) { _ in try await coordinator.authorize() }
         guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
+              let idTokenData = credential.identityToken,
+              let idToken = String(data: idTokenData, encoding: .utf8),
               let codeData = credential.authorizationCode,
               let authorizationCode = String(data: codeData, encoding: .utf8),
               !authorizationCode.isEmpty
         else {
             throw AuthError.invalidAppleCredential
         }
-
-        try await Auth.auth().revokeToken(withAuthorizationCode: authorizationCode)
-    }
-
-    /// Number of seconds since the current user's last successful sign-in.
-    /// Returns `nil` when no user is signed in or the metadata is unavailable.
-    /// Used to decide whether `user.delete()` requires re-authentication —
-    /// Firebase rejects delete/password-change requests on stale sessions.
-    func secondsSinceLastSignIn() async -> TimeInterval? {
-        guard let lastSignIn = Auth.auth().currentUser?.metadata.lastSignInDate else {
-            return nil
-        }
-        return Date().timeIntervalSince(lastSignIn)
-    }
-
-    /// Re-authenticate the signed-in user with their email + password. Required
-    /// before a destructive action (account deletion) when the session is
-    /// older than Firebase's sensitive-operation window.
-    ///
-    /// Throws `AuthError.notAuthenticated` if no user is currently signed in,
-    /// or `AuthError.userNotFound` if the signed-in user has no email on file
-    /// (shouldn't happen for email/password accounts but guards against future
-    /// phone/social providers). Firebase Auth errors (wrong password, network
-    /// failure, etc.) propagate unchanged so the view layer can surface them
-    /// via `FirebaseAuthErrorMapper`.
-    func reauthenticate(password: String) async throws {
-        guard let user = Auth.auth().currentUser else {
-            throw AuthError.notAuthenticated
-        }
-        guard let email = user.email else {
-            throw AuthError.userNotFound
-        }
-        let credential = EmailAuthProvider.credential(withEmail: email, password: password)
-        _ = try await user.reauthenticate(with: credential)
+        let appleCredential = OAuthProvider.appleCredential(
+            withIDToken: idToken,
+            rawNonce: coordinator.rawNonce,
+            fullName: nil
+        )
+        try await withOwner(context) { user in _ = try await user.reauthenticate(with: appleCredential) }
+        try await withOwner(context) { _ in try await Auth.auth().revokeToken(withAuthorizationCode: authorizationCode) }
     }
 
     func observeAuthState(onChange: @escaping @Sendable (Bool) -> Void) {

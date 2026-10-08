@@ -32,7 +32,7 @@ export const deleteAccount = onRequest({maxInstances: 10, timeoutSeconds: 540, i
     return successResponse(res, {deleted: true});
   } catch (error) {
     const code = error && typeof error === 'object' ? (error as {code?: unknown}).code : undefined;
-    if (typeof code === 'string' && ['auth/id-token-expired', 'auth/id-token-revoked', 'auth/argument-error', 'auth/invalid-id-token', 'auth/user-disabled', 'auth/user-not-found'].includes(code)) {
+    if (typeof code === 'string' && ['auth/id-token-expired', 'auth/id-token-revoked', 'auth/argument-error', 'auth/invalid-id-token', 'auth/user-disabled', 'auth/user-not-found', 'auth/requires-recent-login'].includes(code)) {
       return errorResponse(res, 401, 'Sign in again to delete your account');
     }
     if (error instanceof PendingDeletionError) {

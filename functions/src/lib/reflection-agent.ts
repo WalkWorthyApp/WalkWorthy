@@ -6,7 +6,7 @@
  */
 
 import { Agent, run, setTracingDisabled } from "@openai/agents";
-import { setDefaultOpenAIKey, setOpenAIAPI } from "@openai/agents-openai";
+import { createProviderModel, type ProviderConsentCheck } from "./provider-model";
 import { z } from "zod";
 import { logger } from "firebase-functions/v2";
 import { safeErrorMetadata } from "../shared/safe-logging";
@@ -28,6 +28,7 @@ import {
   type GenerationRunner,
 } from "./model-config";
 import { moderateText } from "./content-safety";
+import { NO_PERSONALIZATION, type AiPersonalization } from "../shared/ai-personalization";
 
 // ============================================================================
 // Output Schema
@@ -83,15 +84,13 @@ let cachedApiKey: string | undefined;
 function ensureAgent(apiKey: string): Agent<object, typeof reflectionOutputSchema> {
   if (cachedAgent && cachedApiKey === apiKey) return cachedAgent;
 
-  setDefaultOpenAIKey(apiKey);
-  setOpenAIAPI("responses");
   setTracingDisabled(true);
   cachedApiKey = apiKey;
 
   cachedAgent = new Agent<object, typeof reflectionOutputSchema>({
     name: "WalkWorthyReflectionAgent",
     instructions: REFLECTION_SYSTEM_PROMPT,
-    model: MOOD_MODEL,
+    model: createProviderModel(apiKey, MOOD_MODEL),
     // Disable storage of the Responses API response object for this call.
     // Provider abuse-monitoring retention remains governed by the API project.
     modelSettings: { temperature: 0.6, topP: 1, maxTokens: 256, store: false },
@@ -145,16 +144,15 @@ export const FIXED_REFLECTION: ReflectionAgentResult = {
 export async function runReflectionAgent(
   summaries: DailyMoodSummary[],
   apiKey: string,
-  profile: UserProfilePayload | null = null,
+  checkConsent: ProviderConsentCheck,
+  personalization: AiPersonalization | null = null,
   generate: GenerationRunner = async (input, signal) =>
-    (await run(ensureAgent(apiKey), input, { signal })).finalOutput,
+    // Every new model attempt must return through the consent check below.
+    (await run(ensureAgent(apiKey), input, { signal, maxTurns: 1 })).finalOutput,
 ): Promise<ReflectionAgentResult> {
   logger.info("[ReflectionAgent] Generating daily reflection", {
     summaryCount: summaries.length,
-    hasProfile: profile !== null,
   });
-
-  const input = buildPrompt(summaries, profile);
 
   const MAX_RETRIES = 2;
   let lastError: unknown;
@@ -166,6 +164,13 @@ export async function runReflectionAgent(
       await sleep(delayMs);
     }
 
+    // Do not catch authorization/read failures as retryable provider failures.
+    await checkConsent();
+    let reflection: string;
+    // Resolve after the base-consent await, using a new payload on each retry.
+    const current = await personalization?.forGeneration() ?? NO_PERSONALIZATION;
+    const profile = current.profile;
+    const input = buildPrompt(summaries, profile);
     try {
       const result = await withTimeout((signal) =>
         generate(input, signal),
@@ -182,17 +187,7 @@ export async function runReflectionAgent(
         throw new Error("Empty reflection returned");
       }
 
-      const reflection = parsed.reflection.trim();
-      const outputSafety = await moderateText(reflection, apiKey, "output");
-      if (outputSafety !== "allow") {
-        return FIXED_REFLECTION;
-      }
-      // Deterministic echo-check: block a reflection that repeats the user's
-      // own profile strings back. Checked against the sanitized profile —
-      // the same values buildPrompt() sent to the model. Throws
-      // GuardrailTripError — caught below and rethrown without retry.
-      assertNoProfileEcho(reflection, collectProfileValues(sanitizeProfile(profile)));
-      return { reflection, isGenerated: true };
+      reflection = parsed.reflection.trim();
     } catch (err) {
       lastError = err;
       if (isGuardrailTrip(err)) {
@@ -203,7 +198,17 @@ export async function runReflectionAgent(
         attempt: attempt + 1,
         ...safeErrorMetadata(err),
       });
+      continue;
     }
+
+    await checkConsent();
+    // Recheck after the base-consent await; this output belongs to this attempt.
+    if (!(await current.isCurrent())) return FIXED_REFLECTION;
+    const outputSafety = await moderateText(reflection, apiKey, "output");
+    if (outputSafety !== "allow") return FIXED_REFLECTION;
+    // Deterministic profile echoes fail without retrying generation.
+    assertNoProfileEcho(reflection, collectProfileValues(sanitizeProfile(profile)));
+    return { reflection, isGenerated: true };
   }
 
   throw lastError instanceof Error
