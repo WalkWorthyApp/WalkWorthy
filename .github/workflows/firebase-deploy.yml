@@ -11,39 +11,32 @@ permissions:
   contents: read
 
 jobs:
+  checks:
+    uses: ./.github/workflows/backend-checks.yml
+
   deploy:
+    needs: checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Use Node.js 24
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 24
 
+      # The functions predeploy hook (firebase.json) runs the TypeScript build.
       - name: Install Firebase Functions dependencies
         run: npm ci
         working-directory: functions
 
-      - name: Lint functions
-        run: npm run lint --if-present
-        working-directory: functions
-
-      - name: Use Java for the Firestore emulator
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-
       - name: Install Firebase CLI
-        run: npm install -g firebase-tools@15.29.0
-
-      - name: Build and test functions with Firestore
-        run: firebase emulators:exec --only firestore --project demo-walkworthy-compliance "npm --prefix functions run test:ci"
+        run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/ci
 
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2.1.13
         with:
           credentials_json: ${{ secrets.GOOGLE_APPLICATION_CREDENTIALS_JSON }}
           create_credentials_file: true
@@ -56,4 +49,4 @@ jobs:
 
       - name: Deploy to Firebase
         run: |
-          firebase deploy --only functions,firestore:rules,firestore:indexes,hosting --project walkworthy-app
+          .github/ci/node_modules/.bin/firebase deploy --only functions,firestore:rules,firestore:indexes,hosting --project walkworthy-app
