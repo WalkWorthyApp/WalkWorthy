@@ -32,6 +32,7 @@ struct Fixture {
         SnapshotStore.shared.deletedUsers = []
         SnapshotStore.shared.beforeBegin = nil
         SnapshotStore.shared.beginError = nil
+        SnapshotStore.shared.beforeDurableDelete = nil
         container = try ModelContainer(for: JournalEntry.self, configurations: ModelConfiguration(isStoredInMemoryOnly: true))
         state = AppState(apiClient: api, authSession: auth, defaults: defaults, modelContainer: container)
     }
@@ -83,10 +84,73 @@ func checkCleared(_ state: AppState) throws {
     try check(state.journalError == nil, "outgoing journal error survived")
 }
 
+@MainActor
+func seedHTTPResponse() throws -> URLRequest {
+    let url = URL(string: "https://example.invalid/synthetic-private-response")!
+    let request = URLRequest(url: url)
+    let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                                   headerFields: ["Cache-Control": "max-age=3600"])!
+    URLCache.shared.storeCachedResponse(CachedURLResponse(response: response, data: Data("synthetic".utf8),
+                                                         storagePolicy: .allowedInMemoryOnly), for: request)
+    try check(URLCache.shared.cachedResponse(for: request) != nil, "HTTP cache fixture was not stored")
+    return request
+}
+
 @main
 struct AccountStateIsolationTests {
     @MainActor
     static func main() async throws {
+        // Replace the shared cache only in this test process; no app cache or
+        // disk-backed HTTP data is read or changed.
+        let originalCache = URLCache.shared
+        URLCache.shared = URLCache(memoryCapacity: 1_048_576, diskCapacity: 0, diskPath: nil)
+        defer { URLCache.shared = originalCache }
+
+        do {
+            let request = try seedHTTPResponse()
+            let session = LiveAPIClient.makeDefaultSession()
+            defer { session.invalidateAndCancel() }
+            try check(URLCache.shared.cachedResponse(for: request) == nil, "session startup retained legacy HTTP cache")
+            try check(session.configuration.urlCache == nil, "default session retained a URL cache")
+            try check(session.configuration.requestCachePolicy == .reloadIgnoringLocalCacheData, "default session may reuse cached responses")
+            try check(session.configuration.timeoutIntervalForRequest == 30 && session.configuration.timeoutIntervalForResource == 45, "session deadlines changed")
+            print("PASS production HTTP session bypasses cache and evicts legacy responses")
+        }
+
+        do {
+            let f = try Fixture()
+            await f.use("A")
+            let request = try seedHTTPResponse()
+            await f.use("A")
+            try check(URLCache.shared.cachedResponse(for: request) != nil, "same-UID refresh purged HTTP cache")
+            await f.use("B")
+            try check(URLCache.shared.cachedResponse(for: request) == nil, "UID transition retained legacy HTTP cache")
+            let signedOutRequest = try seedHTTPResponse()
+            f.state.signOut()
+            try check(URLCache.shared.cachedResponse(for: signedOutRequest) == nil, "sign-out did not purge HTTP cache synchronously")
+            try await waitUntil("test sign-out did not complete") { (try? await f.auth.currentUserSub()) == nil }
+            print("PASS HTTP cache purges on UID changes and sign-out, not same-UID refresh")
+        }
+
+        for initiallyComplete in [false, true] {
+            let f = try Fixture()
+            let intent = ["A": ["includeLegacy": false, "localComplete": initiallyComplete, "serverComplete": false]]
+            f.defaults.set(try JSONSerialization.data(withJSONObject: intent), forKey: "walkworthy.accountDeletionIntents.v2")
+            for _ in 0..<2 {
+                let request = try seedHTTPResponse()
+                SnapshotStore.shared.beforeDurableDelete = {
+                    try check(URLCache.shared.cachedResponse(for: request) == nil, "deletion reached durable cleanup before HTTP-cache purge")
+                }
+                await f.state.resumePendingLocalDeletions()
+                try check(f.state.accountDeletionError == nil, "deletion cleanup failed")
+                try check(URLCache.shared.cachedResponse(for: request) == nil, "repeatable deletion retained HTTP cache")
+                let data = f.defaults.data(forKey: "walkworthy.accountDeletionIntents.v2")!
+                let saved = try JSONSerialization.jsonObject(with: data) as! [String: [String: Bool]]
+                try check(saved["A"]?["localComplete"] == true, "local cleanup was not marked complete")
+            }
+            print("PASS repeated deletion purges HTTP cache before completion (initiallyComplete=\(initiallyComplete))")
+        }
+
         // Missing and corrupt B snapshots exercise the production hydrator's
         // nil-return branches while the reset runs in the real AppState.
         for corrupt in [false, true] {

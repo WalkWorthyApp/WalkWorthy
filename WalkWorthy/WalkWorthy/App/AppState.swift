@@ -861,6 +861,9 @@ final class AppState: ObservableObject {
         guard let intent = pendingAccountDeletionIntents[sub] else { return }
         // Write migration/ownership before any local operation can fail.
         setDeletionIntent(intent, for: sub)
+        // Repeat even for completed local intents: older releases could leave
+        // HTTP responses behind, and a retry must finish this store too.
+        LiveAPIClient.purgeLegacyHTTPResponseCache()
         NotificationScheduler.shared.invalidateSession(for: sub)
         var cleanupError: Error?
         if !intent.localComplete {
@@ -914,6 +917,7 @@ final class AppState: ObservableObject {
 
     func signOut() {
         ReminderPreferences.discardOwnerlessValues(in: defaults)
+        LiveAPIClient.purgeLegacyHTTPResponseCache()
         let departingSub = authenticatedUserSub
         authenticationNotice = "You have been signed out. Please sign in again."
         // Invalidate publication before Firebase's asynchronous sign-out callback.
@@ -1058,6 +1062,7 @@ final class AppState: ObservableObject {
             return
         }
 
+        LiveAPIClient.purgeLegacyHTTPResponseCache()
         if let departingSub = authenticatedUserSub {
             NotificationScheduler.shared.invalidateSession(for: departingSub)
             Task { await NotificationScheduler.shared.removeReminders(for: departingSub, includingLegacy: true) }

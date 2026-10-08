@@ -55,12 +55,19 @@ final class NotificationScheduler {
     func isCurrent(_ session: Session) -> Bool { true }
 }
 
-actor AuthSessionStub { func signOut() throws {} }
+actor AuthSessionStub {
+    func signOut() throws {}
+    func currentUserSub() throws -> String { throw CancellationError() }
+}
+
+enum LiveAPIClient { static func purgeLegacyHTTPResponseCache() {} }
 
 @MainActor
 public final class AppStateBoundary {
     let defaults: UserDefaults
     var authenticatedUserSub: String?
+    var authenticatedSession: AuthSessionIdentity?
+    var isAuthenticated = true
     var authenticationNotice: String?
     var reflectionFetchTask, profileRefreshTask, profileSyncTask: Task<Void, Never>?
     var signOutTask, consentOperation, moodSubmissionTask: Task<Void, Never>?
@@ -84,6 +91,10 @@ public final class AppStateBoundary {
     func removeMoodDrafts(for userSub: String) {}
     func clearOnDiskUserCaches(for userSub: String) {}
     func reloadUserScopedPreferences() {}
+    func resetAccountMemory() { authenticatedSession = nil }
+    func refreshAuthenticatedUser() async {}
+    func refreshProfileFromBackend() async {}
+    func isCurrentSession(_ session: AuthSessionIdentity) -> Bool { authenticatedSession == session }
     APP_METHODS
 }
 
@@ -110,3 +121,6 @@ public final class NotificationSettingsBoundary {
 helper = source / "Notifications/ReminderPreferences.swift"
 if helper.exists():
     shutil.copy2(helper, output / helper.name)
+identity = source / "Auth/AuthSessionIdentity.swift"
+if identity.exists():
+    shutil.copy2(identity, output / identity.name)

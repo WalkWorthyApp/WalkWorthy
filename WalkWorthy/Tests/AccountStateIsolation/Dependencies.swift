@@ -64,6 +64,7 @@ final class SnapshotStore {
     var deletedUsers: [String] = []
     var beforeBegin: (() throws -> Void)?
     var beginError: Error?
+    var beforeDurableDelete: (() throws -> Void)?
 
     private func key(_ kind: SnapshotKind, _ userSub: String) -> String { "\(userSub)/\(kind.rawValue)" }
     func seed<T: Encodable>(_ value: T, kind: SnapshotKind, userSub: String) throws {
@@ -81,7 +82,10 @@ final class SnapshotStore {
         do { try beforeBegin?() } catch { beginError = error }
     }
     func deleteAll(for sub: String) async { deletedUsers.append(sub) }
-    func deleteAllDurably(for sub: String) async throws { deletedUsers.append(sub) }
+    func deleteAllDurably(for sub: String) async throws {
+        try beforeDurableDelete?()
+        deletedUsers.append(sub)
+    }
 }
 
 @MainActor

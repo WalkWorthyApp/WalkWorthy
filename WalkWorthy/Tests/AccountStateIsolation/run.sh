@@ -17,11 +17,14 @@ for sdk_stub in FirebaseAnalytics FirebaseCrashlytics; do
     -o "$build_dir/lib$sdk_stub.dylib"
 done
 
+python3 "$test_dir/extract-cache.py" "$app_dir/Networking/LiveAPIClient.swift" "$build_dir/LiveAPIClientCache.swift"
+
 "$swift_compiler" -sdk "$sdk_path" -swift-version 5 -default-isolation MainActor \
   -module-cache-path "$build_dir/module-cache" \
   -parse-as-library -I "$build_dir" -L "$build_dir" \
   -lFirebaseAnalytics -lFirebaseCrashlytics -Xlinker -rpath -Xlinker "$build_dir" \
   "$app_dir/Auth/AuthSessionIdentity.swift" "$app_dir/App/AppState.swift" \
+  "$app_dir/Notifications/ReminderPreferences.swift" "$build_dir/LiveAPIClientCache.swift" \
   "$app_dir/App/Config.swift" "$app_dir/Networking/APIError.swift" \
   "$app_dir/Models/EncouragementModels.swift" "$app_dir/Models/MoodModels.swift" \
   "$app_dir/Models/JournalModels.swift" \
