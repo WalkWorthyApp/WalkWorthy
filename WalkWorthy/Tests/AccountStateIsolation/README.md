@@ -28,6 +28,27 @@ checks also cover no-cache session configuration, HTTP-cache eviction on actual
 UID changes and sign-out, preservation on same-UID refresh, and repeated deletion
 cleanup before completion (including intents already marked locally complete).
 
+A second executable (`TransportTests.swift`, `DeletionFlowTests.swift`) compiles
+the production `LiveAPIClient`, `SessionCredentialBinding`, `AuthenticatedRequestContext`
+and `AccountDeletionFlow` over a stub `URLProtocol`. It holds account-owned work
+(debounced profile save, personalization toggle, 401 forced-refresh retry, post-App
+Check dispatch, account deletion, and every deletion-ceremony wait) and switches
+accounts: A→B and same-UID re-sign-in before AppState observes Firebase, and
+observed A→B, A→B→A and sign-out→sign-in as A. Every case must dispatch nothing with
+another sign-in's credential; same-session controls must still send. The stub server
+applies the backend's recent-auth rule for new deletion jobs, covering stale password
+and Apple sessions, Apple cancellation and Apple ID mismatch. Firebase itself is a
+stand-in modelled on firebase-ios-sdk 12.7.0 (one `User` object per sign-in, reused
+by token refresh, reload and reauthentication); validate Apple and Firebase behavior
+on a device.
+
+Deletion retry coverage also reproduces successful cloud deletion with failed local
+cleanup, then unavailable Apple authorization and repeated local failure. Retry must
+finish local recovery without another provider ceremony or cloud request, including
+when Firebase no longer has the user. Persisted completion states, stale app sessions,
+and another account's intent are covered; incomplete server deletion still requires
+Apple authorization or a stale password session's reauthentication.
+
 These are forced transitions through production `AppState`. They do not establish
 that the shipped UI can reach a direct authenticated account switch. The snapshot
 stand-in exercises nil/decoded payloads but does not validate the real store's file

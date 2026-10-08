@@ -19,10 +19,8 @@ struct EmailVerificationView: View {
 
     // Account deletion must stay reachable pre-verification (App Store
     // Guideline 5.1.1(v)) — the main Settings screen is behind this gate,
-    // so the gate itself offers it. Mirrors SettingsView's two-step flow.
-    @State private var showDeleteConfirmation = false
-    @State private var showReauthSheet = false
-    @State private var deleteError: String?
+    // so the gate itself starts RootView's session-bound ceremony.
+    @EnvironmentObject private var deletionFlow: AccountDeletionFlow
 
     var body: some View {
         ZStack {
@@ -79,13 +77,14 @@ struct EmailVerificationView: View {
                 }
                 .font(.footnote)
                 .foregroundStyle(.white.opacity(0.7))
+                .disabled(deletionFlow.isWorking)
 
                 Button("Delete account") {
-                    showDeleteConfirmation = true
+                    deletionFlow.begin(using: appState)
                 }
                 .font(.footnote)
                 .foregroundStyle(.red.opacity(0.9))
-                .disabled(isWorking)
+                .disabled(isWorking || deletionFlow.isWorking)
 
                 Spacer()
             }
@@ -93,65 +92,6 @@ struct EmailVerificationView: View {
         }
         .task {
             email = await appState.currentUserEmail()
-        }
-        .confirmationDialog(
-            "Delete Account?",
-            isPresented: $showDeleteConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Delete Account", role: .destructive) {
-                Task { await startAccountDeletion() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This permanently removes your account and any data associated with it. This cannot be undone.")
-        }
-        .sheet(isPresented: $showReauthSheet) {
-            ReauthenticationSheet(
-                onAuthenticated: {
-                    Task { await performBackendDeletion() }
-                }
-            )
-        }
-        .alert(
-            "Couldn't delete account",
-            isPresented: Binding(
-                get: { deleteError != nil },
-                set: { if !$0 { deleteError = nil } }
-            ),
-            presenting: deleteError
-        ) { _ in
-            Button("OK", role: .cancel) { deleteError = nil }
-        } message: { message in
-            Text(message)
-        }
-    }
-
-    // MARK: - Account deletion (mirrors SettingsView's two-step flow)
-
-    private func startAccountDeletion() async {
-        guard appState.isAuthenticated, !isWorking else { return }
-        let needsReauth = await appState.accountDeletionRequiresReauth()
-        if needsReauth {
-            showReauthSheet = true
-        } else {
-            await performBackendDeletion()
-        }
-    }
-
-    private func performBackendDeletion() async {
-        isWorking = true
-        defer { isWorking = false }
-        do {
-            try await appState.deleteAccount()
-            // AppState signs out the captured account when both sides finish.
-        } catch APIError.unauthorized, APIError.notAuthenticated {
-            deleteError = "Please sign in again, then try deleting your account."
-            appState.signOut()
-        } catch let error as APIError {
-            deleteError = error.errorDescription ?? "Couldn't delete account — please try again."
-        } catch {
-            deleteError = "Couldn't delete account — please try again."
         }
     }
 

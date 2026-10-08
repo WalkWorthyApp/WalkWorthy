@@ -24,6 +24,8 @@ python3 "$test_dir/extract-cache.py" "$app_dir/Networking/LiveAPIClient.swift" "
   -parse-as-library -I "$build_dir" -L "$build_dir" \
   -lFirebaseAnalytics -lFirebaseCrashlytics -Xlinker -rpath -Xlinker "$build_dir" \
   "$app_dir/Auth/AuthSessionIdentity.swift" "$app_dir/App/AppState.swift" \
+  "$app_dir/Auth/AuthenticatedRequestContext.swift" "$app_dir/Auth/SessionCredentialBinding.swift" \
+  "$app_dir/Auth/BearerTokenProviding.swift" "$app_dir/Auth/AppCheckTokenProviding.swift" \
   "$app_dir/Notifications/ReminderPreferences.swift" "$build_dir/LiveAPIClientCache.swift" \
   "$app_dir/App/Config.swift" "$app_dir/Networking/APIError.swift" \
   "$app_dir/Models/EncouragementModels.swift" "$app_dir/Models/MoodModels.swift" \
@@ -31,3 +33,21 @@ python3 "$test_dir/extract-cache.py" "$app_dir/Networking/LiveAPIClient.swift" "
   "$test_dir/Dependencies.swift" "$test_dir/Tests.swift" \
   -o "$build_dir/account-state-tests"
 "$build_dir/account-state-tests"
+
+# Second executable: the real LiveAPIClient over a stub URLProtocol, so request
+# binding (token fetch, 401 retry, pre-dispatch check) runs as production code.
+"$swift_compiler" -sdk "$sdk_path" -swift-version 5 -default-isolation MainActor \
+  -module-cache-path "$build_dir/module-cache" \
+  -parse-as-library -I "$build_dir" -L "$build_dir" \
+  -lFirebaseAnalytics -lFirebaseCrashlytics -Xlinker -rpath -Xlinker "$build_dir" \
+  "$app_dir/Auth/AuthSessionIdentity.swift" "$app_dir/App/AppState.swift" \
+  "$app_dir/Auth/AuthenticatedRequestContext.swift" "$app_dir/Auth/SessionCredentialBinding.swift" \
+  "$app_dir/Auth/BearerTokenProviding.swift" "$app_dir/Auth/AppCheckTokenProviding.swift" \
+  "$app_dir/Notifications/ReminderPreferences.swift" "$app_dir/Networking/LiveAPIClient.swift" \
+  "$app_dir/App/Config.swift" "$app_dir/Networking/APIError.swift" \
+  "$app_dir/Models/EncouragementModels.swift" "$app_dir/Models/MoodModels.swift" \
+  "$app_dir/Models/JournalModels.swift" \
+  "$app_dir/Auth/AccountDeletionFlow.swift" \
+  "$test_dir/Dependencies.swift" "$test_dir/TransportTests.swift" "$test_dir/DeletionFlowTests.swift" \
+  -o "$build_dir/transport-binding-tests"
+"$build_dir/transport-binding-tests"

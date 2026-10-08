@@ -364,13 +364,14 @@ final class AppState: ObservableObject {
         currentProfile?.optIn = isOn
         defaults.set(isOn, forKey: storageKey(StorageKey.useProfilePersonalization))
 
-        guard isAuthenticated, !accountDeletionPending, let requestSub = authenticatedUserSub else { return }
+        guard let session = authenticatedSession, isCurrentSession(session) else { return }
+        let context = authenticatedRequestContext(for: session)
         profileSyncTask?.cancel()
         profileSyncTask = Task { [weak self] in
             await self?.sendPersonalizationPreference(
                 isOn,
                 previousValue: previousValue,
-                requestSub: requestSub
+                context: context
             )
         }
     }
@@ -699,39 +700,44 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Firebase requires a recent sign-in (within ~5 minutes) before it will
-    /// allow `user.delete()`. The backend account-deletion endpoint performs
-    /// the Firebase Auth teardown server-side via the Admin SDK (which isn't
-    /// subject to that window), but a stale client session also means the
-    /// bearer token in the `Authorization` header can be older than the
-    /// freshness window the backend enforces. Prompt the user to re-enter
-    /// their password whenever the last sign-in was more than 5 minutes ago.
-    private static let reauthRequiredWindow: TimeInterval = 5 * 60
+    /// The backend creates a deletion job only for a token whose `auth_time`
+    /// is under 5 minutes old. Prompt earlier so the window cannot lapse
+    /// between this check and the request, or on modest clock skew.
+    private static let reauthRequiredWindow: TimeInterval = 4 * 60
 
-    /// Returns `true` if the user must re-enter their password before we hit
-    /// the backend `deleteAccount` endpoint. Gated on the Firebase-reported
-    /// `lastSignInDate`; a fresh sign-in / create-account flow skips the prompt.
-    func accountDeletionRequiresReauth() async -> Bool {
-        guard let seconds = await authSession.secondsSinceLastSignIn() else {
-            // No metadata means we can't prove freshness — safer to prompt.
-            return true
+    /// Every deletion step acts only for the session that confirmed it. Apple
+    /// accounts re-authenticate and revoke here; password accounts report
+    /// whether their token's `auth_time` is too old, so the flow asks first.
+    /// Runs before any local erasure or Apple revocation.
+    func prepareAccountDeletion(session: AuthSessionIdentity) async throws -> Bool {
+        let context = authenticatedRequestContext(for: session, allowingAccountDeletion: true)
+        try context.checkValidity()
+        // The durable intent already authorizes this UID's remaining local
+        // cleanup. Once the server is done, its Auth user may no longer exist.
+        if pendingAccountDeletionIntents[session.userSub]?.serverComplete == true {
+            return false
         }
-        return seconds > Self.reauthRequiredWindow
+        if try authSession.usesAppleSignIn(for: context) {
+            try await authSession.reauthenticateAndRevokeApple(for: context)
+            return false
+        }
+        return try await authSession.secondsSinceAuthentication(for: context) > Self.reauthRequiredWindow
     }
 
-    /// Re-authenticates the signed-in user with their email + password. Called
-    /// from the account-deletion re-auth sheet before `deleteAccount()`.
-    /// Propagates Firebase Auth errors so the view can surface them via
-    /// `FirebaseAuthErrorMapper`.
-    func reauthenticate(password: String) async throws {
-        try await authSession.reauthenticate(password: password)
+    /// Propagates Firebase Auth errors so the sheet can map them via
+    /// `FirebaseAuthErrorMapper`; a superseded session is cancellation.
+    func reauthenticateForAccountDeletion(password: String, session: AuthSessionIdentity) async throws {
+        let context = authenticatedRequestContext(for: session, allowingAccountDeletion: true)
+        try await authSession.reauthenticate(password: password, for: context)
     }
 
     /// Confirming deletion immediately erases this device's data. A durable
     /// UID intent survives network errors and process termination so startup
     /// finishes local erasure even if the worker has already deleted Auth.
-    func deleteAccount() async throws {
-        guard let sub = authenticatedUserSub else { throw APIError.notAuthenticated }
+    func deleteAccount(session: AuthSessionIdentity) async throws {
+        guard isCurrentSession(session, allowingAccountDeletion: true) else { throw CancellationError() }
+        let sub = session.userSub
+        let context = authenticatedRequestContext(for: session, allowingAccountDeletion: true)
         guard !accountDeletionBusy else { return }
         if pendingAccountDeletionIntents[sub] == nil {
             // Capture legacy ownership before any await, sign-out or defaults cleanup.
@@ -767,13 +773,13 @@ final class AppState: ObservableObject {
         var serverError: Error?
         if pendingAccountDeletionIntents[sub]?.serverComplete != true {
             do {
-                guard authenticatedUserSub == sub else { throw CancellationError() }
-                try await apiClient.deleteAccount()
+                try context.checkValidity()
+                try await apiClient.deleteAccount(context: context)
                 updateDeletionIntent(for: sub) { $0.serverComplete = true }
             } catch { serverError = error }
         }
         if let error = localError ?? serverError {
-            if authenticatedUserSub == sub {
+            if isCurrentSession(session, allowingAccountDeletion: true) {
                 let localMessage = localError == nil ? nil : "Device cleanup is unfinished. Unlock your device and retry cleanup."
                 let cloudMessage = serverError.map {
                     ($0 as? APIError)?.errorDescription ?? "Server deletion is not yet confirmed. Retry or contact support."
@@ -784,7 +790,7 @@ final class AppState: ObservableObject {
         }
         do { try await finishDeletionIfComplete(for: sub) }
         catch {
-            if authenticatedUserSub == sub {
+            if isCurrentSession(session, allowingAccountDeletion: true) {
                 accountDeletionError = "Your data was deleted. Please retry signing out."
             }
             throw error
@@ -964,6 +970,7 @@ final class AppState: ObservableObject {
                       self.authenticatedSession == nil else { return }
                 let recoveredSession = AuthSessionIdentity(userSub: departingSub)
                 self.authenticatedSession = recoveredSession
+                self.authSession.pinCredential(for: recoveredSession)
                 self.authenticationNotice = "Sign out could not be completed. Please try again."
                 await self.refreshAuthenticatedUser()
                 guard self.isCurrentSession(recoveredSession) else { return }
@@ -997,14 +1004,6 @@ final class AppState: ObservableObject {
         await authSession.currentUserEmail()
     }
 
-    func accountUsesAppleSignIn() async -> Bool {
-        await authSession.usesAppleSignIn()
-    }
-
-    func revokeAppleAuthorizationForDeletion() async throws {
-        try await authSession.revokeAppleAuthorizationForDeletion()
-    }
-
     /// Re-checks verification after the user says they've clicked the link.
     /// On success, forces a bearer-token refresh so the next API call carries
     /// email_verified=true (the backend rejects stale unverified tokens).
@@ -1025,6 +1024,15 @@ final class AppState: ObservableObject {
     ) -> Bool {
         isAuthenticated && (allowingAccountDeletion || !accountDeletionPending)
             && authenticatedSession == session && authenticatedUserSub == session.userSub
+    }
+
+    func authenticatedRequestContext(
+        for session: AuthSessionIdentity,
+        allowingAccountDeletion: Bool = false
+    ) -> AuthenticatedRequestContext {
+        AuthenticatedRequestContext(identity: session) { [weak self] in
+            self?.isCurrentSession(session, allowingAccountDeletion: allowingAccountDeletion) == true
+        }
     }
 
     /// Purely in-memory teardown. Do not call clearJournalState here: it deletes
@@ -1085,6 +1093,7 @@ final class AppState: ObservableObject {
 
         reloadUserScopedPreferences()
         authenticatedSession = sub.map { AuthSessionIdentity(userSub: $0) }
+        if let authenticatedSession { authSession.pinCredential(for: authenticatedSession) }
     }
 
     func refreshAuthenticatedUser() async {
@@ -1155,7 +1164,8 @@ final class AppState: ObservableObject {
     }
 
     private func syncProfile(firstName: String, age: Int?, occupation: String, major: String, hobbies: Set<String>, optIn: Bool) {
-        guard isAuthenticated else { return }
+        guard let session = authenticatedSession, isCurrentSession(session) else { return }
+        let context = authenticatedRequestContext(for: session)
         let profile = OnboardingProfile(firstName: firstName, age: age, occupation: occupation, major: major, hobbies: hobbies, optIn: optIn)
 
         // Debounce: cancel any in-flight sync and schedule a new one after a
@@ -1166,12 +1176,13 @@ final class AppState: ObservableObject {
         profileSyncTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
             if Task.isCancelled { return }
-            await self?.sendProfileUpdate(profile)
+            await self?.sendProfileUpdate(profile, context: context)
         }
     }
 
-    private func sendProfileUpdate(_ profile: OnboardingProfile) async {
-        guard isAuthenticated, !accountDeletionPending, let requestSub = authenticatedUserSub else { return }
+    private func sendProfileUpdate(_ profile: OnboardingProfile, context: AuthenticatedRequestContext) async {
+        guard !Task.isCancelled, isCurrentSession(context.identity) else { return }
+        let requestSub = context.identity.userSub
         let trimmedFirstName = profile.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOccupation = profile.occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = profile.major.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1203,10 +1214,10 @@ final class AppState: ObservableObject {
             // deliberately left untouched here: it was already set
             // optimistically by `updateProfile()`, and this debounced PATCH
             // may land after newer in-memory edits.
-            let updated = try await apiClient.updateUserProfile(payload)
+            let updated = try await apiClient.updateUserProfile(payload, context: context)
             // User switched accounts while the PATCH was in flight — don't
             // persist this user's merged profile into the new user's snapshot.
-            guard authenticatedUserSub == requestSub, !accountDeletionPending else { return }
+            try context.checkValidity()
             if let updated {
                 await SnapshotStore.shared.write(updated, kind: .profile, userSub: requestSub)
             }
@@ -1223,7 +1234,7 @@ final class AppState: ObservableObject {
     private func sendPersonalizationPreference(
         _ isOn: Bool,
         previousValue: Bool,
-        requestSub: String
+        context: AuthenticatedRequestContext
     ) async {
         let payload = RemoteUserProfileRequest(
             ageRange: nil,
@@ -1237,14 +1248,14 @@ final class AppState: ObservableObject {
         )
 
         do {
-            let updated = try await apiClient.updateUserProfile(payload)
-            guard authenticatedUserSub == requestSub, !accountDeletionPending else { return }
+            try context.checkValidity()
+            let updated = try await apiClient.updateUserProfile(payload, context: context)
+            try context.checkValidity()
             if let updated {
-                await SnapshotStore.shared.write(updated, kind: .profile, userSub: requestSub)
+                await SnapshotStore.shared.write(updated, kind: .profile, userSub: context.identity.userSub)
             }
         } catch {
-            guard !Task.isCancelled, !accountDeletionPending,
-                  authenticatedUserSub == requestSub,
+            guard !(error is CancellationError), !Task.isCancelled, isCurrentSession(context.identity),
                   useProfilePersonalization == isOn else { return }
             useProfilePersonalization = previousValue
             currentProfile?.optIn = previousValue

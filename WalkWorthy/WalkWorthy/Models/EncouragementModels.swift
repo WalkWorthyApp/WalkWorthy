@@ -32,7 +32,7 @@ protocol EncouragementAPI {
     /// Returns nil when the response body can't be decoded — the PATCH itself
     /// still succeeded in that case.
     @discardableResult
-    func updateUserProfile(_ payload: RemoteUserProfileRequest) async throws -> RemoteUserProfileResponse?
+    func updateUserProfile(_ payload: RemoteUserProfileRequest, context: AuthenticatedRequestContext) async throws -> RemoteUserProfileResponse?
     /// Fetch the authenticated user's profile from the backend. Returns nil
     /// when the backend has no profile on file yet (pre-onboarding).
     func fetchUserProfile() async throws -> RemoteUserProfileResponse?
@@ -47,7 +47,7 @@ protocol EncouragementAPI {
     /// Permanently deletes the authenticated user's Firestore data AND their
     /// Firebase Auth user. Required for App Store Guideline 5.1.1(v).
     /// On success the backend returns `{ "deleted": true }`; AppState signs out.
-    func deleteAccount() async throws
+    func deleteAccount(context: AuthenticatedRequestContext) async throws
 
 }
 

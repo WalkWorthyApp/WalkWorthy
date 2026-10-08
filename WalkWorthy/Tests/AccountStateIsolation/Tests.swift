@@ -1,24 +1,6 @@
 import Foundation
 import SwiftData
 
-struct CheckFailure: Error, CustomStringConvertible {
-    let description: String
-}
-
-@MainActor
-func check(_ condition: @autoclosure () -> Bool, _ message: String) throws {
-    if !condition() { throw CheckFailure(description: message) }
-}
-
-@MainActor
-func waitUntil(_ message: String, _ predicate: () async -> Bool) async throws {
-    let deadline = ContinuousClock.now.advanced(by: .seconds(5))
-    while !(await predicate()) {
-        try check(ContinuousClock.now < deadline, message)
-        await Task.yield()
-    }
-}
-
 @MainActor
 struct Fixture {
     let api = TestAPI()
@@ -28,6 +10,7 @@ struct Fixture {
     let state: AppState
 
     init() throws {
+        FakeFirebase.reset()
         SnapshotStore.shared.data = [:]
         SnapshotStore.shared.deletedUsers = []
         SnapshotStore.shared.beforeBegin = nil
@@ -283,7 +266,7 @@ struct AccountStateIsolationTests {
                 try check(!f.state.isCurrentSession(confirmation), "ordinary work allowed during deletion")
                 try check(f.state.isCurrentSession(confirmation, allowingAccountDeletion: true), "confirmation-bound deletion rejected")
             }
-            try await f.state.deleteAccount()
+            try await f.state.deleteAccount(session: confirmation)
             try check(!f.state.isCurrentSession(confirmation, allowingAccountDeletion: true), "completed deletion retained identity")
             print("PASS deletion continuation preserves identity but blocks ordinary publication")
         }
