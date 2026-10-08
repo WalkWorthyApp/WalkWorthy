@@ -1,0 +1,17 @@
+name: CI
+
+# pull_request (not pull_request_target) runs PR code without repository
+# secrets. No path filter: a required check that never reports blocks merging.
+on:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    uses: ./.github/workflows/backend-checks.yml

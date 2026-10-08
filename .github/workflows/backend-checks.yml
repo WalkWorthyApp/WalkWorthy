@@ -1,0 +1,44 @@
+name: Backend checks
+
+# Shared gate for pull requests (ci.yml) and deployment (firebase-deploy.yml).
+# Uses no secrets: tests run against the local Firestore emulator under a
+# demo- project ID, which never reaches a real Firebase project.
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Use Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install Firebase Functions dependencies
+        run: npm ci
+        working-directory: functions
+
+      - name: Lint functions
+        run: npm run lint --if-present
+        working-directory: functions
+
+      - name: Use Java for the Firestore emulator
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Firebase CLI
+        run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: .github/ci
+
+      # test:ci fails if the emulator is missing or any test is skipped.
+      - name: Build and test functions with Firestore
+        run: .github/ci/node_modules/.bin/firebase emulators:exec --only firestore --project demo-walkworthy-compliance "npm --prefix functions run test:ci"
