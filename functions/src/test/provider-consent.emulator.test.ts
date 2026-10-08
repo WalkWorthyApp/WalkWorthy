@@ -75,8 +75,8 @@ for (const endpoint of ['mood', 'reflection'] as const) {
           ? { message: 'Take a quiet moment today.', verseId: 'psalm_46_1' }
           : { reflection: 'Take a quiet moment today.' };
       };
-      t.mock.method(moodAgent, 'runMoodAgent', (...[input, _key, check, model]: Parameters<typeof realMood>) =>
-        realMood(input, 'synthetic-key', check, model, generate));
+      t.mock.method(moodAgent, 'runMoodAgent', (...[input, _key, check, model, _generate, beforeGeneration]: Parameters<typeof realMood>) =>
+        realMood(input, 'synthetic-key', check, model, generate, beforeGeneration));
       t.mock.method(reflectionAgent, 'runReflectionAgent', (...[summaries, _key, check, userProfile]: Parameters<typeof realReflection>) =>
         realReflection(summaries, 'synthetic-key', check, userProfile, generate));
       t.mock.method(globalThis, 'fetch', async (url: string | URL | globalThis.Request) => {
@@ -127,11 +127,20 @@ for (const endpoint of ['mood', 'reflection'] as const) {
           assert.equal((await db.doc(`users/${uid}/moodSummaries/${today}`).get()).exists, scenario === 'success');
         }
         const budgets = (await db.collection('_dailyBudgets').get()).docs.filter(doc => doc.id.startsWith(`${uid}_`));
-        assert.equal(refund.mock.callCount(), scenario === 'success' ? 0 : 1);
-        // The existing deletion barrier deliberately also blocks refund writes;
-        // account cleanup removes that budget document. Other failures refund it.
+        assert.equal(refund.mock.callCount(), endpoint === 'mood' || scenario === 'success' ? 0 : 1);
+        // Mood claims refund only proven unconsumed work. Reflection retains
+        // its existing accounting; deletion barriers block its refund writes.
         assert.equal(budgets.reduce((sum, doc) => sum + Number(doc.get('callCount')), 0),
-          scenario === 'success' || scenario === 'account-deleting' ? 1 : 0);
+          endpoint === 'mood' ? (generations > 0 ? 1 : 0)
+            : scenario === 'success' || scenario === 'account-deleting' ? 1 : 0);
+        if (endpoint === 'mood') {
+          const claims = await db.collection(`users/${uid}/moodGenerationClaims`).get();
+          assert.equal(claims.size, 1);
+          assert.equal(claims.docs[0].get('consumed'), generations > 0);
+          if (scenario !== 'account-deleting') {
+            assert.equal(claims.docs[0].get('status'), scenario === 'success' ? 'completed' : 'failed');
+          }
+        }
         if (scenario === 'success') {
           // Previously saved content stays readable without a new provider request.
           await withdraw();

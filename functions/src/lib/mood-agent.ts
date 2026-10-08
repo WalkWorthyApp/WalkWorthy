@@ -304,6 +304,7 @@ export async function runMoodAgent(
   generate: GenerationRunner = async (serializedInput, signal) =>
     // Empty model output can otherwise trigger another SDK turn without a check.
     (await run(ensureAgent(model, apiKey), serializedInput, { signal, maxTurns: 1 })).finalOutput,
+  beforeGeneration: () => Promise<void> = async () => {},
 ): Promise<AIEncouragementResponse> {
   logger.info("[MoodAgent] Starting encouragement");
 
@@ -350,6 +351,9 @@ export async function runMoodAgent(
     // Checks live outside provider catches: denial/read failure must stop work,
     // including when consent changes during backoff. Sent requests cannot be recalled.
     await checkConsent();
+    // Admission/ownership errors must abort, not enter the model retry loop.
+    // Fixed input-safety responses above never consume a generation attempt.
+    await beforeGeneration();
     let parsed: AIEncouragementResponse;
     try {
       logger.info("[MoodAgent] Calling OpenAI agent...");

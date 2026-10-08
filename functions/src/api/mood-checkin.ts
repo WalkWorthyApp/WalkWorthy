@@ -36,16 +36,17 @@ import {
 import { randomUUID } from 'crypto';
 import {
   checkRateLimit,
-  checkDailyAiBudget,
-  refundDailyAiBudget,
-  getTodayUtcDateString,
   sendLimitCheckResponse,
   MOOD_CHECKIN_USER_LIMIT,
-  MOOD_DAILY_AI_BUDGET,
   STANDARD_USER_LIMIT,
 } from '../shared/rate-limiter';
 import { getLogicalDateString, getDateStringInTimezone } from '../shared/time';
 import { sameMoodInput } from '../shared/mood-input';
+import {
+  claimMoodGeneration, markMoodGenerationConsumed, readMoodGenerationSettlement,
+  completeMoodGeneration, failMoodGeneration, waitForMoodGeneration,
+  MoodGenerationConflictError, MoodGenerationUnavailableError,
+} from '../shared/mood-generation';
 
 class CheckInConflictError extends Error {}
 
@@ -241,10 +242,12 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       .collection('moodSummaries')
       .doc(todayDate);
 
-    // Step 1: Check for existing check-in inside transaction to avoid redundant AI calls under concurrency
+    // Step 1: Read the observed generation version for cache reuse/claim identity.
     // Returns either: { type: 'existing', data } | { type: 'update', data } | { type: 'create' }
     let transactionResult = await db.runTransaction(async (transaction) => {
       const existingDoc = await transaction.get(checkInRef);
+      const version = existingDoc.updateTime;
+      const baseVersion = version ? `${version.seconds}:${version.nanoseconds}` : 'absent';
       if (regenerateRequested && (typeof expectedCheckInId !== 'string' ||
           !existingDoc.exists || existingDoc.get('id') !== expectedCheckInId)) {
         throw new CheckInConflictError();
@@ -255,13 +258,13 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         // Guard: old check-ins lack moodSpectrumData entirely — treat as needing update
         if (sameMoodInput(existingData.moodSpectrumData, input.moodSpectrumData)) {
           logger.info('Returning existing check-in (same mood)');
-          return { type: 'existing' as const, data: existingData };
+          return { type: 'existing' as const, data: existingData, baseVersion };
         }
         // Different mood - will update after transaction
-        return { type: 'update' as const, data: existingData };
+        return { type: 'update' as const, data: existingData, baseVersion };
       }
       // No existing - will create after transaction
-      return { type: 'create' as const };
+      return { type: 'create' as const, baseVersion };
     });
 
     // Fast-path: Return existing response if same mood — but only after
@@ -279,7 +282,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       if (regenerateRequested) {
         logger.info('Regenerating check-in response at user request');
         overwriteExistingResponse = true;
-        transactionResult = { type: 'update' as const, data: transactionResult.data };
+        transactionResult = { ...transactionResult, type: 'update' as const };
       } else {
         const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
         if (isCleanStoredAiContent(transactionResult.data.aiResponse, profileValues)) {
@@ -293,29 +296,35 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         }
         logger.warn('Stored check-in response failed guardrail screen; regenerating');
         overwriteExistingResponse = true;
-        transactionResult = { type: 'update' as const, data: transactionResult.data };
+        transactionResult = { ...transactionResult, type: 'update' as const };
       }
     }
 
-    // Reserve a slot in the daily AI budget BEFORE calling OpenAI. If the
-    // downstream OpenAI call or Firestore write fails, we refund the slot via
-    // `refundDailyAiBudget` so users aren't penalized by server-side errors.
-    const budgetResult = await checkDailyAiBudget(db, userId, MOOD_DAILY_AI_BUDGET);
-    if (!budgetResult.allowed) {
-      sendLimitCheckResponse(res, 'dailyBudget', budgetResult, { userId, endpoint: 'moodCheckIn' });
-      return;
+    const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
+    let admission;
+    try {
+      admission = await claimMoodGeneration(db, userId, {
+        checkInDocId, input: input.moodSpectrumData, regenerate: regenerateRequested,
+        baseVersion: transactionResult.baseVersion,
+        profileContext: profile?.optInTailored === true ? sanitizeProfile(profile as UserProfilePayload) : null,
+      });
+    } catch (error) {
+      if (error instanceof AccountDeletingError) throw error;
+      logger.error('Mood generation admission failed', safeErrorMetadata(error));
+      throw new MoodGenerationUnavailableError();
     }
-
-    // The budget doc is keyed by UTC date (see `checkDailyAiBudget`), so the
-    // refund must use the same UTC date — NOT the user's logical date
-    // (`todayDate`) which can diverge by up to a full day near midnight for
-    // users far from UTC.
-    const budgetDate = getTodayUtcDateString();
-
-    // From this point forward, any thrown error must refund the reserved slot.
-    // `budgetReserved` tracks whether a refund is still owed; it flips to false
-    // once the check-in has been successfully persisted.
-    let budgetReserved = true;
+    if (admission.type === 'denied') {
+      return sendLimitCheckResponse(res, 'dailyBudget', admission.budget, { userId, endpoint: 'moodCheckIn' });
+    }
+    if (admission.type === 'completed' || admission.type === 'follower') {
+      const response = admission.type === 'completed' ? admission.response : await waitForMoodGeneration(admission.claim);
+      if (regenerateRequested && (await checkInRef.get()).get('id') !== expectedCheckInId) throw new CheckInConflictError();
+      // This is the same operation's validated result, including reviewed fixed
+      // responses. An additional profile echo screen could reject harmless words
+      // in a fixed crisis card that its owner successfully returned.
+      return successResponse(res, response, 201);
+    }
+    const claim = admission.claim;
 
     try {
       // Step 2: Generate AI response (outside transaction - may take time)
@@ -333,7 +342,8 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       const consent = await requireAiConsent(db, userId);
       const aiResponse = await runMoodAgent(agentInput, openaiApiKey.value(), async () => {
         await requireAiConsent(db, userId, undefined, consent.revision);
-      });
+      }, undefined, undefined,
+        () => markMoodGenerationConsumed(claim));
       logger.info('AI response generated');
 
       // Step 3: Atomically write check-in and summary in final transaction
@@ -354,113 +364,82 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         expiresAt: expiresAt.toISOString(),
       };
 
-      let finalCheckInData = checkInData;
-      let concurrentDuplicate = false;
-
-      try {
-        await db.runTransaction(async (transaction) => {
-          await requireAiConsent(db, userId, transaction, consent.revision);
-          // Optimistic concurrency check: if a concurrent request already wrote this check-in
-          // with the same mood, return that instead to avoid duplicate responses.
-          // Skipped when we are deliberately overwriting the stored response
-          // (failed guardrail screen, or an explicit user retry) — the
-          // "existing identical" doc is exactly the one we must replace, and
-          // this short-circuit would re-serve it.
-          const existingCheckInDoc = await transaction.get(checkInRef);
-          if (regenerateRequested && (!existingCheckInDoc.exists ||
-              existingCheckInDoc.get('id') !== expectedCheckInId)) {
-            throw new CheckInConflictError();
-          }
-          if (existingCheckInDoc.exists && !overwriteExistingResponse) {
-            const existingCheckInData = existingCheckInDoc.data() as MoodCheckIn;
-            if (sameMoodInput(existingCheckInData.moodSpectrumData, input.moodSpectrumData)) {
-              logger.info('Concurrent request already created identical check-in, skipping write');
-              finalCheckInData = existingCheckInData;
-              concurrentDuplicate = true;
-              // Abort transaction gracefully - we'll use the existing check-in
-              throw new Error('CONCURRENT_IDENTICAL_CHECKIN');
-            }
-          }
-
-          // Get existing summary within transaction
-          const summaryDoc = await transaction.get(summaryRef);
-          const existingSummary = summaryDoc.exists ? (summaryDoc.data() as DailyMoodSummary) : undefined;
-
-          const checkInSummary: CheckInSummary = {
-            checkInId,
-            moodLevel: input.moodSpectrumData.moodLevel,
-            respondedAt: now.toISOString(),
-          };
-
-          // Use null instead of undefined for Firestore compatibility
-          const updatedSummary: DailyMoodSummary = {
-            date: todayDate,
-            morning: input.checkInType === 'morning' ? checkInSummary : (existingSummary?.morning ?? null),
-            midday: input.checkInType === 'midday' ? checkInSummary : (existingSummary?.midday ?? null),
-            evening: input.checkInType === 'evening' ? checkInSummary : (existingSummary?.evening ?? null),
-            updatedAt: now.toISOString(),
-          };
-
-          // Calculate overall sentiment from updated check-ins
-          updatedSummary.overallSentiment = calculateOverallSentiment(
-            updatedSummary.morning,
-            updatedSummary.midday,
-            updatedSummary.evening,
-          );
-
-          // Set check-in (creates or updates - deterministic docID ensures no duplicates)
-          transaction.set(checkInRef, checkInData);
-          // Set summary atomically with merge to preserve any other fields
-          transaction.set(summaryRef, updatedSummary, { merge: true });
-        });
-      } catch (txnError) {
-        // If concurrent duplicate detected, use the existing check-in instead.
-        // The reserved budget slot is wasted on this call but the refund path
-        // below still fires because we haven't cleared `budgetReserved` yet —
-        // that would let the user retry with a fresh mood. Since the
-        // concurrent request already charged its own slot, we refund ours.
-        if (txnError instanceof Error && txnError.message === 'CONCURRENT_IDENTICAL_CHECKIN') {
-          // Continue - we already set finalCheckInData to the existing check-in above
-        } else {
-          // Re-throw any other transaction errors — outer catch refunds the budget slot
-          throw txnError;
+      const response = await db.runTransaction(async (transaction) => {
+        await requireAiConsent(db, userId, transaction, consent.revision);
+        const settlement = await readMoodGenerationSettlement(transaction, claim);
+        const existingCheckInDoc = await transaction.get(checkInRef);
+        if (regenerateRequested && (!existingCheckInDoc.exists ||
+            existingCheckInDoc.get('id') !== expectedCheckInId)) {
+          throw new CheckInConflictError();
         }
-      }
+        if (existingCheckInDoc.exists && !overwriteExistingResponse) {
+          const existing = existingCheckInDoc.data() as MoodCheckIn;
+          if (sameMoodInput(existing.moodSpectrumData, input.moodSpectrumData) &&
+              isCleanStoredAiContent(existing.aiResponse, profileValues)) {
+            const existingResponse: MoodCheckInResponse = {
+              checkInId: existing.id, aiResponse: existing.aiResponse,
+              createdAt: existing.createdAt, expiresAt: existing.expiresAt,
+            };
+            completeMoodGeneration(transaction, claim, settlement, existingResponse);
+            return existingResponse;
+          }
+        }
 
-      // Write succeeded (including the concurrent-duplicate fast-path where
-      // another request already persisted the check-in). In the duplicate
-      // case we still refund because the concurrent request has its own
-      // charge.
-      if (!concurrentDuplicate) {
-        budgetReserved = false;
-      }
+        // Get existing summary within transaction
+        const summaryDoc = await transaction.get(summaryRef);
+        const existingSummary = summaryDoc.exists ? (summaryDoc.data() as DailyMoodSummary) : undefined;
 
+        const checkInSummary: CheckInSummary = {
+          checkInId,
+          moodLevel: input.moodSpectrumData.moodLevel,
+          respondedAt: now.toISOString(),
+        };
+
+        // Use null instead of undefined for Firestore compatibility
+        const updatedSummary: DailyMoodSummary = {
+          date: todayDate,
+          morning: input.checkInType === 'morning' ? checkInSummary : (existingSummary?.morning ?? null),
+          midday: input.checkInType === 'midday' ? checkInSummary : (existingSummary?.midday ?? null),
+          evening: input.checkInType === 'evening' ? checkInSummary : (existingSummary?.evening ?? null),
+          updatedAt: now.toISOString(),
+        };
+
+        // Calculate overall sentiment from updated check-ins
+        updatedSummary.overallSentiment = calculateOverallSentiment(
+          updatedSummary.morning,
+          updatedSummary.midday,
+          updatedSummary.evening,
+        );
+
+        // Set check-in (creates or updates - deterministic docID ensures no duplicates)
+        transaction.set(checkInRef, checkInData);
+        // Set summary atomically with merge to preserve any other fields
+        transaction.set(summaryRef, updatedSummary, { merge: true });
+        const savedResponse: MoodCheckInResponse = {
+          checkInId: checkInData.id, aiResponse: checkInData.aiResponse,
+          createdAt: checkInData.createdAt, expiresAt: checkInData.expiresAt,
+        };
+        completeMoodGeneration(transaction, claim, settlement, savedResponse);
+        return savedResponse;
+      });
       logger.info('Mood check-in complete');
-
-      const response: MoodCheckInResponse = {
-        checkInId: finalCheckInData.id,
-        aiResponse: finalCheckInData.aiResponse,
-        createdAt: finalCheckInData.createdAt,
-        expiresAt: finalCheckInData.expiresAt,
-      };
-
-      // Refund the slot reserved for a concurrent duplicate before responding.
-      if (budgetReserved) {
-        await refundDailyAiBudget(db, userId, budgetDate);
-        budgetReserved = false;
-      }
-
       return successResponse(res, response, 201);
     } catch (aiOrWriteError) {
-      // OpenAI or Firestore write failed after we reserved the budget slot.
-      // Issue a compensating decrement so the failure isn't charged to the user.
-      if (budgetReserved) {
-        await refundDailyAiBudget(db, userId, budgetDate);
+      // Unlike the former blanket refund, this compensates only work proven
+      // unconsumed. Model/guardrail/timeouts and post-generation write failures
+      // retain their daily charge, even when the user receives an error.
+      try {
+        await failMoodGeneration(claim, aiOrWriteError instanceof AiConsentRequiredError ? 'consent'
+          : aiOrWriteError instanceof CheckInConflictError || aiOrWriteError instanceof MoodGenerationConflictError ? 'conflict' : 'failed');
+      } catch (cleanupError) {
+        logger.error('Mood generation cleanup failed', safeErrorMetadata(cleanupError));
       }
       throw aiOrWriteError;
     }
   } catch (error) {
-    if (error instanceof CheckInConflictError) return errorResponse(res, 409, 'This check-in has changed. Close and reopen it before trying again.');
+    if (error instanceof MoodGenerationUnavailableError) return sendLimitCheckResponse(res, 'dailyBudget',
+      { allowed: false, retryAfterSeconds: 60, failure: 'unavailable' }, { userId, endpoint: 'moodCheckIn' });
+    if (error instanceof CheckInConflictError || error instanceof MoodGenerationConflictError) return errorResponse(res, 409, 'This check-in has changed. Close and reopen it before trying again.');
     if (error instanceof AiConsentRequiredError) return errorResponse(res, 403, 'Current AI sharing consent required', undefined, 'AI_CONSENT_REQUIRED');
     if (error instanceof AccountDeletingError) return errorResponse(res, 403, 'Account deletion in progress', undefined, 'ACCOUNT_DELETING');
 
