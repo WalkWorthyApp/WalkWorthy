@@ -6,7 +6,7 @@
  */
 
 import { Agent, run, setTracingDisabled } from "@openai/agents";
-import { setDefaultOpenAIKey, setOpenAIAPI } from "@openai/agents-openai";
+import { createProviderModel, type ProviderConsentCheck } from "./provider-model";
 import { z } from "zod";
 import { logger } from "firebase-functions/v2";
 import { safeErrorMetadata } from "../shared/safe-logging";
@@ -83,15 +83,13 @@ let cachedApiKey: string | undefined;
 function ensureAgent(apiKey: string): Agent<object, typeof reflectionOutputSchema> {
   if (cachedAgent && cachedApiKey === apiKey) return cachedAgent;
 
-  setDefaultOpenAIKey(apiKey);
-  setOpenAIAPI("responses");
   setTracingDisabled(true);
   cachedApiKey = apiKey;
 
   cachedAgent = new Agent<object, typeof reflectionOutputSchema>({
     name: "WalkWorthyReflectionAgent",
     instructions: REFLECTION_SYSTEM_PROMPT,
-    model: MOOD_MODEL,
+    model: createProviderModel(apiKey, MOOD_MODEL),
     // Disable storage of the Responses API response object for this call.
     // Provider abuse-monitoring retention remains governed by the API project.
     modelSettings: { temperature: 0.6, topP: 1, maxTokens: 256, store: false },
@@ -145,9 +143,11 @@ export const FIXED_REFLECTION: ReflectionAgentResult = {
 export async function runReflectionAgent(
   summaries: DailyMoodSummary[],
   apiKey: string,
+  checkConsent: ProviderConsentCheck,
   profile: UserProfilePayload | null = null,
   generate: GenerationRunner = async (input, signal) =>
-    (await run(ensureAgent(apiKey), input, { signal })).finalOutput,
+    // Every new model attempt must return through the consent check below.
+    (await run(ensureAgent(apiKey), input, { signal, maxTurns: 1 })).finalOutput,
 ): Promise<ReflectionAgentResult> {
   logger.info("[ReflectionAgent] Generating daily reflection", {
     summaryCount: summaries.length,
@@ -166,6 +166,9 @@ export async function runReflectionAgent(
       await sleep(delayMs);
     }
 
+    // Do not catch authorization/read failures as retryable provider failures.
+    await checkConsent();
+    let reflection: string;
     try {
       const result = await withTimeout((signal) =>
         generate(input, signal),
@@ -182,17 +185,7 @@ export async function runReflectionAgent(
         throw new Error("Empty reflection returned");
       }
 
-      const reflection = parsed.reflection.trim();
-      const outputSafety = await moderateText(reflection, apiKey, "output");
-      if (outputSafety !== "allow") {
-        return FIXED_REFLECTION;
-      }
-      // Deterministic echo-check: block a reflection that repeats the user's
-      // own profile strings back. Checked against the sanitized profile —
-      // the same values buildPrompt() sent to the model. Throws
-      // GuardrailTripError — caught below and rethrown without retry.
-      assertNoProfileEcho(reflection, collectProfileValues(sanitizeProfile(profile)));
-      return { reflection, isGenerated: true };
+      reflection = parsed.reflection.trim();
     } catch (err) {
       lastError = err;
       if (isGuardrailTrip(err)) {
@@ -203,7 +196,15 @@ export async function runReflectionAgent(
         attempt: attempt + 1,
         ...safeErrorMetadata(err),
       });
+      continue;
     }
+
+    await checkConsent();
+    const outputSafety = await moderateText(reflection, apiKey, "output");
+    if (outputSafety !== "allow") return FIXED_REFLECTION;
+    // Deterministic profile echoes fail without retrying generation.
+    assertNoProfileEcho(reflection, collectProfileValues(sanitizeProfile(profile)));
+    return { reflection, isGenerated: true };
   }
 
   throw lastError instanceof Error

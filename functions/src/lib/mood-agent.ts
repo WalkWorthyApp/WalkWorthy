@@ -7,7 +7,7 @@
  */
 
 import { Agent, run, setTracingDisabled } from "@openai/agents";
-import { setDefaultOpenAIKey, setOpenAIAPI } from "@openai/agents-openai";
+import { createProviderModel, type ProviderConsentCheck } from "./provider-model";
 import { z } from "zod";
 import Ajv from "ajv";
 import { logger } from "firebase-functions/v2";
@@ -174,21 +174,7 @@ ${SCRIPTURE_SELECTION_GUIDE}
 
 let cachedAgent: Agent<object, typeof encouragementOutputSchema> | undefined;
 let cachedModel: string | undefined;
-let cachedApiKeyPrefix: string | undefined;
-
-/**
- * Initialize OpenAI SDK configuration with the provided API key.
- *
- * @param apiKey - The OpenAI API key (from Firebase secret or env var)
- */
-function ensureConfig(apiKey: string) {
-  // Configure OpenAI SDK with the provided key
-  setDefaultOpenAIKey(apiKey);
-  setOpenAIAPI("responses");
-  // Agent tracing captures model inputs and outputs by default and is not
-  // compatible with Zero Data Retention. Keep it disabled process-wide.
-  setTracingDisabled(true);
-}
+let cachedApiKey: string | undefined;
 
 // ============================================================================
 // Input Sanitization
@@ -204,9 +190,7 @@ function ensureConfig(apiKey: string) {
  * Create or retrieve a cached agent instance.
  *
  * The agent cache is keyed by both model and apiKey to prevent using
- * a stale agent when the OpenAI credentials change. The apiKey is included
- * in the cache validation (using the first 8 characters as a prefix) to ensure
- * the correct SDK configuration is maintained.
+ * a stale client when the OpenAI credentials change.
  *
  * @param model - The OpenAI model to use (e.g., 'gpt-4o-mini')
  * @param apiKey - The OpenAI API key; must match across calls or agent is recreated
@@ -216,29 +200,26 @@ function ensureAgent(
   model: string,
   apiKey: string,
 ): Agent<object, typeof encouragementOutputSchema> {
-  // Use first 8 characters of apiKey for cache key stability
-  const apiKeyPrefix = apiKey.slice(0, 8);
-
   // Return cached agent only if both model and apiKey match
   if (
     cachedAgent &&
     cachedModel === model &&
-    cachedApiKeyPrefix === apiKeyPrefix
+    cachedApiKey === apiKey
   ) {
     return cachedAgent;
   }
 
   // Update cache with new model and apiKey
   cachedModel = model;
-  cachedApiKeyPrefix = apiKeyPrefix;
+  cachedApiKey = apiKey;
 
-  // Ensure OpenAI SDK is configured with the provided apiKey
-  ensureConfig(apiKey);
+  // Tracing includes inputs/outputs. Keep it disabled for both provider models.
+  setTracingDisabled(true);
 
   cachedAgent = new Agent<object, typeof encouragementOutputSchema>({
     name: "WalkWorthyMoodAgent",
     instructions: MOOD_SYSTEM_PROMPT,
-    model,
+    model: createProviderModel(apiKey, model),
     modelSettings: {
       temperature: 0.4,
       topP: 1,
@@ -318,9 +299,11 @@ export const UNAVAILABLE_INPUT_RESPONSE: AIEncouragementResponse = {
 export async function runMoodAgent(
   input: MoodAgentInput,
   apiKey: string,
+  checkConsent: ProviderConsentCheck,
   model: string = MOOD_MODEL,
   generate: GenerationRunner = async (serializedInput, signal) =>
-    (await run(ensureAgent(model, apiKey), serializedInput, { signal })).finalOutput,
+    // Empty model output can otherwise trigger another SDK turn without a check.
+    (await run(ensureAgent(model, apiKey), serializedInput, { signal, maxTurns: 1 })).finalOutput,
 ): Promise<AIEncouragementResponse> {
   logger.info("[MoodAgent] Starting encouragement");
 
@@ -342,6 +325,7 @@ export async function runMoodAgent(
     note: normalizedNote?.slice(0, 300),
   };
 
+  await checkConsent();
   const inputSafety = await moderateText(normalizedNote, apiKey, "input");
   if (inputSafety === "crisis") {
     logger.info("[MoodAgent] Self-harm signal in note; returning fixed crisis response");
@@ -363,27 +347,17 @@ export async function runMoodAgent(
     }
 
     logger.info(`[MoodAgent] Attempt ${attempt + 1}/${MAX_RETRIES}`);
+    // Checks live outside provider catches: denial/read failure must stop work,
+    // including when consent changes during backoff. Sent requests cannot be recalled.
+    await checkConsent();
+    let parsed: AIEncouragementResponse;
     try {
       logger.info("[MoodAgent] Calling OpenAI agent...");
       const result = await withTimeout((signal) =>
         generate(serializedInput, signal),
       );
       logger.info("[MoodAgent] Agent returned response");
-      const parsed = parseEncouragement(result);
-      // A flagged OUTPUT says the model misbehaved, not that the user is at
-      // risk — fall back to a neutral response, never the crisis card.
-      const outputSafety = await moderateText(parsed.message, apiKey, "output");
-      if (outputSafety !== "allow") {
-        logger.warn("[MoodAgent] Generated output flagged; returning neutral fallback", {
-          decision: outputSafety,
-        });
-        return BLOCKED_OUTPUT_RESPONSE;
-      }
-      // Deterministic echo-check: block a response that repeats the user's
-      // own profile strings back (the regex guardrail can't know them).
-      // Throws GuardrailTripError — caught below and rethrown without retry.
-      assertNoProfileEcho(parsed, collectProfileValues(payload.profile));
-      return parsed;
+      parsed = parseEncouragement(result);
     } catch (err) {
       lastError = err;
       // Guardrail trips are deterministic — retrying will produce the same
@@ -397,7 +371,21 @@ export async function runMoodAgent(
         attempt: attempt + 1,
         ...safeErrorMetadata(err),
       });
+      continue;
     }
+
+    await checkConsent();
+    // A flagged OUTPUT says the model misbehaved, not that the user is at risk.
+    const outputSafety = await moderateText(parsed.message, apiKey, "output");
+    if (outputSafety !== "allow") {
+      logger.warn("[MoodAgent] Generated output flagged; returning neutral fallback", {
+        decision: outputSafety,
+      });
+      return BLOCKED_OUTPUT_RESPONSE;
+    }
+    // Deterministic profile echoes fail without retrying generation.
+    assertNoProfileEcho(parsed, collectProfileValues(payload.profile));
+    return parsed;
   }
 
   throw lastError instanceof Error

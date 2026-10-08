@@ -50,7 +50,7 @@ for (const { suffix, category, expected } of [
     const input = inputWithNote(note);
     const screened = mockModeration(t, text => text.includes(suffix) ? decision(category) : decision());
     let generations = 0;
-    const result = await runMoodAgent(input, "test-key", undefined, async () => {
+    const result = await runMoodAgent(input, "test-key", async () => {}, undefined, async () => {
       generations++;
       return generated;
     });
@@ -68,7 +68,7 @@ test("all 500 accepted characters are screened while generation retains its 300-
   const screened = mockModeration(t);
   let generationNote: string | undefined;
   let generations = 0;
-  const result = await runMoodAgent(input, "test-key", undefined, async serialized => {
+  const result = await runMoodAgent(input, "test-key", async () => {}, undefined, async serialized => {
     generations++;
     generationNote = (JSON.parse(serialized) as { note?: string }).note;
     return generated;
@@ -89,7 +89,7 @@ test("normalization preserves a late signal for input screening", async (t) => {
   const input = inputWithNote(note);
   const screened = mockModeration(t, text => text.includes(suffix) ? decision("self-harm/intent") : decision());
   let generations = 0;
-  const result = await runMoodAgent(input, "test-key", undefined, async () => {
+  const result = await runMoodAgent(input, "test-key", async () => {}, undefined, async () => {
     generations++;
     return generated;
   });
@@ -103,7 +103,7 @@ test("failed screening of a long note skips generation without a crisis card", a
   const note = "Today was calm. ".repeat(31) + "Okay";
   const screened = mockModeration(t, () => new Response("", { status: 503 }));
   let generations = 0;
-  const result = await runMoodAgent(inputWithNote(note), "test-key", undefined, async () => {
+  const result = await runMoodAgent(inputWithNote(note), "test-key", async () => {}, undefined, async () => {
     generations++;
     return generated;
   });
@@ -124,7 +124,7 @@ for (const { label, note, normalized } of [
     const screened = mockModeration(t);
     let generationNote: string | undefined;
     let generations = 0;
-    const result = await runMoodAgent(inputWithNote(note), "test-key", undefined, async serialized => {
+    const result = await runMoodAgent(inputWithNote(note), "test-key", async () => {}, undefined, async serialized => {
       generations++;
       generationNote = (JSON.parse(serialized) as { note?: string }).note;
       return generated;

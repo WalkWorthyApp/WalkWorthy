@@ -331,7 +331,9 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       };
 
       const consent = await requireAiConsent(db, userId);
-      const aiResponse = await runMoodAgent(agentInput, openaiApiKey.value());
+      const aiResponse = await runMoodAgent(agentInput, openaiApiKey.value(), async () => {
+        await requireAiConsent(db, userId, undefined, consent.revision);
+      });
       logger.info('AI response generated');
 
       // Step 3: Atomically write check-in and summary in final transaction

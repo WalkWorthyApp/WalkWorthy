@@ -43,7 +43,7 @@ test("moderation transport failures remain unavailable, never approved", async (
 test("unavailable input screening preserves fixed encouragement and skips generation", async (t) => {
   t.mock.method(globalThis, "fetch", async () => new Response("", { status: 503 }));
   let generations = 0;
-  const result = await runMoodAgent(input, "test-key", undefined, async () => {
+  const result = await runMoodAgent(input, "test-key", async () => {}, undefined, async () => {
     generations++;
     throw new Error("Generation must not run");
   });
@@ -57,7 +57,7 @@ test("unavailable input screening preserves fixed encouragement and skips genera
 test("actual self-harm classification retains crisis card and skips generation", async (t) => {
   t.mock.method(globalThis, "fetch", async () => decision(true));
   let generations = 0;
-  const result = await runMoodAgent(input, "test-key", undefined, async () => {
+  const result = await runMoodAgent(input, "test-key", async () => {}, undefined, async () => {
     generations++;
     throw new Error("Generation must not run");
   });
@@ -74,7 +74,7 @@ test("unavailable or flagged output cannot leak generated prose or imply user cr
   ]) {
     let calls = 0;
     const mocked = t.mock.method(globalThis, "fetch", async () => ++calls === 1 ? decision() : outputResponse());
-    const result = await runMoodAgent(input, "test-key", undefined, async () => ({
+    const result = await runMoodAgent(input, "test-key", async () => {}, undefined, async () => ({
       message: "UNSCREENED_GENERATION_SENTINEL", verseId: "psalm_46_1",
     }));
     assert.equal(calls, 2);
@@ -87,7 +87,7 @@ test("unavailable or flagged output cannot leak generated prose or imply user cr
 
 test("approved generation is explicitly labelled as generated", async (t) => {
   t.mock.method(globalThis, "fetch", async () => decision());
-  const result = await runMoodAgent(input, "test-key", undefined, async () => ({
+  const result = await runMoodAgent(input, "test-key", async () => {}, undefined, async () => ({
     message: "Take a quiet moment today.", verseId: "psalm_46_1",
   }));
   assert.equal(result.isGenerated, true);
@@ -96,7 +96,7 @@ test("approved generation is explicitly labelled as generated", async (t) => {
 
 test("reflection output outage returns fixed content with truthful provenance", async (t) => {
   t.mock.method(globalThis, "fetch", async () => { throw new TypeError("synthetic provider failure"); });
-  const result = await runReflectionAgent([], "test-key", null, async () => ({
+  const result = await runReflectionAgent([], "test-key", async () => {}, null, async () => ({
     reflection: "UNSCREENED_REFLECTION_SENTINEL",
   }));
   assert.deepEqual(result, FIXED_REFLECTION);
@@ -106,7 +106,7 @@ test("reflection output outage returns fixed content with truthful provenance", 
 
 test("approved reflection retains generated provenance", async (t) => {
   t.mock.method(globalThis, "fetch", async () => decision());
-  const result = await runReflectionAgent([], "test-key", null, async () => ({ reflection: "A quiet reflection." }));
+  const result = await runReflectionAgent([], "test-key", async () => {}, null, async () => ({ reflection: "A quiet reflection." }));
   assert.deepEqual(result, { reflection: "A quiet reflection.", isGenerated: true });
 });
 

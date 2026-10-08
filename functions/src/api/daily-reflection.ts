@@ -141,7 +141,9 @@ async function handleGet(req: Request, res: Response): Promise<void> {
 
       // Generate reflection
       const consent = await requireAiConsent(db, userId);
-      const result = await runReflectionAgent(summaries, openaiApiKey.value(), profileForAgent);
+      const result = await runReflectionAgent(summaries, openaiApiKey.value(), async () => {
+        await requireAiConsent(db, userId, undefined, consent.revision);
+      }, profileForAgent);
       const generatedAt = new Date().toISOString();
       const payload = { reflection: result.reflection, isGenerated: result.isGenerated, generatedAt, date: today };
 
