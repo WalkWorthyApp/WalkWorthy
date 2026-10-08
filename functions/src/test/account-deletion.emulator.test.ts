@@ -23,6 +23,67 @@ async function withDeletionFixture(run: (db: Firestore, uid: string) => Promise<
   }
 }
 
+test('new jobs require recent authentication before any durable deletion side effects', {skip: !hasEmulator}, async () => {
+  await withDeletionFixture(async (db, uid) => {
+    const profile = db.doc(`users/${uid}/profile/data`);
+    const quota = db.doc(`_rateLimits/user:${uid}:fixture`);
+    await profile.set({firstName: 'Synthetic'});
+    await quota.set({count: 1});
+    let authTime: unknown;
+    let deleteCalls = 0;
+    const checks: boolean[] = [];
+    const auth = {
+      verifyIdToken: async (_token: string, checkRevoked = false) => {
+        checks.push(checkRevoked);
+        return {uid, auth_time: authTime};
+      },
+      deleteUser: async () => {deleteCalls++;},
+    };
+    const now = Math.floor(Date.now() / 1000);
+    for (authTime of [undefined, null, String(now), NaN, Infinity, now - 0.5, 0, -1, now + 60, now - 301]) {
+      await assert.rejects(requestAccountDeletion(db, auth, 'synthetic'), {code: 'auth/requires-recent-login'});
+      assert.equal((await deletionRef(db, uid).get()).exists, false);
+      assert.deepEqual((await profile.get()).data(), {firstName: 'Synthetic'});
+      assert.deepEqual((await quota.get()).data(), {count: 1});
+      assert.equal(deleteCalls, 0);
+      assert.deepEqual(checks.splice(0), [false, true]);
+    }
+    authTime = Math.floor(Date.now() / 1000);
+    assert.deepEqual(await requestAccountDeletion(db, auth, 'synthetic'), {status: 'completed'});
+    assert.equal((await profile.get()).exists, false);
+    assert.equal((await quota.get()).exists, false);
+    assert.equal(deleteCalls, 1);
+  });
+});
+
+test('accepted client and worker retries finish after freshness and the Auth user are gone', {skip: !hasEmulator}, async () => {
+  for (const source of ['client', 'worker'] as const) {
+    await withDeletionFixture(async (db, uid) => {
+      const profile = db.doc(`users/${uid}/profile/data`);
+      await profile.set({firstName: 'Synthetic'});
+      await deletionRef(db, uid).set({status: 'deleting', nextAttemptAt: Timestamp.fromMillis(0)});
+      const checks: boolean[] = [];
+      const auth = {
+        verifyIdToken: async (_token: string, checkRevoked = false) => {
+          checks.push(checkRevoked);
+          if (checkRevoked) throw Object.assign(new Error('Gone'), {code: 'auth/user-not-found'});
+          return {uid, auth_time: Math.floor(Date.now() / 1000) - 3600};
+        },
+        deleteUser: async () => {throw Object.assign(new Error('Gone'), {code: 'auth/user-not-found'});},
+      };
+      if (source === 'client') {
+        assert.deepEqual(await requestAccountDeletion(db, auth, 'synthetic'), {status: 'completed'});
+        assert.deepEqual(checks, [false]);
+      } else {
+        assert.ok((await retryPendingAccountDeletions(db, auth)).completed >= 1);
+        assert.deepEqual(checks, []);
+      }
+      assert.equal((await profile.get()).exists, false);
+      assert.equal((await deletionRef(db, uid).get()).get('status'), 'completed');
+    });
+  }
+});
+
 test('deletion rejects revoked tokens before writes and completed retries stay read-only', {skip: !hasEmulator}, async () => {
   await withDeletionFixture(async (db, uid) => {
     let revoked = true;
@@ -35,7 +96,7 @@ test('deletion rejects revoked tokens before writes and completed retries stay r
           if (revoked) throw Object.assign(new Error('Revoked'), {code: 'auth/id-token-revoked'});
           if (deleted) throw Object.assign(new Error('Gone'), {code: 'auth/user-not-found'});
         }
-        return {uid};
+        return {uid, auth_time: Math.floor(Date.now() / 1000)};
       },
       deleteUser: async () => {deleted = true;},
     };
@@ -62,8 +123,9 @@ test('failed deletion keeps a durable barrier and hourly quota; worker recovers 
   await withDeletionFixture(async (db, uid) => {
     let failAuthDeletion = true;
     let authDeleted = false;
+    let authTime: number | undefined = Math.floor(Date.now() / 1000);
     const auth = {
-      verifyIdToken: async () => ({uid}),
+      verifyIdToken: async () => ({uid, auth_time: authTime}),
       deleteUser: async () => {
         if (failAuthDeletion) throw new Error('Synthetic transient auth failure');
         authDeleted = true;
@@ -76,6 +138,8 @@ test('failed deletion keeps a durable barrier and hourly quota; worker recovers 
       assert.equal(pending.get('status'), 'deleting');
       assert.equal(pending.get('expiresAt'), undefined);
       assert.equal(pending.get('clientAttempts').length, i + 1);
+      // Freshness authorizes only initial acceptance, not subsequent recovery.
+      authTime = undefined;
     }
     const limited = await requestAccountDeletion(db, auth, 'synthetic');
     assert.equal(limited.status, 'rate-limited');
@@ -104,6 +168,7 @@ test('worker removes remaining data after partial cleanup and reclaims an expire
     await remaining.set({note: 'Synthetic test fixture'});
     let deletedAuth = false;
     const auth = {deleteUser: async () => {deletedAuth = true;}};
+    await deletionRef(db, uid).set({status: 'deleting'});
     await assert.rejects(resumeAccountDeletion(db, auth, uid, 'client', async () => {
       await removed.delete();
       throw new Error('Synthetic interrupted cleanup');
@@ -129,6 +194,7 @@ test('concurrent deletion attempts share a lease and cannot recreate quota recor
     const gate = new Promise<void>(resolve => {release = resolve;});
     const ready = new Promise<void>(resolve => {started = resolve;});
     const auth = {deleteUser: async () => {}};
+    await deletionRef(db, uid).set({status: 'deleting'});
     const first = resumeAccountDeletion(db, auth, uid, 'client', async () => {
       started();
       await gate;

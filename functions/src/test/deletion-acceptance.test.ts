@@ -10,7 +10,7 @@ import { PendingDeletionError, requestAccountDeletion, resumeAccountDeletion } f
 
 test('deletion acceptance failures do not promise a retry without a confirmed job', async t => {
   t.mock.method(authMiddleware, 'verifyAppCheck', async () => true);
-  t.mock.method(firebase, 'getAuthInstance', () => ({verifyIdToken: async () => ({uid: 'synthetic'})}));
+  t.mock.method(firebase, 'getAuthInstance', () => ({verifyIdToken: async () => ({uid: 'synthetic', auth_time: Math.floor(Date.now() / 1000)})}));
   for (const failAt of ['read', 'claim'] as const) {
     const db = {
       collection: () => ({doc: () => ({get: async () => {
@@ -43,7 +43,7 @@ test('accepted cleanup retains its pending classification even when lease releas
     collection: () => ({doc: () => ({})}),
     runTransaction: async (run: (tx: unknown) => Promise<unknown>) => {
       if (++transactions > 1) throw releaseFailure;
-      return run({get: async () => ({data: () => undefined}), set: () => {}});
+      return run({get: async () => ({data: () => ({status: 'deleting'})}), set: () => {}});
     },
   } as unknown as Firestore;
   await assert.rejects(resumeAccountDeletion(db, {deleteUser: async () => {}}, 'synthetic', 'client', async () => {
