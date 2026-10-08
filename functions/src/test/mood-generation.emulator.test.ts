@@ -10,6 +10,7 @@ import firebase = require('../shared/firebase');
 import auth = require('../shared/auth');
 import profile = require('../shared/profile');
 import agent = require('../lib/mood-agent');
+import modelConfig = require('../lib/model-config');
 import generation = require('../shared/mood-generation');
 import { moodCheckIn } from '../api/mood-checkin';
 import { deleteAllUserFirestoreData } from '../shared/account-deletion';
@@ -79,6 +80,85 @@ function paidStub(t: TestContext) {
     _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: () => Promise<void>) => {
     await beforeGeneration?.();
     return agent.CRISIS_RESPONSE;
+  });
+}
+
+for (const scenario of ['before-input', 'after-input', 'during-backoff', 'flagged-tail', 'profile-revoked'] as const) {
+  test(`integrated duplicate claims: ${scenario} preserves consent, safety and accounting`, emulator, async t => {
+    const f = await fixture(t);
+    const started = gate();
+    const finish = gate();
+    const joined = gate();
+    t.after(finish.release);
+    const note = 'Today was calm. '.repeat(30) + 'CRISIS_SENTINEL';
+    const data = { ...base, note };
+    const realMood = agent.runMoodAgent;
+    const originalWait = generation.waitForMoodGeneration;
+    const consumed = t.mock.method(generation, 'markMoodGenerationConsumed');
+    let generations = 0;
+    const screened: string[] = [];
+    if (scenario === 'profile-revoked') {
+      await f.db.doc(`users/${f.uid}/profile/data`).set({ optInTailored: true, major: 'Synthetic Major' });
+    }
+    const pause = async () => { started.release(); await finish.promise; };
+    t.mock.method(generation, 'waitForMoodGeneration', async (claim: generation.MoodGenerationClaim) => {
+      joined.release();
+      return originalWait(claim);
+    });
+    t.mock.method(modelConfig, 'sleep', async () => {
+      if (scenario === 'during-backoff') await pause();
+    });
+    t.mock.method(globalThis, 'fetch', async (_url: unknown, init?: RequestInit) => {
+      const text = (JSON.parse(String(init?.body)) as { input: string }).input;
+      screened.push(text);
+      if (scenario === 'after-input' || scenario === 'flagged-tail') await pause();
+      const crisis = scenario === 'flagged-tail' && text.includes('CRISIS_SENTINEL');
+      return globalThis.Response.json({ results: [{ flagged: crisis, categories: {
+        'self-harm': false, 'self-harm/intent': crisis, 'self-harm/instructions': false,
+      } }] });
+    });
+    t.mock.method(agent, 'runMoodAgent', async (...[input, _key, check, model, _generate, beforeGeneration]: Parameters<typeof realMood>) => {
+      if (scenario === 'before-input') await pause();
+      return realMood(input, 'synthetic-key', check, model, async () => {
+        generations++;
+        if (scenario === 'during-backoff') throw new Error('Synthetic provider failure');
+        if (scenario === 'profile-revoked') await pause();
+        return { message: 'SYNTHETIC_PRIVATE_OUTPUT', verseId: 'psalm_46_1' };
+      }, beforeGeneration);
+    });
+    const first = f.post(data);
+    await started.promise;
+    const second = f.post(data);
+    try {
+      await Promise.race([joined.promise, delay(5000).then(() => { throw new Error('Follower did not join'); })]);
+      if (scenario === 'profile-revoked') {
+        await f.db.doc(`users/${f.uid}/profile/data`).update({ optInTailored: false });
+      } else if (scenario !== 'flagged-tail') {
+        await savePrivacyConsent(f.db, f.uid, { aiSharing: false });
+      }
+    } finally { finish.release(); }
+    const responses = await Promise.all([first, second]);
+    const fixed = scenario === 'flagged-tail' || scenario === 'profile-revoked';
+    const paid = scenario === 'during-backoff' || scenario === 'profile-revoked';
+    assert.deepEqual(responses.map(r => r.status), fixed ? [201, 201] : [403, 403]);
+    assert.deepEqual(responses[0].body, responses[1].body);
+    if (fixed) {
+      assert.deepEqual(responses[0].body.aiResponse,
+        scenario === 'flagged-tail' ? agent.CRISIS_RESPONSE : agent.BLOCKED_OUTPUT_RESPONSE);
+    } else {
+      assert.equal(responses[0].body.code, 'AI_CONSENT_REQUIRED');
+    }
+    assert.equal(generations, paid ? 1 : 0);
+    assert.equal(consumed.mock.callCount(), paid ? 1 : 0);
+    assert.equal((await f.budget()).get('callCount'), paid ? 1 : 0);
+    assert.deepEqual(screened, scenario === 'before-input' ? [] : [note]);
+    const claims = await f.db.collection(`users/${f.uid}/moodGenerationClaims`).get();
+    assert.equal(claims.size, 1);
+    assert.equal(claims.docs[0].get('consumed'), paid);
+    assert.equal(claims.docs[0].get('status'), fixed ? 'completed' : 'failed');
+    const saved = await f.db.doc(`users/${f.uid}/moodCheckIns/${getLogicalDateString('UTC')}_morning`).get();
+    assert.equal(saved.exists, fixed);
+    assert.doesNotMatch(JSON.stringify(responses), /SYNTHETIC_PRIVATE_OUTPUT/);
   });
 }
 
