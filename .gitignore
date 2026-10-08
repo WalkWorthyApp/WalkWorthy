@@ -44,3 +44,10 @@ claude 2.md
 .worktrees/
 .superpowers/
 stitch/
+
+# Compliance work product — engineering assessments that enumerate unremediated
+# weaknesses. This repository is public; these belong in a restricted store.
+COMPLIANCE.md
+COMPLIANCE-OPERATIONS.md
+COMPLIANCE-MANUAL-TEST.md
+COMPLIANCE_AUDIT.md
