@@ -9,7 +9,7 @@ import { AccountDeletingError } from '../shared/account-lifecycle';
 import config = require('../lib/model-config');
 
 const input: MoodAgentInput = {
-  profile: null, checkInType: 'morning',
+  checkInType: 'morning',
   moodSpectrumData: {
     moodScore: 5, moodLevel: 'neutral', emotionTags: ['Calm'],
     impactCategories: [], followUpScore: 3, note: 'A synthetic test note',
@@ -63,9 +63,13 @@ for (const agent of agents) {
         : { reflection: 'Your marine biology studies matter.' };
     };
     const profile = { major: 'Marine Biology' };
+    const personalization = {
+      forGeneration: async () => ({ profile, isCurrent: async () => true }),
+      isResultCurrent: async () => true,
+    };
     const result = agent.name === 'mood'
-      ? runMoodAgent({ ...input, profile }, 'synthetic', async () => {}, undefined, generate)
-      : runReflectionAgent([], 'synthetic', async () => {}, profile, generate);
+      ? runMoodAgent({ ...input, personalization }, 'synthetic', async () => {}, undefined, generate)
+      : runReflectionAgent([], 'synthetic', async () => {}, personalization, generate);
     await assert.rejects(result, config.GuardrailTripError);
     assert.equal(generations, 1);
     assert.equal(delay.mock.callCount(), 0);

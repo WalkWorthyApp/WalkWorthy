@@ -2,6 +2,7 @@ import { safeErrorMetadata } from '../shared/safe-logging';
 import { FUNCTIONS_REVISION } from '../shared/version';
 import { AccountDeletingError } from '../shared/account-lifecycle';
 import { requireAiConsent, AiConsentRequiredError } from '../shared/privacy-consent';
+import { createAiPersonalization } from '../shared/ai-personalization';
 /**
  * Daily Reflection API
  *
@@ -15,7 +16,7 @@ import { logger } from "firebase-functions/v2";
 import type { Request, Response } from "express";
 import { getDb, COLLECTIONS, initializeFirebase } from "../shared/firebase";
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from "../shared/auth";
-import { runReflectionAgent } from "../lib/reflection-agent";
+import { runReflectionAgent, FIXED_REFLECTION } from "../lib/reflection-agent";
 import { isCleanStoredAiContent } from "../lib/model-config";
 import { collectProfileValues, sanitizeProfile } from "../lib/profile-sanitize";
 import { getUserProfileOnce } from "../shared/profile";
@@ -132,24 +133,23 @@ async function handleGet(req: Request, res: Response): Promise<void> {
     let budgetReserved = true;
 
     try {
-      // Profile sharing is opt-in. Missing/legacy values remain off.
-      const useProfile = profile?.optInTailored === true;
-      if (!useProfile) {
-        logger.info('personalization.optedOut');
-      }
-      const profileForAgent = useProfile ? (profile as UserProfilePayload | null) : null;
-
       // Generate reflection
       const consent = await requireAiConsent(db, userId);
+      const personalization = await createAiPersonalization(db, userId, async transaction => {
+        await requireAiConsent(db, userId, transaction, consent.revision);
+      });
       const result = await runReflectionAgent(summaries, openaiApiKey.value(), async () => {
         await requireAiConsent(db, userId, undefined, consent.revision);
-      }, profileForAgent);
+      }, personalization);
       const generatedAt = new Date().toISOString();
-      const payload = { reflection: result.reflection, isGenerated: result.isGenerated, generatedAt, date: today };
+      let payload = { reflection: result.reflection, isGenerated: result.isGenerated, generatedAt, date: today };
 
       // Cache in Firestore
       await db.runTransaction(async tx => {
         await requireAiConsent(db, userId, tx, consent.revision);
+        const currentResult = result.isGenerated && !(await personalization.isResultCurrent(tx))
+          ? FIXED_REFLECTION : result;
+        payload = { reflection: currentResult.reflection, isGenerated: currentResult.isGenerated, generatedAt, date: today };
         tx.set(cacheRef, payload);
       });
 

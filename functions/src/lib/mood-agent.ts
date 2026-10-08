@@ -19,9 +19,7 @@ import type {
 } from "../shared/types";
 import {
   collectProfileValues,
-  sanitizeProfile,
   sanitizeText,
-  type UserProfilePayload,
 } from "./profile-sanitize";
 import {
   MOOD_MODEL,
@@ -41,6 +39,7 @@ import {
   resolveScripture,
 } from "./scripture-catalog";
 import { moderateText } from "./content-safety";
+import { NO_PERSONALIZATION, type AiPersonalization } from "../shared/ai-personalization";
 
 // ============================================================================
 // Types
@@ -51,7 +50,7 @@ import { moderateText } from "./content-safety";
 export type { UserProfilePayload } from "./profile-sanitize";
 
 export interface MoodAgentInput {
-  profile: UserProfilePayload | null;
+  personalization?: AiPersonalization;
   checkInType: CheckInType;
   moodSpectrumData: MoodSpectrumData;
 }
@@ -316,7 +315,6 @@ export async function runMoodAgent(
     : undefined;
   // Profile strings are sanitized and checked for echoes.
   const payload = {
-    profile: sanitizeProfile(input.profile),
     checkInType: input.checkInType,
     moodScore: moodSpectrumData.moodScore,
     moodLevel: moodSpectrumData.moodLevel,
@@ -335,8 +333,6 @@ export async function runMoodAgent(
   if (inputSafety === "block") return BLOCKED_INPUT_RESPONSE;
   if (inputSafety === "unavailable") return UNAVAILABLE_INPUT_RESPONSE;
 
-  const serializedInput = JSON.stringify(payload, null, 2);
-
   let lastError: unknown;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt += 1) {
@@ -347,12 +343,17 @@ export async function runMoodAgent(
       await sleep(delayMs);
     }
 
-    logger.info(`[MoodAgent] Attempt ${attempt + 1}/${MAX_RETRIES}`);
     // Checks live outside provider catches: denial/read failure must stop work,
     // including when consent changes during backoff. Sent requests cannot be recalled.
     await checkConsent();
-    // Admission/ownership errors must abort, not enter the model retry loop.
-    // Fixed input-safety responses above never consume a generation attempt.
+    // Resolve after moderation, retry backoff and the base-consent await. No serialized profile
+    // from an earlier attempt may survive a permission/revision change.
+    const personalization = await input.personalization?.forGeneration() ?? NO_PERSONALIZATION;
+    const profile = personalization.profile;
+    const serializedInput = JSON.stringify({ ...payload, profile }, null, 2);
+    logger.info(`[MoodAgent] Attempt ${attempt + 1}/${MAX_RETRIES}`);
+    // Consume only after consent and personalization checks permit this attempt.
+    // Ownership errors must abort outside the provider retry loop.
     await beforeGeneration();
     let parsed: AIEncouragementResponse;
     try {
@@ -379,6 +380,9 @@ export async function runMoodAgent(
     }
 
     await checkConsent();
+    // Generated prose can contain profile-derived details. Validate the exact
+    // attempt after the base-consent await, before disclosing it to moderation.
+    if (!(await personalization.isCurrent())) return BLOCKED_OUTPUT_RESPONSE;
     // A flagged OUTPUT says the model misbehaved, not that the user is at risk.
     const outputSafety = await moderateText(parsed.message, apiKey, "output");
     if (outputSafety !== "allow") {
@@ -388,7 +392,7 @@ export async function runMoodAgent(
       return BLOCKED_OUTPUT_RESPONSE;
     }
     // Deterministic profile echoes fail without retrying generation.
-    assertNoProfileEcho(parsed, collectProfileValues(payload.profile));
+    assertNoProfileEcho(parsed, collectProfileValues(profile));
     return parsed;
   }
 

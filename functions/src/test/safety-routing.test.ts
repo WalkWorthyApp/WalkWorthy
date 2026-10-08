@@ -9,7 +9,6 @@ import { runReflectionAgent, FIXED_REFLECTION } from "../lib/reflection-agent";
 import { safeErrorMetadata } from "../shared/safe-logging";
 
 const input: MoodAgentInput = {
-  profile: null,
   checkInType: "morning",
   moodSpectrumData: {
     moodScore: 5, moodLevel: "neutral", emotionTags: ["Calm"],

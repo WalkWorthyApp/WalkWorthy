@@ -14,7 +14,7 @@ function inputWithNote(note?: string): MoodAgentInput {
     moodScore: 5, emotionTags: ["Calm"], impactCategories: [], followUpScore: 3, note,
   });
   assert.ok(moodSpectrumData, "the note must be accepted by the API validator");
-  return { profile: null, checkInType: "morning", moodSpectrumData };
+  return { checkInType: "morning", moodSpectrumData };
 }
 
 function decision(category?: "self-harm/intent" | "violence"): Response {

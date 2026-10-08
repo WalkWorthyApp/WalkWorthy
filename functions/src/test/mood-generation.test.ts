@@ -7,7 +7,7 @@ import { moodGenerationRef, type MoodGenerationIdentity } from '../shared/mood-g
 import { runMoodAgent, CRISIS_RESPONSE, type MoodAgentInput } from '../lib/mood-agent';
 import { validateMoodSpectrumData } from '../shared/types';
 
-const input: MoodAgentInput = { profile: null, checkInType: 'morning', moodSpectrumData: {
+const input: MoodAgentInput = { checkInType: 'morning', moodSpectrumData: {
   moodScore: 5, moodLevel: 'neutral', followUpScore: 2, note: null,
   emotionTags: ['Calm', 'Hopeful'], impactCategories: ['Work', 'Family'],
 } };

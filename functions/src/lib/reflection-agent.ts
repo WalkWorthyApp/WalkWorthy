@@ -28,6 +28,7 @@ import {
   type GenerationRunner,
 } from "./model-config";
 import { moderateText } from "./content-safety";
+import { NO_PERSONALIZATION, type AiPersonalization } from "../shared/ai-personalization";
 
 // ============================================================================
 // Output Schema
@@ -144,17 +145,14 @@ export async function runReflectionAgent(
   summaries: DailyMoodSummary[],
   apiKey: string,
   checkConsent: ProviderConsentCheck,
-  profile: UserProfilePayload | null = null,
+  personalization: AiPersonalization | null = null,
   generate: GenerationRunner = async (input, signal) =>
     // Every new model attempt must return through the consent check below.
     (await run(ensureAgent(apiKey), input, { signal, maxTurns: 1 })).finalOutput,
 ): Promise<ReflectionAgentResult> {
   logger.info("[ReflectionAgent] Generating daily reflection", {
     summaryCount: summaries.length,
-    hasProfile: profile !== null,
   });
-
-  const input = buildPrompt(summaries, profile);
 
   const MAX_RETRIES = 2;
   let lastError: unknown;
@@ -169,6 +167,10 @@ export async function runReflectionAgent(
     // Do not catch authorization/read failures as retryable provider failures.
     await checkConsent();
     let reflection: string;
+    // Resolve after the base-consent await, using a new payload on each retry.
+    const current = await personalization?.forGeneration() ?? NO_PERSONALIZATION;
+    const profile = current.profile;
+    const input = buildPrompt(summaries, profile);
     try {
       const result = await withTimeout((signal) =>
         generate(input, signal),
@@ -200,6 +202,8 @@ export async function runReflectionAgent(
     }
 
     await checkConsent();
+    // Recheck after the base-consent await; this output belongs to this attempt.
+    if (!(await current.isCurrent())) return FIXED_REFLECTION;
     const outputSafety = await moderateText(reflection, apiKey, "output");
     if (outputSafety !== "allow") return FIXED_REFLECTION;
     // Deterministic profile echoes fail without retrying generation.

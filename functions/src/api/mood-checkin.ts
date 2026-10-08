@@ -2,6 +2,7 @@ import { FUNCTIONS_REVISION } from '../shared/version';
 import { safeErrorMetadata } from '../shared/safe-logging';
 import { AccountDeletingError } from '../shared/account-lifecycle';
 import { requireAiConsent, AiConsentRequiredError } from '../shared/privacy-consent';
+import { createAiPersonalization } from '../shared/ai-personalization';
 /**
  * Mood Check-in API
  *
@@ -18,7 +19,7 @@ import type { Request, Response } from 'express';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from '../shared/auth';
 import { getUserProfileOnce } from '../shared/profile';
-import { runMoodAgent, UserProfilePayload, MoodAgentInput } from '../lib/mood-agent';
+import { runMoodAgent, BLOCKED_OUTPUT_RESPONSE, UserProfilePayload, MoodAgentInput } from '../lib/mood-agent';
 import { isCleanStoredAiContent } from '../lib/model-config';
 import { collectProfileValues, sanitizeProfile } from '../lib/profile-sanitize';
 import {
@@ -328,18 +329,18 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
 
     try {
       // Step 2: Generate AI response (outside transaction - may take time)
-      // Profile sharing is opt-in. Missing/legacy values remain off.
-      const useProfile = profile?.optInTailored === true;
-      if (!useProfile) {
-        logger.info('personalization.optedOut');
-      }
+      const consent = await requireAiConsent(db, userId);
+      // The earlier profile is only for local timezone/echo screening. Bind
+      // outbound attributes to a fresh permission and server-owned revision.
+      const personalization = await createAiPersonalization(db, userId, async transaction => {
+        await requireAiConsent(db, userId, transaction, consent.revision);
+      });
       const agentInput: MoodAgentInput = {
-        profile: useProfile ? (profile as UserProfilePayload | null) : null,
+        personalization,
         checkInType: input.checkInType,
         moodSpectrumData: input.moodSpectrumData,
       };
 
-      const consent = await requireAiConsent(db, userId);
       const aiResponse = await runMoodAgent(agentInput, openaiApiKey.value(), async () => {
         await requireAiConsent(db, userId, undefined, consent.revision);
       }, undefined, undefined,
@@ -366,6 +367,8 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
 
       const response = await db.runTransaction(async (transaction) => {
         await requireAiConsent(db, userId, transaction, consent.revision);
+        const currentResponse = aiResponse.isGenerated && !(await personalization.isResultCurrent(transaction))
+          ? BLOCKED_OUTPUT_RESPONSE : aiResponse;
         const settlement = await readMoodGenerationSettlement(transaction, claim);
         const existingCheckInDoc = await transaction.get(checkInRef);
         if (regenerateRequested && (!existingCheckInDoc.exists ||
@@ -412,11 +415,11 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         );
 
         // Set check-in (creates or updates - deterministic docID ensures no duplicates)
-        transaction.set(checkInRef, checkInData);
+        transaction.set(checkInRef, { ...checkInData, aiResponse: currentResponse });
         // Set summary atomically with merge to preserve any other fields
         transaction.set(summaryRef, updatedSummary, { merge: true });
         const savedResponse: MoodCheckInResponse = {
-          checkInId: checkInData.id, aiResponse: checkInData.aiResponse,
+          checkInId: checkInData.id, aiResponse: currentResponse,
           createdAt: checkInData.createdAt, expiresAt: checkInData.expiresAt,
         };
         completeMoodGeneration(transaction, claim, settlement, savedResponse);
