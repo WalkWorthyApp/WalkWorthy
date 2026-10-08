@@ -64,14 +64,23 @@ final class LiveAPIClient: EncouragementAPI {
         self.encoder.outputFormatting = .sortedKeys
     }
 
-    /// Builds a `URLSession` with a bounded overall deadline so retries + per-call
-    /// timeouts can't compound into a multi-minute stall. Per-request timeouts
-    /// are still set via `URLRequest.timeoutInterval` on each call.
+    /// Authenticated responses bypass HTTP caches; intentional offline snapshots
+    /// remain managed separately by SnapshotStore. Retain bounded deadlines.
     static func makeDefaultSession() -> URLSession {
-        let configuration = URLSessionConfiguration.default
+        purgeLegacyHTTPResponseCache()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.urlCache = nil
+        configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
         configuration.timeoutIntervalForRequest = 30
         configuration.timeoutIntervalForResource = 45
         return URLSession(configuration: configuration)
+    }
+
+    /// Evicts disposable HTTP responses left by older app versions. The shared
+    /// cache is app-wide, not user-scoped; this does not touch app snapshots.
+    /// Account lifecycle cleanup can call this again at identity boundaries.
+    static func purgeLegacyHTTPResponseCache() {
+        URLCache.shared.removeAllCachedResponses()
     }
 
     func fetchPrivacyConsent() async throws -> PrivacyConsent {
