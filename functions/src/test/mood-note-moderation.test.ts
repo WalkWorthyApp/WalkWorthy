@@ -5,6 +5,7 @@ import {
   UNAVAILABLE_INPUT_RESPONSE, type MoodAgentInput,
 } from "../lib/mood-agent";
 import { validateMoodSpectrumData } from "../shared/types";
+import { AiConsentRequiredError } from "../shared/privacy-consent";
 
 const generated = { message: "Take a quiet moment today.", verseId: "psalm_46_1" };
 
@@ -38,6 +39,25 @@ function mockModeration(
     return classify(body.input);
   });
   return screened;
+}
+
+for (const failAt of [1, 2]) {
+  test(`full-note screening preserves consent boundary ${failAt}`, async (t) => {
+    const note = "Today was calm. ".repeat(31) + "Okay";
+    const screened = mockModeration(t);
+    const denied = new AiConsentRequiredError();
+    let checks = 0;
+    let generations = 0;
+    await assert.rejects(runMoodAgent(inputWithNote(note), "test-key", async () => {
+      if (++checks === failAt) throw denied;
+    }, undefined, async () => {
+      generations++;
+      return generated;
+    }), error => error === denied);
+    assert.equal(checks, failAt);
+    assert.equal(generations, 0);
+    assert.deepEqual(screened, failAt === 1 ? [] : [note]);
+  });
 }
 
 for (const { suffix, category, expected } of [
