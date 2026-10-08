@@ -10,9 +10,11 @@
  *
  * VERIFICATION: every entry must match current ESV.org text exactly —
  * wording, punctuation, capitalization, and small-caps LORD rendered as
- * "LORD". The first ten entries were verified September 4, 2026. The
- * remaining entries were added September 4, 2026 and must be re-verified
- * against ESV.org before the next App Store submission.
+ * "LORD". All 82 entries were verified against esv.org on September 5, 2026
+ * by fetching each reference and diffing the quoted text. 80 matched exactly.
+ * Two quoted only part of the verse they cited (Psalm 23:1-3 stopped at
+ * "He restores my soul."; 1 John 3:1 stopped at "and so we are.") and were
+ * completed to match their stated references. Re-verify after any edit.
  *
  * LICENSING: Crossway's gratis-use permission covers quotation up to its
  * published verse limit, provided no complete book is reproduced and the
@@ -43,7 +45,7 @@ export const SCRIPTURE_CATALOG = {
   },
   psalm_23_1_3: {
     ref: "Psalm 23:1-3",
-    text: "The LORD is my shepherd; I shall not want. He makes me lie down in green pastures. He leads me beside still waters. He restores my soul.",
+    text: "The LORD is my shepherd; I shall not want. He makes me lie down in green pastures. He leads me beside still waters. He restores my soul. He leads me in paths of righteousness for his name’s sake.",
     themes: "rest, provision, restoration",
   },
   second_corinthians_4_16: {
@@ -300,7 +302,7 @@ export const SCRIPTURE_CATALOG = {
   },
   first_john_3_1: {
     ref: "1 John 3:1",
-    text: "See what kind of love the Father has given to us, that we should be called children of God; and so we are.",
+    text: "See what kind of love the Father has given to us, that we should be called children of God; and so we are. The reason why the world does not know us is that it did not know him.",
     themes: "belonging, love, adoption",
   },
   zephaniah_3_17: {
@@ -354,7 +356,7 @@ export const SCRIPTURE_CATALOG = {
   },
   galatians_6_2: {
     ref: "Galatians 6:2",
-    text: "Bear one another's burdens, and so fulfill the law of Christ.",
+    text: "Bear one another’s burdens, and so fulfill the law of Christ.",
     themes: "carrying others, community, help",
   },
   romans_12_15: {

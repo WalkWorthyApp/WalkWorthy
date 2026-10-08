@@ -9,6 +9,7 @@ import { Agent, run, setTracingDisabled } from "@openai/agents";
 import { setDefaultOpenAIKey, setOpenAIAPI } from "@openai/agents-openai";
 import { z } from "zod";
 import { logger } from "firebase-functions/v2";
+import { safeErrorMetadata } from "../shared/safe-logging";
 import type { DailyMoodSummary } from "../shared/types";
 import {
   collectProfileValues,
@@ -23,6 +24,8 @@ import {
   piiGuardrail,
   sleep,
   withTimeout,
+  ENCOURAGEMENT_SAFETY_INSTRUCTIONS,
+  type GenerationRunner,
 } from "./model-config";
 import { moderateText } from "./content-safety";
 
@@ -38,7 +41,8 @@ const reflectionOutputSchema = z.object({
 // System Prompt
 // ============================================================================
 
-const REFLECTION_SYSTEM_PROMPT = `You are a warm, faith-grounded friend writing a daily devotional reflection for a Christian student.
+const REFLECTION_SYSTEM_PROMPT = `${ENCOURAGEMENT_SAFETY_INSTRUCTIONS}
+Write a warm daily devotional reflection for a Christian student.
 
 ## Your Task
 Given a summary of the student's mood check-ins over the past week, write a short reflection prompt (2–3 sentences) that:
@@ -47,7 +51,7 @@ Given a summary of the student's mood check-ins over the past week, write a shor
 3. Ends with a brief reflective question or thought to sit with
 
 ## Tone
-- Conversational and warm — like a trusted friend, not a pastor or therapist
+- Conversational and warm, without pretending to be a person or therapist
 - Scripture-adjacent in spirit without quoting specific verses (encouragements elsewhere in the app handle that)
 - Specific enough to feel personal, not generic enough to feel like a form letter
 
@@ -128,17 +132,28 @@ function buildPrompt(
 // Export
 // ============================================================================
 
+export interface ReflectionAgentResult {
+  reflection: string;
+  isGenerated: boolean;
+}
+
+export const FIXED_REFLECTION: ReflectionAgentResult = {
+  reflection: "Whatever this week has held, you can make room for a quiet moment today. What is one small kindness you could offer yourself or someone around you?",
+  isGenerated: false,
+};
+
 export async function runReflectionAgent(
   summaries: DailyMoodSummary[],
   apiKey: string,
   profile: UserProfilePayload | null = null,
-): Promise<string> {
+  generate: GenerationRunner = async (input, signal) =>
+    (await run(ensureAgent(apiKey), input, { signal })).finalOutput,
+): Promise<ReflectionAgentResult> {
   logger.info("[ReflectionAgent] Generating daily reflection", {
     summaryCount: summaries.length,
     hasProfile: profile !== null,
   });
 
-  const agent = ensureAgent(apiKey);
   const input = buildPrompt(summaries, profile);
 
   const MAX_RETRIES = 2;
@@ -153,9 +168,9 @@ export async function runReflectionAgent(
 
     try {
       const result = await withTimeout((signal) =>
-        run(agent, input, { signal }),
+        generate(input, signal),
       );
-      const output = result.finalOutput;
+      const output = result;
 
       const raw =
         typeof output === "string"
@@ -170,14 +185,14 @@ export async function runReflectionAgent(
       const reflection = parsed.reflection.trim();
       const outputSafety = await moderateText(reflection, apiKey, "output");
       if (outputSafety !== "allow") {
-        return "Whatever this week has held, consider pausing with someone you trust and making room for care today. What is one safe, supportive next step you can take?";
+        return FIXED_REFLECTION;
       }
       // Deterministic echo-check: block a reflection that repeats the user's
       // own profile strings back. Checked against the sanitized profile —
       // the same values buildPrompt() sent to the model. Throws
       // GuardrailTripError — caught below and rethrown without retry.
       assertNoProfileEcho(reflection, collectProfileValues(sanitizeProfile(profile)));
-      return reflection;
+      return { reflection, isGenerated: true };
     } catch (err) {
       lastError = err;
       if (isGuardrailTrip(err)) {
@@ -186,7 +201,7 @@ export async function runReflectionAgent(
       }
       logger.error("[ReflectionAgent] Attempt failed", {
         attempt: attempt + 1,
-        errorName: err instanceof Error ? err.name : "UnknownError",
+        ...safeErrorMetadata(err),
       });
     }
   }

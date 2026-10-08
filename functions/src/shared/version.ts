@@ -9,12 +9,14 @@
  * production kept running pre-rate-limit code).
  *
  * The failure is silent and the CLI reports success, so the only reliable
- * check is an observable marker in the running code. This value is attached to
- * the mood check-in log line: query Cloud Logging for `functionsRevision` and
- * you know exactly which build answered, rather than trusting the deploy
- * output.
+ * check is an observable marker in the running code. EVERY endpoint logs this
+ * on invocation as `revision`: query Cloud Logging and you know exactly which
+ * build answered each function, rather than trusting the deploy output. It is
+ * logged everywhere and not just on one endpoint because functions are skipped
+ * individually — one endpoint reporting the new build proves nothing about the
+ * other five.
  *
  * Bump this whenever backend behavior changes. Changing it also alters the
  * source hash, which is what forces a real rebuild rather than a skip.
  */
-export const FUNCTIONS_REVISION = "2026-09-04-ai-safety-catalog-retry";
+export const FUNCTIONS_REVISION = "2026-09-10-moderation-consent-limits";

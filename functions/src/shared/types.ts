@@ -97,6 +97,8 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
 
   const obj = input as Record<string, unknown>;
 
+  if (typeof obj.optInTailored !== "boolean") return undefined;
+
   // REQUIRED: Validate ageRange
   const ageRange = validateAgeRange(obj.ageRange);
   if (!ageRange) {
@@ -141,7 +143,7 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
   return {
     ageRange,
     hobbies,
-    optInTailored: Boolean(obj.optInTailored),
+    optInTailored: obj.optInTailored,
     timezone,
     // Optional fields
     firstName,

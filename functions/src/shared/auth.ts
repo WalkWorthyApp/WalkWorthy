@@ -1,7 +1,8 @@
 import { Request, Response } from "express";
 import { logger } from "firebase-functions/v2";
 import http from "http";
-import { getAuthInstance, getAppCheckInstance } from "./firebase";
+import { assertAccountActive, AccountDeletingError } from "./account-lifecycle";
+import { getAuthInstance, getAppCheckInstance, getDb } from "./firebase";
 import { DecodedIdToken } from "firebase-admin/auth";
 
 /**
@@ -38,11 +39,11 @@ export async function verifyAuthToken(
 
   try {
     const auth = getAuthInstance();
-    const decodedToken = await auth.verifyIdToken(idToken);
+    const decodedToken = await auth.verifyIdToken(idToken, true);
     return decodedToken;
   } catch (error) {
     logger.warn("Auth token verification failed", {
-      error: error instanceof Error ? error.message : "Unknown error",
+      errorKind: "authentication",
     });
     return null;
   }
@@ -80,9 +81,7 @@ export async function requireAuth(
     decodedToken.firebase.sign_in_provider === "password" &&
     decodedToken.email_verified !== true
   ) {
-    logger.info("Rejecting unverified email/password account", {
-      userId: decodedToken.uid,
-    });
+    logger.info("Rejecting unverified email/password account");
     errorResponse(
       res,
       403,
@@ -90,6 +89,18 @@ export async function requireAuth(
       undefined,
       "EMAIL_UNVERIFIED"
     );
+    return null;
+  }
+
+  try {
+    await assertAccountActive(getDb(), decodedToken.uid);
+  } catch (error) {
+    if (error instanceof AccountDeletingError) {
+      errorResponse(res, 403, "Account deletion is in progress", undefined, "ACCOUNT_DELETING");
+      return null;
+    }
+    logger.error("Account status check failed");
+    errorResponse(res, 503, "Account status unavailable; please retry");
     return null;
   }
 
@@ -124,7 +135,7 @@ export async function verifyAppCheck(
     return true;
   } catch (error) {
     logger.warn('App Check verification failed', {
-      error: error instanceof Error ? error.message : 'Unknown error',
+      errorKind: 'appCheck',
     });
     errorResponse(res, 401, 'Invalid App Check token');
     return false;
@@ -134,7 +145,7 @@ export async function verifyAppCheck(
 /**
  * Machine-readable error codes the iOS client can branch on.
  */
-export type ApiErrorCode = "EMAIL_UNVERIFIED";
+export type ApiErrorCode = "EMAIL_UNVERIFIED" | "AI_CONSENT_REQUIRED" | "CONSENT_CONFLICT" | "ACCOUNT_DELETING" | "LIMIT_CHECK_UNAVAILABLE";
 
 /**
  * Standard error response format

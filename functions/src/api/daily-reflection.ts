@@ -1,3 +1,7 @@
+import { safeErrorMetadata } from '../shared/safe-logging';
+import { FUNCTIONS_REVISION } from '../shared/version';
+import { AccountDeletingError } from '../shared/account-lifecycle';
+import { requireAiConsent, AiConsentRequiredError } from '../shared/privacy-consent';
 /**
  * Daily Reflection API
  *
@@ -18,7 +22,7 @@ import { getUserProfileOnce } from "../shared/profile";
 import { getLogicalDateString, shiftLogicalDate } from "../shared/time";
 import type { UserProfilePayload } from "../lib/profile-sanitize";
 import type { DailyMoodSummary } from "../shared/types";
-import { checkRateLimit, checkDailyAiBudget, refundDailyAiBudget, getTodayUtcDateString, getClientIp, sendRateLimitResponse, DAILY_REFLECTION_USER_LIMIT, DAILY_REFLECTION_IP_LIMIT, REFLECTION_DAILY_AI_BUDGET } from '../shared/rate-limiter';
+import { checkRateLimit, checkDailyAiBudget, refundDailyAiBudget, getTodayUtcDateString, sendLimitCheckResponse, DAILY_REFLECTION_USER_LIMIT, REFLECTION_DAILY_AI_BUDGET } from '../shared/rate-limiter';
 
 initializeFirebase();
 
@@ -50,7 +54,7 @@ function resolveDate(clientDate: string | undefined, userToday: string): string 
 }
 
 export const dailyReflection = onRequest(httpsOptions, async (req, res) => {
-  logger.info("dailyReflection invoked", { method: req.method });
+  logger.info("dailyReflection invoked", { revision: FUNCTIONS_REVISION });
 
   if (req.method !== "GET") {
     res.setHeader("Allow", "GET");
@@ -60,15 +64,6 @@ export const dailyReflection = onRequest(httpsOptions, async (req, res) => {
   // App Check verification
   const appCheckValid = await verifyAppCheck(req, res);
   if (!appCheckValid) return;
-
-  // IP-based rate limiting
-  const db = getDb();
-  const clientIp = getClientIp(req);
-  const ipResult = await checkRateLimit(db, `ip:${clientIp}:dailyReflection`, DAILY_REFLECTION_IP_LIMIT);
-  if (!ipResult.allowed) {
-    sendRateLimitResponse(res, 'ip', ipResult.retryAfterSeconds, { endpoint: 'dailyReflection' });
-    return;
-  }
 
   return handleGet(req, res);
 });
@@ -81,9 +76,9 @@ async function handleGet(req: Request, res: Response): Promise<void> {
   const db = getDb();
 
   // User-based rate limiting
-  const userRateResult = await checkRateLimit(db, `user:${userId}:dailyReflection`, DAILY_REFLECTION_USER_LIMIT);
+  const userRateResult = await checkRateLimit(db, `user:${userId}:dailyReflection`, DAILY_REFLECTION_USER_LIMIT, userId);
   if (!userRateResult.allowed) {
-    sendRateLimitResponse(res, 'user', userRateResult.retryAfterSeconds, { userId, endpoint: 'dailyReflection' });
+    sendLimitCheckResponse(res, 'user', userRateResult, { userId, endpoint: 'dailyReflection' });
     return;
   }
 
@@ -104,10 +99,10 @@ async function handleGet(req: Request, res: Response): Promise<void> {
       // drops the cache entry and falls through to regeneration below.
       const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
       if (isCleanStoredAiContent(cached.data(), profileValues)) {
-        logger.info("dailyReflection: cache hit", { userId, today });
+        logger.info("dailyReflection: cache hit");
         return successResponse(res, cached.data());
       }
-      logger.warn("dailyReflection: cached reflection failed guardrail screen; regenerating", { userId, today });
+      logger.warn("dailyReflection: cached reflection failed guardrail screen; regenerating");
       await cacheRef.delete();
     }
 
@@ -130,7 +125,7 @@ async function handleGet(req: Request, res: Response): Promise<void> {
     // failure so server-side errors don't consume the user's daily quota.
     const budgetResult = await checkDailyAiBudget(db, userId, REFLECTION_DAILY_AI_BUDGET);
     if (!budgetResult.allowed) {
-      sendRateLimitResponse(res, 'dailyBudget', budgetResult.retryAfterSeconds, { userId, endpoint: 'dailyReflection' });
+      sendLimitCheckResponse(res, 'dailyBudget', budgetResult, { userId, endpoint: 'dailyReflection' });
       return;
     }
 
@@ -140,22 +135,26 @@ async function handleGet(req: Request, res: Response): Promise<void> {
       // Profile sharing is opt-in. Missing/legacy values remain off.
       const useProfile = profile?.optInTailored === true;
       if (!useProfile) {
-        logger.info('personalization.optedOut', { userId, endpoint: 'dailyReflection' });
+        logger.info('personalization.optedOut');
       }
       const profileForAgent = useProfile ? (profile as UserProfilePayload | null) : null;
 
       // Generate reflection
-      const reflection = await runReflectionAgent(summaries, openaiApiKey.value(), profileForAgent);
+      const consent = await requireAiConsent(db, userId);
+      const result = await runReflectionAgent(summaries, openaiApiKey.value(), profileForAgent);
       const generatedAt = new Date().toISOString();
-      const payload = { reflection, generatedAt, date: today };
+      const payload = { reflection: result.reflection, isGenerated: result.isGenerated, generatedAt, date: today };
 
       // Cache in Firestore
-      await cacheRef.set(payload);
+      await db.runTransaction(async tx => {
+        await requireAiConsent(db, userId, tx, consent.revision);
+        tx.set(cacheRef, payload);
+      });
 
       // Success: the slot is earned.
       budgetReserved = false;
 
-      logger.info("dailyReflection: generated and cached", { userId, today });
+      logger.info("dailyReflection: generated and cached");
       return successResponse(res, payload);
     } catch (aiOrWriteError) {
       // OpenAI call or Firestore write failed after budget was reserved.
@@ -167,14 +166,10 @@ async function handleGet(req: Request, res: Response): Promise<void> {
       throw aiOrWriteError;
     }
   } catch (error) {
-    logger.error("dailyReflection failed", {
-      userId,
-      error: error instanceof Error ? error.message : "unknown",
-    });
-    const message =
-      process.env.NODE_ENV === "development"
-        ? `Failed to generate reflection: ${error instanceof Error ? error.message : error}`
-        : "Failed to generate reflection";
+    if (error instanceof AiConsentRequiredError) return errorResponse(res, 403, 'Current AI sharing consent required', undefined, 'AI_CONSENT_REQUIRED');
+    if (error instanceof AccountDeletingError) return errorResponse(res, 403, 'Account deletion in progress', undefined, 'ACCOUNT_DELETING');
+    logger.error("dailyReflection failed", safeErrorMetadata(error));
+    const message = "Failed to generate reflection";
     return errorResponse(res, 500, message);
   }
 }

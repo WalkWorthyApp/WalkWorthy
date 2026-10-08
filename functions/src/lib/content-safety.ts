@@ -2,17 +2,14 @@
  * Minimal OpenAI Moderations API wrapper for user-authored notes and generated
  * prose. It never logs or includes the classified text in thrown errors.
  *
- * AVAILABILITY POSTURE: this classifier fails OPEN. A moderation outage,
- * timeout, or malformed payload must not take the check-in feature offline —
- * that trades a rare safety improvement for a common, total loss of service.
- * We fail closed only on a decision we actually received. Failing open lands
- * on the pre-existing behavior (no input screening, output guardrails still
- * run) and is logged so outages are visible in Cloud Logging.
+ * An outage is a distinct result, never an approval or an inference about the
+ * user. Callers keep encouragement available through human-written fallbacks.
  */
 
 import { logger } from "firebase-functions/v2";
+import { safeErrorMetadata } from "../shared/safe-logging";
 
-export type ContentSafetyDecision = "allow" | "crisis" | "block";
+export type ContentSafetyDecision = "allow" | "crisis" | "block" | "unavailable";
 
 const SELF_HARM_CATEGORIES = [
   "self-harm",
@@ -40,7 +37,8 @@ export function classifyModerationResult(
 
   const result = results[0] as ModerationResultShape;
   if (!result || typeof result !== "object" ||
-      !result.categories || typeof result.categories !== "object") {
+      !result.categories || typeof result.categories !== "object" ||
+      Array.isArray(result.categories)) {
     throw new Error("Moderation returned an invalid result");
   }
 
@@ -51,14 +49,19 @@ export function classifyModerationResult(
   if (result.flagged === true) {
     return "block";
   }
-  if (result.flagged === false) {
+  if (result.flagged === false &&
+      SELF_HARM_CATEGORIES.every((name) => categories[name] === false) &&
+      Object.entries(categories).every(([name, value]) =>
+        value === false ||
+        // The provider schema permits null only for these two categories.
+        (value === null && (name === "illicit" || name === "illicit/violent")))) {
     return "allow";
   }
   throw new Error("Moderation omitted the flagged decision");
 }
 
 /**
- * Classifies `input`, or returns "allow" if the classifier is unreachable.
+ * Classifies `input`, or returns "unavailable" if screening cannot complete.
  *
  * `stage` identifies the call site ("input" | "output") in logs only — it
  * never carries user content.
@@ -91,13 +94,11 @@ export async function moderateText(
     }
     return classifyModerationResult(await response.json());
   } catch (err) {
-    // Fail open — see the availability note at the top of this file. Log the
-    // error name only; never the classified text or the raw provider error.
-    logger.warn("[ContentSafety] Moderation unavailable; allowing content", {
+    logger.warn("[ContentSafety] Moderation unavailable; using fixed content", {
       stage,
-      errorName: err instanceof Error ? err.name : "UnknownError",
+      ...safeErrorMetadata(err),
     });
-    return "allow";
+    return "unavailable";
   } finally {
     clearTimeout(timeout);
   }
