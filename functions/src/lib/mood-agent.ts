@@ -23,6 +23,7 @@ import {
 } from "./profile-sanitize";
 import {
   MOOD_MODEL,
+  MOOD_MODEL_REASONING,
   GuardrailTripError,
   assertNoProfileEcho,
   isGuardrailTrip,
@@ -220,8 +221,7 @@ function ensureAgent(
     instructions: MOOD_SYSTEM_PROMPT,
     model: createProviderModel(apiKey, model),
     modelSettings: {
-      temperature: 0.4,
-      topP: 1,
+      reasoning: MOOD_MODEL_REASONING,
       maxTokens: 512,
       // Disable storage of the Responses API response object for this call.
       // This is separate from OpenAI abuse-monitoring logs and does not by
