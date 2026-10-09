@@ -18,6 +18,7 @@ import {
 } from "./profile-sanitize";
 import {
   MOOD_MODEL,
+  MOOD_MODEL_REASONING,
   GuardrailTripError,
   assertNoProfileEcho,
   isGuardrailTrip,
@@ -93,7 +94,7 @@ function ensureAgent(apiKey: string): Agent<object, typeof reflectionOutputSchem
     model: createProviderModel(apiKey, MOOD_MODEL),
     // Disable storage of the Responses API response object for this call.
     // Provider abuse-monitoring retention remains governed by the API project.
-    modelSettings: { temperature: 0.6, topP: 1, maxTokens: 256, store: false },
+    modelSettings: { reasoning: MOOD_MODEL_REASONING, maxTokens: 256, store: false },
     outputType: reflectionOutputSchema,
     outputGuardrails: [piiGuardrail],
   });

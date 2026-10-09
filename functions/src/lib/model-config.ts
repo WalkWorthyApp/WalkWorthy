@@ -8,7 +8,14 @@
 import { logger } from "firebase-functions/v2";
 
 /** Default model used by mood-agent and reflection-agent. */
-export const MOOD_MODEL = "gpt-4.1-nano" as const;
+export const MOOD_MODEL = "gpt-6-luna" as const;
+
+/**
+ * gpt-6-luna defaults to medium reasoning. Short encouragement doesn't need
+ * it, so reasoning is off to keep latency and cost close to the non-reasoning
+ * gpt-4.1-nano it replaced (and so no reasoning tokens eat into maxTokens).
+ */
+export const MOOD_MODEL_REASONING = { effort: "none" } as const;
 
 /** Per-agent request timeout in milliseconds. */
 export const AGENT_TIMEOUT_MS = 15000;
