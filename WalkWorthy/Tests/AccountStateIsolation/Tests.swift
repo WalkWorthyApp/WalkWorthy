@@ -83,6 +83,20 @@ func seedHTTPResponse() throws -> URLRequest {
 struct AccountStateIsolationTests {
     @MainActor
     static func main() async throws {
+        do {
+            let decoder = JSONDecoder()
+            let legacy = try decoder.decode(MoodLogResponse.self, from: Data(#"{"checkIns":[],"daysRequested":14}"#.utf8))
+            try check(legacy.windowStartDate == nil && legacy.windowEndDate == nil && legacy.hasMoreCheckIns == nil,
+                      "legacy log response must keep pagination metadata unknown")
+            let paged = try decoder.decode(MoodLogResponse.self, from: Data(#"{"checkIns":[],"daysRequested":14,"windowStartDate":"2026-09-10","windowEndDate":"2026-09-23","hasMoreCheckIns":true}"#.utf8))
+            try check(paged.windowStartDate == "2026-09-10" && paged.windowEndDate == "2026-09-23" && paged.hasMoreCheckIns == true,
+                      "empty log window lost server cursor or older-history hint")
+            let exhausted = try decoder.decode(MoodLogResponse.self, from: Data(#"{"checkIns":[],"daysRequested":14,"hasMoreCheckIns":false}"#.utf8))
+            try check(exhausted.hasMoreCheckIns == false, "known exhaustion was decoded as unknown")
+            let constructed = MoodLogResponse(checkIns: [], daysRequested: 14)
+            try check(constructed.hasMoreCheckIns == nil, "existing initializers must remain compatible")
+            print("PASS check-in log response pagination and legacy decoding")
+        }
         // Replace the shared cache only in this test process; no app cache or
         // disk-backed HTTP data is read or changed.
         let originalCache = URLCache.shared

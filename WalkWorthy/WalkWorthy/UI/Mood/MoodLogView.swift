@@ -23,6 +23,7 @@ private let moodLogISODateFormatter: DateFormatter = {
     let f = DateFormatter()
     f.dateFormat = "yyyy-MM-dd"
     f.locale = Locale(identifier: "en_US_POSIX")
+    f.calendar = Calendar(identifier: .gregorian)
     return f
 }()
 
@@ -92,9 +93,12 @@ private struct MoodLogContent: View {
 
     @State private var checkIns: [MoodCheckIn] = []
     @State private var isLoading: Bool = false
-    @State private var hasMore: Bool = true
+    @State private var hasMoreCheckIns: Bool? = nil
     @State private var oldestLoadedDate: String? = nil
+    @State private var latestWindowEndDate: String? = nil
+    @State private var latestPageHadCheckIns: Bool = false
     @State private var errorMessage: String? = nil
+    @State private var retryOlder: Bool = false
     /// How many day-window pages are currently loaded. `loadFirstPage()`
     /// resets it to 1 (full first-page replacement); `loadOlder()` increments
     /// it. Drives the `.task` guard — item counts can't, because `pageSize`
@@ -157,49 +161,71 @@ private struct MoodLogContent: View {
 
     @ViewBuilder
     private var footer: some View {
-        if isLoading && checkIns.isEmpty {
-            ProgressView()
-                .frame(maxWidth: .infinity)
-                .padding(.top, scaled(40))
-        } else if checkIns.isEmpty && allJournalEntries.isEmpty {
-            emptyState
-        } else if let errorMessage {
+        if let errorMessage {
             VStack(spacing: scaled(10)) {
                 Text(errorMessage)
                     .font(.subheadline)
                     .foregroundStyle(.red)
                     .multilineTextAlignment(.center)
                 Button("Try again") {
-                    Task { await loadFirstPage() }
+                    Task {
+                        if retryOlder {
+                            await loadOlder()
+                        } else {
+                            await loadFirstPage()
+                        }
+                    }
                 }
                 .buttonStyle(.bordered)
             }
             .frame(maxWidth: .infinity)
             .padding(.top, scaled(12))
-        } else if hasMore {
-            Button {
-                Task { await loadOlder() }
-            } label: {
-                if isLoading {
-                    ProgressView()
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, scaled(4))
-                } else {
+        } else if isLoading || oldestLoadedDate == nil {
+            ProgressView()
+                .frame(maxWidth: .infinity)
+                .padding(.top, scaled(12))
+        } else {
+            if latestWindowIsEmpty, let start = oldestLoadedDate, let end = latestWindowEndDate {
+                VStack(spacing: scaled(4)) {
+                    Text("No entries in this date range")
+                    Text("\(start) – \(end)")
+                }
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+            }
+            if hasMore {
+                Button {
+                    Task { await loadOlder() }
+                } label: {
                     Label("Load older (\(Self.pageSize) more days)", systemImage: "arrow.down.circle")
                         .font(.subheadline)
                         .frame(maxWidth: .infinity)
                 }
+                .buttonStyle(.bordered)
+                .padding(.top, scaled(8))
+                .disabled(isLoading)
+            } else if checkIns.isEmpty && allJournalEntries.isEmpty {
+                emptyState
+            } else {
+                Text("That's the beginning of your log.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.top, scaled(12))
             }
-            .buttonStyle(.bordered)
-            .padding(.top, scaled(8))
-            .disabled(isLoading)
-        } else {
-            Text("That's the beginning of your log.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
-                .padding(.top, scaled(12))
         }
+    }
+
+    private var hasMore: Bool {
+        guard let oldestLoadedDate else { return false }
+        // A missing server hint is unknown, not evidence of exhaustion.
+        return hasMoreCheckIns != false || allJournalEntries.contains { $0.date < oldestLoadedDate }
+    }
+
+    private var latestWindowIsEmpty: Bool {
+        guard let start = oldestLoadedDate, let end = latestWindowEndDate else { return false }
+        return !latestPageHadCheckIns && !allJournalEntries.contains { $0.date >= start && $0.date <= end }
     }
 
     private var emptyState: some View {
@@ -279,13 +305,13 @@ private struct MoodLogContent: View {
     }
 
     private static func dateString(daysAgo: Int) -> String {
-        let d = Calendar.current.date(byAdding: .day, value: -daysAgo, to: Date()) ?? Date()
+        let d = Calendar(identifier: .gregorian).date(byAdding: .day, value: -daysAgo, to: Date()) ?? Date()
         return moodLogISODateFormatter.string(from: d)
     }
 
     private static func dateByOffsetting(_ dateString: String, days: Int) -> String? {
         guard let date = moodLogISODateFormatter.date(from: dateString),
-              let shifted = Calendar.current.date(byAdding: .day, value: days, to: date)
+              let shifted = Calendar(identifier: .gregorian).date(byAdding: .day, value: days, to: date)
         else { return nil }
         return moodLogISODateFormatter.string(from: shifted)
     }
@@ -293,6 +319,8 @@ private struct MoodLogContent: View {
     // MARK: Loading
 
     private func loadFirstPage() async {
+        guard !isLoading, let session = appState.authenticatedSession,
+              appState.isCurrentSession(session) else { return }
         // Lazily hydrate the AppState cache from disk on first visit. This
         // snapshot is the largest one (up to 14 check-ins with full AI text),
         // and this screen is a Settings deep-dive most sessions never open —
@@ -313,68 +341,70 @@ private struct MoodLogContent: View {
         // standalone until the refetch lands.
         if checkIns.isEmpty && !appState.moodLogFirstPage.isEmpty {
             checkIns = appState.moodLogFirstPage
-            oldestLoadedDate = Self.dateString(daysAgo: Self.pageSize)
-            hasMore = true
         }
 
-        // Capture the account that owns this fetch before the await, so a
-        // sign-out + another sign-in mid-fetch can't persist this user's log
-        // into the next user's cache (publishMoodLogFirstPage re-checks it).
-        let requestSub = appState.authenticatedUserSub
+        // Cached entries are display-only until a successful fetch establishes
+        // the window. Capture legacy fallback dates before the request crosses midnight.
+        let fallbackEnd = Self.dateString(daysAgo: 0)
+        let fallbackStart = Self.dateByOffsetting(fallbackEnd, days: -Self.pageSize)
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
         do {
             let response = try await appState.loadMoodLog(days: Self.pageSize, endDate: nil)
+            guard !Task.isCancelled, appState.isCurrentSession(session) else { return }
             checkIns = response.checkIns
-            oldestLoadedDate = Self.dateString(daysAgo: Self.pageSize)
-            // If the backend returned fewer docs than we asked for, assume there may still
-            // be older data in Firestore — only mark hasMore=false when user has paged back
-            // and explicitly gets an empty response.
-            hasMore = true
+            oldestLoadedDate = response.windowStartDate ?? fallbackStart
+            latestWindowEndDate = response.windowEndDate ?? fallbackEnd
+            latestPageHadCheckIns = !response.checkIns.isEmpty
+            hasMoreCheckIns = response.hasMoreCheckIns
             // Full first-page replacement — back to a single loaded page.
             loadedPages = 1
 
             // Publish to AppState + snapshot so the next cold launch renders
             // instantly. Guarded on the captured account.
             let page = Array(response.checkIns.prefix(Self.pageSize))
-            if let requestSub {
-                await appState.publishMoodLogFirstPage(page, requestSub: requestSub)
-            }
+            await appState.publishMoodLogFirstPage(page, requestSub: session.userSub)
         } catch {
+            guard !Task.isCancelled, appState.isCurrentSession(session) else { return }
             #if DEBUG
             print("[MoodLogView] loadFirstPage failed: \(error)")
             #endif
             errorMessage = "Couldn't load your check-in log."
+            retryOlder = false
         }
     }
 
     private func loadOlder() async {
-        guard let oldest = oldestLoadedDate,
-              let priorEnd = Self.dateByOffsetting(oldest, days: -1)
+        guard !isLoading, hasMore, let session = appState.authenticatedSession,
+              appState.isCurrentSession(session), let oldest = oldestLoadedDate,
+              let priorEnd = Self.dateByOffsetting(oldest, days: -1),
+              let fallbackStart = Self.dateByOffsetting(priorEnd, days: -(Self.pageSize - 1))
         else { return }
 
         isLoading = true
+        errorMessage = nil
         defer { isLoading = false }
         do {
             let response = try await appState.loadMoodLog(days: Self.pageSize, endDate: priorEnd)
-            if response.checkIns.isEmpty {
-                hasMore = false
-            } else {
-                // Dedup by id in case of overlap
-                let existingIds = Set(checkIns.map { $0.id })
-                let additions = response.checkIns.filter { !existingIds.contains($0.id) }
-                checkIns.append(contentsOf: additions)
-                if let newOldest = Self.dateByOffsetting(oldest, days: -Self.pageSize) {
-                    oldestLoadedDate = newOldest
-                }
-                loadedPages += 1
-            }
+            guard !Task.isCancelled, appState.isCurrentSession(session) else { return }
+            let existingIds = Set(checkIns.map { $0.id })
+            let additions = response.checkIns.filter { !existingIds.contains($0.id) }
+            checkIns.append(contentsOf: additions)
+            // Advance even through an empty or screened-out page, revealing
+            // journals in that window and preserving the session on tab revisit.
+            oldestLoadedDate = response.windowStartDate ?? fallbackStart
+            latestWindowEndDate = response.windowEndDate ?? priorEnd
+            latestPageHadCheckIns = !response.checkIns.isEmpty
+            hasMoreCheckIns = response.hasMoreCheckIns
+            loadedPages += 1
         } catch {
+            guard !Task.isCancelled, appState.isCurrentSession(session) else { return }
             #if DEBUG
             print("[MoodLogView] loadOlder failed: \(error)")
             #endif
             errorMessage = "Couldn't load older entries."
+            retryOlder = true
         }
     }
 }

@@ -315,6 +315,10 @@ struct MoodHistoryResponse: Codable {
 struct MoodLogResponse: Codable {
     let checkIns: [MoodCheckIn]
     let daysRequested: Int
+    // Optional for responses from servers predating calendar-window pagination.
+    var windowStartDate: String? = nil
+    var windowEndDate: String? = nil
+    var hasMoreCheckIns: Bool? = nil
 }
 
 // MARK: - Daily Reflection

@@ -41,7 +41,7 @@ import {
   MOOD_CHECKIN_USER_LIMIT,
   STANDARD_USER_LIMIT,
 } from '../shared/rate-limiter';
-import { getLogicalDateString, getDateStringInTimezone } from '../shared/time';
+import { getLogicalDateString, getDateStringInTimezone, shiftLogicalDate } from '../shared/time';
 import { sameMoodInput } from '../shared/mood-input';
 import {
   claimMoodGeneration, markMoodGenerationConsumed, readMoodGenerationSettlement,
@@ -647,29 +647,50 @@ async function handleGetHistory(userId: string, days: number, db: FirebaseFirest
  * the past N days. Powers the Settings → Check-in log deep-dive view.
  *
  * Uses the deterministic doc-id invariant (one doc per day per check-in type,
- * max 3 per day) to cap the query size at days * 3. Within a day the iOS
- * client reorders by check-in type (morning → midday → evening).
+ * max 3 per day) to cap the query size at the inclusive window's days * 3.
+ * The initial window includes today plus N previous dates for older clients;
+ * subsequent windows contain exactly N dates ending at the requested endDate.
+ * Within a day the iOS client reorders by check-in type (morning → midday → evening).
  */
 async function handleGetFullHistory(userId: string, days: number, db: FirebaseFirestore.Firestore, timezone: string, res: Response, profileValues: readonly string[], startDateOverride?: string, endDateOverride?: string): Promise<void> {
   try {
-    const now = new Date();
-    const startDate = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
-    const startDateString = startDateOverride ?? getDateStringInTimezone(startDate, timezone);
-
-    let query = db
-      .collection(COLLECTIONS.users)
-      .doc(userId)
-      .collection('moodCheckIns')
-      .where('date', '>=', startDateString)
-      .orderBy('date', 'desc');
-
-    if (endDateOverride) {
-      query = query.where('date', '<=', endDateOverride);
+    // Reject impossible dates before shifting them (JS normalizes February 30).
+    const isCalendarDate = (value: string): boolean => {
+      if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+      const date = new Date(`${value}T00:00:00Z`);
+      return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+    };
+    const windowEndDate = endDateOverride ?? getDateStringInTimezone(new Date(), timezone);
+    if (!isCalendarDate(windowEndDate) || (startDateOverride !== undefined && !isCalendarDate(startDateOverride))) {
+      return errorResponse(res, 400, 'History dates must be valid calendar dates (YYYY-MM-DD).');
+    }
+    const windowStartDate = startDateOverride
+      ?? shiftLogicalDate(windowEndDate, -(endDateOverride ? days - 1 : days));
+    if (!isCalendarDate(windowStartDate) || windowStartDate > windowEndDate) {
+      return errorResponse(res, 400, 'Invalid history date range.');
+    }
+    // UTC midnight arithmetic counts calendar dates without DST effects.
+    const windowDays = (Date.parse(`${windowEndDate}T00:00:00Z`)
+      - Date.parse(`${windowStartDate}T00:00:00Z`)) / 86_400_000 + 1;
+    // The endpoint supports up to 31 previous dates plus today. Reject wider
+    // explicit ranges instead of silently dropping documents behind the cursor.
+    if (windowDays > 32) {
+      return errorResponse(res, 400, 'History date range must contain at most 32 calendar dates.');
     }
 
-    const checkInsQuery = await query
-      .limit(days * 3) // morning/midday/evening per day is the upper bound
-      .get();
+    const collection = db
+      .collection(COLLECTIONS.users)
+      .doc(userId)
+      .collection('moodCheckIns');
+    const [checkInsQuery, olderQuery] = await Promise.all([
+      collection.where('date', '>=', windowStartDate)
+        .where('date', '<=', windowEndDate)
+        .orderBy('date', 'desc')
+        .limit(windowDays * 3)
+        .get(),
+      // An empty window (including one emptied by screening) is not exhaustion.
+      collection.where('date', '<', windowStartDate).limit(1).get(),
+    ]);
 
     const allCheckIns: MoodCheckIn[] = checkInsQuery.docs.map(
       (doc) => doc.data() as MoodCheckIn,
@@ -690,6 +711,9 @@ async function handleGetFullHistory(userId: string, days: number, db: FirebaseFi
     return successResponse(res, {
       checkIns,
       daysRequested: days,
+      windowStartDate,
+      windowEndDate,
+      hasMoreCheckIns: olderQuery.docs.length > 0,
     });
   } catch (error) {
     if (error instanceof AccountDeletingError) return errorResponse(res, 403, 'Account deletion in progress', undefined, 'ACCOUNT_DELETING');
