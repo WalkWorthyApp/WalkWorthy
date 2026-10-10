@@ -3,6 +3,7 @@ import { safeErrorMetadata } from '../shared/safe-logging';
 import { AccountDeletingError } from '../shared/account-lifecycle';
 import { requireAiConsent, AiConsentRequiredError } from '../shared/privacy-consent';
 import { createAiPersonalization } from '../shared/ai-personalization';
+import { RequestMetrics } from '../shared/request-metrics';
 /**
  * Mood Check-in API
  *
@@ -162,20 +163,35 @@ function calculateOverallSentiment(
   return 'neutral';
 }
 
+/** POSTs this process has started; the first one pays for fresh connections. */
+let postsStartedOnInstance = 0;
+
 /**
  * Mood Check-in API Handler
  */
 export const moodCheckIn = onRequest(httpsOptions, async (req, res) => {
   logger.info('moodCheckIn function invoked', { revision: FUNCTIONS_REVISION });
+  const metrics = new RequestMetrics();
+  // Process uptime; a small value means this request waited on a cold start.
+  const instanceAgeMs = Math.round(performance.now());
 
   // App Check verification
-  const appCheckValid = await verifyAppCheck(req, res);
+  const appCheckValid = await metrics.time('appCheck', () => verifyAppCheck(req, res));
   if (!appCheckValid) return;
 
   // Route based on method
   switch (req.method) {
-    case 'POST':
-      return handlePostCheckIn(req, res);
+    case 'POST': {
+      const firstPostOnInstance = postsStartedOnInstance++ === 0;
+      try {
+        return await handlePostCheckIn(req, res, metrics);
+      } finally {
+        // Numbers and booleans only — see RequestMetrics.
+        logger.info('Mood check-in timings', {
+          ...metrics.summary(), status: res.statusCode, instanceAgeMs, firstPostOnInstance,
+        });
+      }
+    }
     case 'GET':
       return handleGetCheckIn(req, res);
     default:
@@ -187,8 +203,8 @@ export const moodCheckIn = onRequest(httpsOptions, async (req, res) => {
 /**
  * POST /moodCheckIn - Submit a mood check-in
  */
-async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
-  const authReq = await requireAuth(req, res);
+async function handlePostCheckIn(req: Request, res: Response, metrics: RequestMetrics): Promise<void> {
+  const authReq = await metrics.time('auth', () => requireAuth(req, res));
   if (!authReq) return;
 
   const { userId } = authReq;
@@ -196,8 +212,13 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
 
   try {
     // User-based rate limiting for writes. The `:write` suffix isolates the
-    // expensive AI-call bucket from cheap status/history GETs.
-    const userRateResult = await checkRateLimit(db, `user:${userId}:moodCheckIn:write`, MOOD_CHECKIN_USER_LIMIT, userId);
+    // expensive AI-call bucket from cheap status/history GETs. The profile
+    // read is independent, so it runs alongside instead of after.
+    const [userRateResult, profile] = await Promise.all([
+      metrics.time('rateLimit', () =>
+        checkRateLimit(db, `user:${userId}:moodCheckIn:write`, MOOD_CHECKIN_USER_LIMIT, userId)),
+      metrics.time('profile', () => getUserProfileOnce(userId)),
+    ]);
     if (!userRateResult.allowed) {
       sendLimitCheckResponse(res, 'user', userRateResult, { userId, endpoint: 'moodCheckIn' });
       return;
@@ -221,8 +242,6 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     const regenerateRequested = req.body?.regenerate === true;
     const expectedCheckInId: unknown = req.body?.expectedCheckInId;
 
-    // Get user profile
-    const profile = await getUserProfileOnce(userId);
     const timezone = profile?.timezone || 'America/New_York';
     const todayDate = getLogicalDateString(timezone);
 
@@ -245,7 +264,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
 
     // Step 1: Read the observed generation version for cache reuse/claim identity.
     // Returns either: { type: 'existing', data } | { type: 'update', data } | { type: 'create' }
-    let transactionResult = await db.runTransaction(async (transaction) => {
+    let transactionResult = await metrics.time('checkInRead', () => db.runTransaction(async (transaction) => {
       const existingDoc = await transaction.get(checkInRef);
       const version = existingDoc.updateTime;
       const baseVersion = version ? `${version.seconds}:${version.nanoseconds}` : 'absent';
@@ -266,7 +285,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
       }
       // No existing - will create after transaction
       return { type: 'create' as const, baseVersion };
-    });
+    }));
 
     // Fast-path: Return existing response if same mood — but only after
     // re-screening it against the CURRENT guardrails. Stored responses can
@@ -304,11 +323,11 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
     const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
     let admission;
     try {
-      admission = await claimMoodGeneration(db, userId, {
+      admission = await metrics.time('admission', () => claimMoodGeneration(db, userId, {
         checkInDocId, input: input.moodSpectrumData, regenerate: regenerateRequested,
         baseVersion: transactionResult.baseVersion,
         profileContext: profile?.optInTailored === true ? sanitizeProfile(profile as UserProfilePayload) : null,
-      });
+      }));
     } catch (error) {
       if (error instanceof AccountDeletingError) throw error;
       logger.error('Mood generation admission failed', safeErrorMetadata(error));
@@ -329,16 +348,18 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
 
     try {
       // Step 2: Generate AI response (outside transaction - may take time)
-      const consent = await requireAiConsent(db, userId);
+      const consent = await metrics.time('consent', () => requireAiConsent(db, userId));
       // The earlier profile is only for local timezone/echo screening. Bind
       // outbound attributes to a fresh permission and server-owned revision.
-      const personalization = await createAiPersonalization(db, userId, async transaction => {
-        await requireAiConsent(db, userId, transaction, consent.revision);
-      });
+      const personalization = await metrics.time('personalization', () =>
+        createAiPersonalization(db, userId, async transaction => {
+          await requireAiConsent(db, userId, transaction, consent.revision);
+        }));
       const agentInput: MoodAgentInput = {
         personalization,
         checkInType: input.checkInType,
         moodSpectrumData: input.moodSpectrumData,
+        metrics,
       };
 
       const aiResponse = await runMoodAgent(agentInput, openaiApiKey.value(), async () => {
@@ -368,7 +389,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         expiresAt: expiresAt.toISOString(),
       };
 
-      const response = await db.runTransaction(async (transaction) => {
+      const response = await metrics.time('finalSave', () => db.runTransaction(async (transaction) => {
         await requireAiConsent(db, userId, transaction, consent.revision);
         const currentResponse = aiResponse.isGenerated && !(await personalization.isResultCurrent(transaction))
           ? BLOCKED_OUTPUT_RESPONSE : aiResponse;
@@ -427,7 +448,7 @@ async function handlePostCheckIn(req: Request, res: Response): Promise<void> {
         };
         completeMoodGeneration(transaction, claim, settlement, savedResponse);
         return savedResponse;
-      });
+      }));
       logger.info('Mood check-in complete');
       return successResponse(res, response, 201);
     } catch (aiOrWriteError) {

@@ -41,6 +41,7 @@ import {
 } from "./scripture-catalog";
 import { moderateText } from "./content-safety";
 import { NO_PERSONALIZATION, type AiPersonalization, type PersonalizationAttempt } from "../shared/ai-personalization";
+import { RequestMetrics } from "../shared/request-metrics";
 
 // ============================================================================
 // Types
@@ -54,6 +55,8 @@ export interface MoodAgentInput {
   personalization?: AiPersonalization;
   checkInType: CheckInType;
   moodSpectrumData: MoodSpectrumData;
+  /** Receives stage timings and token usage for the caller's log line. */
+  metrics?: RequestMetrics;
 }
 
 // ============================================================================
@@ -300,12 +303,16 @@ export async function runMoodAgent(
   apiKey: string,
   checkConsent: ProviderConsentCheck,
   model: string = MOOD_MODEL,
-  generate: GenerationRunner = async (serializedInput, signal) =>
+  generate: GenerationRunner = async (serializedInput, signal) => {
     // Empty model output can otherwise trigger another SDK turn without a check.
-    (await run(ensureAgent(model, apiKey), serializedInput, { signal, maxTurns: 1 })).finalOutput,
+    const result = await run(ensureAgent(model, apiKey), serializedInput, { signal, maxTurns: 1 });
+    for (const response of result.rawResponses) input.metrics?.recordTokenUsage(response.usage);
+    return result.finalOutput;
+  },
   beforeGeneration?: () => Promise<PersonalizationAttempt>,
 ): Promise<AIEncouragementResponse> {
   logger.info("[MoodAgent] Starting encouragement");
+  const metrics = input.metrics ?? new RequestMetrics();
 
   const { moodSpectrumData } = input;
   // Screen the entire normalized note; the generation budget must not hide
@@ -324,8 +331,8 @@ export async function runMoodAgent(
     note: normalizedNote?.slice(0, 300),
   };
 
-  await checkConsent();
-  const inputSafety = await moderateText(normalizedNote, apiKey, "input");
+  await metrics.time("agentConsent", checkConsent);
+  const inputSafety = await metrics.time("inputModeration", () => moderateText(normalizedNote, apiKey, "input"));
   if (inputSafety === "crisis") {
     logger.info("[MoodAgent] Self-harm signal in note; returning fixed crisis response");
     return CRISIS_RESPONSE;
@@ -345,23 +352,24 @@ export async function runMoodAgent(
 
     // Checks live outside provider catches: denial/read failure must stop work,
     // including when consent changes during backoff. Sent requests cannot be recalled.
-    await checkConsent();
+    await metrics.time("agentConsent", checkConsent);
     // Admission resolves live consent and the exact profile in its consumption
     // transaction. Serialize only its committed result; no asynchronous quota
     // boundary may separate profile validation from prompt construction.
     // Denial/ownership errors remain outside the provider retry loop.
-    const personalization = beforeGeneration
+    const personalization = await metrics.time("generationClaim", async () => beforeGeneration
       ? await beforeGeneration()
-      : await input.personalization?.forGeneration() ?? NO_PERSONALIZATION;
+      : await input.personalization?.forGeneration() ?? NO_PERSONALIZATION);
     const profile = personalization.profile;
     const serializedInput = JSON.stringify({ ...payload, profile }, null, 2);
     logger.info(`[MoodAgent] Attempt ${attempt + 1}/${MAX_RETRIES}`);
     let parsed: AIEncouragementResponse;
     try {
       logger.info("[MoodAgent] Calling OpenAI agent...");
-      const result = await withTimeout((signal) =>
+      metrics.add("modelAttempts");
+      const result = await metrics.time("model", () => withTimeout((signal) =>
         generate(serializedInput, signal),
-      );
+      ));
       logger.info("[MoodAgent] Agent returned response");
       parsed = parseEncouragement(result);
     } catch (err) {
@@ -380,12 +388,12 @@ export async function runMoodAgent(
       continue;
     }
 
-    await checkConsent();
+    await metrics.time("agentConsent", checkConsent);
     // Generated prose can contain profile-derived details. Validate the exact
     // attempt after the base-consent await, before disclosing it to moderation.
-    if (!(await personalization.isCurrent())) return BLOCKED_OUTPUT_RESPONSE;
+    if (!(await metrics.time("resultCheck", () => personalization.isCurrent()))) return BLOCKED_OUTPUT_RESPONSE;
     // A flagged OUTPUT says the model misbehaved, not that the user is at risk.
-    const outputSafety = await moderateText(parsed.message, apiKey, "output");
+    const outputSafety = await metrics.time("outputModeration", () => moderateText(parsed.message, apiKey, "output"));
     if (outputSafety !== "allow") {
       logger.warn("[MoodAgent] Generated output flagged; returning neutral fallback", {
         decision: outputSafety,
