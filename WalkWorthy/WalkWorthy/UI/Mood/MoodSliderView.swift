@@ -46,6 +46,10 @@ struct MoodSliderView: View {
                 VStack(spacing: 0) {
                     Slider(value: $sliderValue, in: 0...1)
                         .accentColor(.white)
+                        // Going Back re-creates this step inside the wizard's
+                        // animated transaction, and the UIKit-backed slider
+                        // would then glide its thumb in from 0.
+                        .transaction { $0.animation = nil }
                         .onChange(of: sliderValue) {
                             checkHapticSnap()
                         }
