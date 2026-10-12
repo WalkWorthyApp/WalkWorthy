@@ -23,9 +23,8 @@ struct ImpactCategoriesView: View {
     ]
 
     var body: some View {
+        // The backdrop comes from MoodCheckInView so it stays put between steps.
         ZStack(alignment: .topLeading) {
-            DynamicBackgroundView()
-
             Button(action: onBack) {
                 Image(systemName: "chevron.left")
                     .font(.title3.weight(.semibold))
@@ -111,4 +110,5 @@ struct ImpactCategoriesView: View {
         onNext: {},
         onBack: {}
     )
+    .background(DynamicBackgroundView())
 }
