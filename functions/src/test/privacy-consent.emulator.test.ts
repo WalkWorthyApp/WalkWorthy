@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { initializeApp, deleteApp } from 'firebase-admin/app';
-import { getFirestore } from 'firebase-admin/firestore';
+import { getFirestore, DocumentReference, Firestore, Transaction } from 'firebase-admin/firestore';
 import type { Response } from 'express';
 import type { Request } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
@@ -177,6 +177,39 @@ test('foreground consent reads do not starve grants, and withdrawal bypasses bot
     await db.recursiveDelete(db.doc(`users/${uid}`));
     await readRef.delete();
     await grantRef.delete();
+    await deleteApp(app);
+  }
+});
+
+test('a consent check reads deletion and consent in one call, deletion first', {skip: !hasEmulator}, async t => {
+  const app = initializeApp({projectId: 'demo-walkworthy-compliance'}, randomUUID());
+  const db = getFirestore(app);
+  const uid = `consent-${randomUUID()}`;
+  try {
+    await consentRef(db, uid).set({
+      aiSharing: true, noticeVersion: NOTICE_VERSION, ageGroup: '18+', revision: 1, updatedAt: null,
+    });
+    // DocumentReference.get() delegates to Firestore.getAll(), so two sequential
+    // reads outside a transaction count as two getAll calls.
+    const refReads = t.mock.method(DocumentReference.prototype, 'get');
+    const reads = t.mock.method(Firestore.prototype, 'getAll');
+    const txReads = t.mock.method(Transaction.prototype, 'get');
+    const txBatchedReads = t.mock.method(Transaction.prototype, 'getAll');
+    assert.equal((await requireAiConsent(db, uid)).revision, 1);
+    await db.runTransaction(tx => requireAiConsent(db, uid, tx, 1));
+    assert.equal(refReads.mock.callCount(), 0);
+    assert.equal(reads.mock.callCount(), 1);
+    assert.equal(txReads.mock.callCount(), 0);
+    assert.equal(txBatchedReads.mock.callCount(), 1);
+
+    // A pending deletion is reported before any consent rule is evaluated.
+    await consentRef(db, uid).delete();
+    await deletionRef(db, uid).set({status: 'deleting'});
+    await assert.rejects(requireAiConsent(db, uid), AccountDeletingError);
+    await assert.rejects(db.runTransaction(tx => requireAiConsent(db, uid, tx)), AccountDeletingError);
+  } finally {
+    await db.recursiveDelete(db.doc(`users/${uid}`));
+    await deletionRef(db, uid).delete();
     await deleteApp(app);
   }
 });

@@ -1,5 +1,5 @@
 import type { Firestore, Transaction } from 'firebase-admin/firestore';
-import { assertAccountActive } from './account-lifecycle';
+import { assertAccountActive, deletionRef, AccountDeletingError } from './account-lifecycle';
 export const NOTICE_VERSION = '2026-09-04';
 export interface PrivacyConsent {
   aiSharing: boolean;
@@ -26,9 +26,10 @@ export class AiConsentRequiredError extends Error {
   constructor() { super('Current AI sharing consent required'); }
 }
 export async function requireAiConsent(db: Firestore, uid: string, tx?: Transaction, expectedRevision?: number): Promise<PrivacyConsent> {
-  await assertAccountActive(db, uid, tx);
-  const ref = consentRef(db, uid);
-  const snap = tx ? await tx.get(ref) : await ref.get();
+  // One round trip for both documents: this runs several times per AI request.
+  const refs = [deletionRef(db, uid), consentRef(db, uid)];
+  const [deletion, snap] = tx ? await tx.getAll(...refs) : await db.getAll(...refs);
+  if (deletion.exists) throw new AccountDeletingError();
   const consent = parseConsent(snap.data());
   if (!consent.aiSharing || consent.noticeVersion !== NOTICE_VERSION || consent.ageGroup !== '18+' ||
       (expectedRevision !== undefined && consent.revision !== expectedRevision)) throw new AiConsentRequiredError();
