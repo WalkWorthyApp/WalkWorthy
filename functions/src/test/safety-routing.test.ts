@@ -95,7 +95,7 @@ test("approved generation is explicitly labelled as generated", async (t) => {
 
 test("reflection output outage returns fixed content with truthful provenance", async (t) => {
   t.mock.method(globalThis, "fetch", async () => { throw new TypeError("synthetic provider failure"); });
-  const result = await runReflectionAgent([], "test-key", async () => {}, null, async () => ({
+  const result = await runReflectionAgent([], "test-key", async () => {}, async () => ({
     reflection: "UNSCREENED_REFLECTION_SENTINEL",
   }));
   assert.deepEqual(result, FIXED_REFLECTION);
@@ -105,7 +105,7 @@ test("reflection output outage returns fixed content with truthful provenance", 
 
 test("approved reflection retains generated provenance", async (t) => {
   t.mock.method(globalThis, "fetch", async () => decision());
-  const result = await runReflectionAgent([], "test-key", async () => {}, null, async () => ({ reflection: "A quiet reflection." }));
+  const result = await runReflectionAgent([], "test-key", async () => {}, async () => ({ reflection: "A quiet reflection." }));
   assert.deepEqual(result, { reflection: "A quiet reflection.", isGenerated: true });
 });
 

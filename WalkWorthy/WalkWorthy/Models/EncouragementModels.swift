@@ -59,7 +59,6 @@ struct RemoteUserProfileRequest: Codable {
     var occupation: String?
     var major: String?
     var hobbies: [String]?
-    var optInTailored: Bool?
     var checkInTimes: CheckInTimes?
     var timezone: String?
 }
@@ -80,7 +79,6 @@ nonisolated struct RemoteUserProfileResponse: Codable {
     var occupation: String?
     var major: String?
     var hobbies: [String]?
-    var optInTailored: Bool?
     var timezone: String?
     var checkInTimes: CheckInTimes?
 }
@@ -93,7 +91,6 @@ struct OnboardingProfile {
     var occupation: String  // For professionals
     var major: String       // For students
     var hobbies: Set<String>
-    var optIn: Bool
 }
 
 enum Hobby: String, CaseIterable {

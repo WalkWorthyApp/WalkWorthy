@@ -15,7 +15,6 @@ import FirebaseCrashlytics
 @MainActor
 final class AppState: ObservableObject {
     @Published var onboardingCompleted: Bool
-    @Published var useProfilePersonalization: Bool
     /// User has seen the AI data-sharing consent screen and tapped Continue.
     /// Required by App Review Guideline 5.1.2(i): mood data goes to OpenAI, so
     /// the app must obtain explicit in-app consent before the first AI call.
@@ -150,7 +149,6 @@ final class AppState: ObservableObject {
     private static let reflectionDecoder = JSONDecoder()
     private static let userScopedKeys: Set<String> = [
         StorageKey.onboardingCompleted,
-        StorageKey.useProfilePersonalization,
         StorageKey.aiConsentGiven,
         StorageKey.pendingWithdrawal,
         StorageKey.pendingWithdrawalId,
@@ -175,7 +173,6 @@ final class AppState: ObservableObject {
         self.modelContainer = modelContainer
         self.isAuthenticated = false
         self.authenticatedUserSub = nil
-        self.useProfilePersonalization = false
         self.onboardingCompleted = false
 
         reloadUserScopedPreferences()
@@ -207,7 +204,7 @@ final class AppState: ObservableObject {
     /// plists inherit `NSFileProtectionCompleteUntilFirstUserAuthentication`
     /// and are readable from unencrypted iTunes backups; keeping PII out of
     /// them removes that exposure without a Keychain migration.
-    func updateProfile(firstName: String, age: Int?, occupation: String, major: String, hobbies: Set<String>, optIn: Bool) {
+    func updateProfile(firstName: String, age: Int?, occupation: String, major: String, hobbies: Set<String>) {
         let trimmedFirstName = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedOccupation = occupation.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMajor = major.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -218,11 +215,8 @@ final class AppState: ObservableObject {
             age: age,
             occupation: trimmedOccupation,
             major: trimmedMajor,
-            hobbies: hobbies,
-            optIn: optIn
+            hobbies: hobbies
         )
-        useProfilePersonalization = optIn
-        defaults.set(optIn, forKey: storageKey(StorageKey.useProfilePersonalization))
 
         // Flip the "setup complete" flag so the Home name banner stops showing
         // on offline cold-launches. Only set it when the user actually supplied
@@ -232,7 +226,7 @@ final class AppState: ObservableObject {
             setHasCompletedProfileSetup(true)
         }
 
-        syncProfile(firstName: trimmedFirstName, age: age, occupation: trimmedOccupation, major: trimmedMajor, hobbies: hobbies, optIn: optIn)
+        syncProfile(firstName: trimmedFirstName, age: age, occupation: trimmedOccupation, major: trimmedMajor, hobbies: hobbies)
     }
 
     /// Returns the current observable profile, or an empty profile for the
@@ -244,8 +238,7 @@ final class AppState: ObservableObject {
             age: nil,
             occupation: "",
             major: "",
-            hobbies: [],
-            optIn: false
+            hobbies: []
         )
     }
 
@@ -265,8 +258,6 @@ final class AppState: ObservableObject {
             if let response {
                 let profile = Self.profile(from: response)
                 currentProfile = profile
-                useProfilePersonalization = profile.optIn
-                defaults.set(profile.optIn, forKey: storageKey(StorageKey.useProfilePersonalization))
                 // Record the minimal "setup complete" flag so the
                 // NameBackfillBanner gate survives offline cold-launches.
                 let trimmedFirstName = profile.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -294,11 +285,6 @@ final class AppState: ObservableObject {
             RemoteUserProfileResponse.self, kind: .profile, userSub: userSub
         ) {
             currentProfile = Self.profile(from: snapshot.payload)
-            useProfilePersonalization = snapshot.payload.optInTailored ?? false
-            defaults.set(
-                useProfilePersonalization,
-                forKey: storageKey(StorageKey.useProfilePersonalization)
-            )
         }
 
         let today = Self.isoDateFormatter.string(from: Self.logicalDate())
@@ -353,27 +339,8 @@ final class AppState: ObservableObject {
             age: age,
             occupation: response.occupation ?? "",
             major: response.major ?? "",
-            hobbies: Set(response.hobbies ?? []),
-            optIn: response.optInTailored ?? false
+            hobbies: Set(response.hobbies ?? [])
         )
-    }
-
-    func setUseProfilePersonalization(_ isOn: Bool) {
-        let previousValue = useProfilePersonalization
-        useProfilePersonalization = isOn
-        currentProfile?.optIn = isOn
-        defaults.set(isOn, forKey: storageKey(StorageKey.useProfilePersonalization))
-
-        guard let session = authenticatedSession, isCurrentSession(session) else { return }
-        let context = authenticatedRequestContext(for: session)
-        profileSyncTask?.cancel()
-        profileSyncTask = Task { [weak self] in
-            await self?.sendPersonalizationPreference(
-                isOn,
-                previousValue: previousValue,
-                context: context
-            )
-        }
     }
 
     /// A local preference is never proof of permission. Only the server's
@@ -1141,7 +1108,6 @@ final class AppState: ObservableObject {
     private func reloadUserScopedPreferences() {
         if authenticatedUserSub == nil {
             onboardingCompleted = false
-            useProfilePersonalization = false
             aiConsentGiven = false
             analyticsEnabled = false
             currentProfile = nil
@@ -1152,7 +1118,6 @@ final class AppState: ObservableObject {
         }
 
         onboardingCompleted = defaults.bool(forKey: storageKey(StorageKey.onboardingCompleted))
-        useProfilePersonalization = defaults.object(forKey: storageKey(StorageKey.useProfilePersonalization)) as? Bool ?? false
         aiConsentGiven = false // Legacy local consent does not authorize server sharing.
         analyticsEnabled = defaults.object(forKey: storageKey(StorageKey.analyticsEnabled)) as? Bool ?? false
         applyAnalyticsCollectionState()
@@ -1163,10 +1128,10 @@ final class AppState: ObservableObject {
         hasCompletedProfileSetup = defaults.bool(forKey: storageKey(StorageKey.hasCompletedProfileSetup))
     }
 
-    private func syncProfile(firstName: String, age: Int?, occupation: String, major: String, hobbies: Set<String>, optIn: Bool) {
+    private func syncProfile(firstName: String, age: Int?, occupation: String, major: String, hobbies: Set<String>) {
         guard let session = authenticatedSession, isCurrentSession(session) else { return }
         let context = authenticatedRequestContext(for: session)
-        let profile = OnboardingProfile(firstName: firstName, age: age, occupation: occupation, major: major, hobbies: hobbies, optIn: optIn)
+        let profile = OnboardingProfile(firstName: firstName, age: age, occupation: occupation, major: major, hobbies: hobbies)
 
         // Debounce: cancel any in-flight sync and schedule a new one after a
         // short delay. Rapid edits in the onboarding form (e.g. toggling
@@ -1193,14 +1158,13 @@ final class AppState: ObservableObject {
 
         let payload = RemoteUserProfileRequest(
             // Empty values are sent deliberately on this full form save so
-            // the PATCH can remove fields the user cleared. Nil is reserved
-            // for minimal partial updates such as a consent toggle.
+            // the PATCH can remove fields the user cleared. Nil leaves a
+            // field unchanged.
             ageRange: ageRangeString(for: profile.age) ?? "",
             firstName: trimmedFirstName,
             occupation: trimmedOccupation,
             major: trimmedMajor,
             hobbies: hobbies,
-            optInTailored: profile.optIn,
             checkInTimes: nil,  // TODO: Add UI for custom check-in times
             timezone: timezone
         )
@@ -1224,44 +1188,6 @@ final class AppState: ObservableObject {
         } catch {
             #if DEBUG
             print("[AppState] Failed to sync profile: \(error)")
-            #endif
-        }
-    }
-
-    /// Persists the Settings toggle as an immediate, minimal PATCH. The backend
-    /// reads this Firestore value before every AI request, so a local-only write
-    /// would not actually withdraw profile sharing.
-    private func sendPersonalizationPreference(
-        _ isOn: Bool,
-        previousValue: Bool,
-        context: AuthenticatedRequestContext
-    ) async {
-        let payload = RemoteUserProfileRequest(
-            ageRange: nil,
-            firstName: nil,
-            occupation: nil,
-            major: nil,
-            hobbies: nil,
-            optInTailored: isOn,
-            checkInTimes: nil,
-            timezone: nil
-        )
-
-        do {
-            try context.checkValidity()
-            let updated = try await apiClient.updateUserProfile(payload, context: context)
-            try context.checkValidity()
-            if let updated {
-                await SnapshotStore.shared.write(updated, kind: .profile, userSub: context.identity.userSub)
-            }
-        } catch {
-            guard !(error is CancellationError), !Task.isCancelled, isCurrentSession(context.identity),
-                  useProfilePersonalization == isOn else { return }
-            useProfilePersonalization = previousValue
-            currentProfile?.optIn = previousValue
-            defaults.set(previousValue, forKey: storageKey(StorageKey.useProfilePersonalization))
-            #if DEBUG
-            print("[AppState] Failed to sync personalization preference: \(error)")
             #endif
         }
     }
@@ -1697,7 +1623,6 @@ final class AppState: ObservableObject {
 extension AppState {
     enum StorageKey {
         static let onboardingCompleted = "walkworthy.onboardingCompleted"
-        static let useProfilePersonalization = "walkworthy.settings.useProfilePersonalization"
         static let pendingWithdrawal = "walkworthy.ai.pendingWithdrawal.v1"
         static let pendingWithdrawalId = "walkworthy.ai.pendingWithdrawalId.v1"
         static let pendingAccountDeletions = "walkworthy.pendingAccountDeletions.v1"

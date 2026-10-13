@@ -30,7 +30,7 @@ async function fixture(t: TestContext) {
   t.mock.method(firebase, 'getDb', () => db);
   t.mock.method(auth, 'verifyAppCheck', async () => true);
   t.mock.method(auth, 'requireAuth', async (req: Request) => Object.assign(req, { userId: uid }));
-  t.mock.method(profile, 'getUserProfileOnce', async () => ({ timezone: 'UTC', optInTailored: false }));
+  t.mock.method(profile, 'getUserProfileOnce', async () => ({ timezone: 'UTC' }));
   await savePrivacyConsent(db, uid, { aiSharing: true, noticeVersion: NOTICE_VERSION, ageGroup: '18+', expectedRevision: 0 });
   t.after(async () => {
     t.mock.restoreAll();
@@ -65,7 +65,7 @@ function gate() {
 
 function identity(note = base.note): generation.MoodGenerationIdentity {
   return { checkInDocId: '2026-10-08_morning', input: { ...base, note, moodLevel: 'neutral' },
-    regenerate: false, baseVersion: 'absent', profileContext: null };
+    regenerate: false, baseVersion: 'absent' };
 }
 
 async function owner(f: Awaited<ReturnType<typeof fixture>>, input = identity()) {
@@ -83,7 +83,7 @@ function paidStub(t: TestContext) {
   });
 }
 
-for (const scenario of ['before-input', 'after-input', 'during-backoff', 'flagged-tail', 'profile-revoked'] as const) {
+for (const scenario of ['before-input', 'after-input', 'during-backoff', 'flagged-tail'] as const) {
   test(`integrated duplicate claims: ${scenario} preserves consent, safety and accounting`, emulator, async t => {
     const f = await fixture(t);
     const started = gate();
@@ -97,9 +97,6 @@ for (const scenario of ['before-input', 'after-input', 'during-backoff', 'flagge
     const consumed = t.mock.method(generation, 'markMoodGenerationConsumed');
     let generations = 0;
     const screened: string[] = [];
-    if (scenario === 'profile-revoked') {
-      await f.db.doc(`users/${f.uid}/profile/data`).set({ optInTailored: true, major: 'Synthetic Major' });
-    }
     const pause = async () => { started.release(); await finish.promise; };
     t.mock.method(generation, 'waitForMoodGeneration', async (claim: generation.MoodGenerationClaim) => {
       joined.release();
@@ -122,7 +119,6 @@ for (const scenario of ['before-input', 'after-input', 'during-backoff', 'flagge
       return realMood(input, 'synthetic-key', check, model, async () => {
         generations++;
         if (scenario === 'during-backoff') throw new Error('Synthetic provider failure');
-        if (scenario === 'profile-revoked') await pause();
         return { message: 'SYNTHETIC_PRIVATE_OUTPUT', verseId: 'psalm_46_1' };
       }, beforeGeneration);
     });
@@ -131,20 +127,17 @@ for (const scenario of ['before-input', 'after-input', 'during-backoff', 'flagge
     const second = f.post(data);
     try {
       await Promise.race([joined.promise, delay(5000).then(() => { throw new Error('Follower did not join'); })]);
-      if (scenario === 'profile-revoked') {
-        await f.db.doc(`users/${f.uid}/profile/data`).update({ optInTailored: false });
-      } else if (scenario !== 'flagged-tail') {
+      if (scenario !== 'flagged-tail') {
         await savePrivacyConsent(f.db, f.uid, { aiSharing: false });
       }
     } finally { finish.release(); }
     const responses = await Promise.all([first, second]);
-    const fixed = scenario === 'flagged-tail' || scenario === 'profile-revoked';
-    const paid = scenario === 'during-backoff' || scenario === 'profile-revoked';
+    const fixed = scenario === 'flagged-tail';
+    const paid = scenario === 'during-backoff';
     assert.deepEqual(responses.map(r => r.status), fixed ? [201, 201] : [403, 403]);
     assert.deepEqual(responses[0].body, responses[1].body);
     if (fixed) {
-      assert.deepEqual(responses[0].body.aiResponse,
-        scenario === 'flagged-tail' ? agent.CRISIS_RESPONSE : agent.BLOCKED_OUTPUT_RESPONSE);
+      assert.deepEqual(responses[0].body.aiResponse, agent.CRISIS_RESPONSE);
     } else {
       assert.equal(responses[0].body.code, 'AI_CONSENT_REQUIRED');
     }
@@ -162,80 +155,72 @@ for (const scenario of ['before-input', 'after-input', 'during-backoff', 'flagge
   });
 }
 
-for (const change of ['consent', 'profile-withdrawal', 'profile-edit'] as const) {
-  test(`consumption transaction: ${change} is resolved before dispatch`, { ...emulator, timeout: 20_000 }, async t => {
-    const f = await fixture(t);
-    const started = gate();
-    const finish = gate();
-    const joined = gate();
-    t.after(finish.release);
-    const profileRef = f.db.doc(`users/${f.uid}/profile/data`);
-    await profileRef.set({ optInTailored: true, major: 'SYNTHETIC_OLD_PROFILE' });
-    const realMood = agent.runMoodAgent;
-    const realMark = generation.markMoodGenerationConsumed;
-    const realWait = generation.waitForMoodGeneration;
-    const realTransaction = f.db.runTransaction.bind(f.db);
-    let claimPath: string | undefined;
-    let paused = false;
-    const sent: Array<{ profile: unknown }> = [];
-    const screened: string[] = [];
-    // Pause inside the actual consumption transaction, after account-active
-    // validation but before the claim read. No provider or live auth is used.
-    t.mock.method(generation, 'markMoodGenerationConsumed', (...args: Parameters<typeof realMark>) => {
-      claimPath = args[0].ref.path;
-      return realMark(...args);
-    });
-    t.mock.method(f.db, 'runTransaction', <T>(update: (tx: Transaction) => Promise<T>) =>
-      realTransaction(async tx => {
-        const realGet = tx.get.bind(tx);
-        t.mock.method(tx, 'get', async (ref: DocumentReference) => {
-          if (!paused && ref.path === claimPath) {
-            paused = true;
-            started.release();
-            await finish.promise;
-          }
-          return realGet(ref);
-        });
-        return update(tx);
-      }));
-    t.mock.method(generation, 'waitForMoodGeneration', (claim: generation.MoodGenerationClaim) => {
-      joined.release();
-      return realWait(claim);
-    });
-    t.mock.method(globalThis, 'fetch', async (_url: unknown, init?: RequestInit) => {
-      screened.push((JSON.parse(String(init?.body)) as { input: string }).input);
-      return globalThis.Response.json({ results: [{ flagged: false, categories: {
-        'self-harm': false, 'self-harm/intent': false, 'self-harm/instructions': false,
-      } }] });
-    });
-    t.mock.method(agent, 'runMoodAgent', (...[input, _key, check, model, _generate, before]: Parameters<typeof realMood>) =>
-      realMood(input, 'synthetic-key', check, model, async serialized => {
-        sent.push(JSON.parse(serialized) as { profile: unknown });
-        return { message: 'Take a quiet moment today.', verseId: 'psalm_46_1' };
-      }, before));
-    const first = f.post();
-    await Promise.race([started.promise, delay(5000).then(() => { throw new Error('Consumption did not pause'); })]);
-    const second = f.post();
-    try {
-      await Promise.race([joined.promise, delay(5000).then(() => { throw new Error('Follower did not join'); })]);
-      if (change === 'consent') await savePrivacyConsent(f.db, f.uid, { aiSharing: false });
-      else await profileRef.update(change === 'profile-withdrawal'
-        ? { optInTailored: false } : { major: 'SYNTHETIC_NEW_PROFILE' });
-    } finally { finish.release(); }
-    const responses = await Promise.all([first, second]);
-    const denied = change === 'consent';
-    assert.deepEqual(responses.map(r => r.status), denied ? [403, 403] : [201, 201]);
-    assert.deepEqual(responses[0].body, responses[1].body);
-    assert.equal(sent.length, denied ? 0 : 1);
-    if (!denied) assert.equal(sent[0].profile, null);
-    assert.equal(screened.length, denied ? 1 : 2);
-    assert.equal((await f.budget()).get('callCount'), denied ? 0 : 1);
-    const claims = await f.db.collection(`users/${f.uid}/moodGenerationClaims`).get();
-    assert.equal(claims.size, 1);
-    assert.equal(claims.docs[0].get('consumed'), !denied);
-    assert.equal(claims.docs[0].get('status'), denied ? 'failed' : 'completed');
+test('consumption transaction: consent withdrawal is resolved before dispatch', { ...emulator, timeout: 20_000 }, async t => {
+  const f = await fixture(t);
+  const started = gate();
+  const finish = gate();
+  const joined = gate();
+  t.after(finish.release);
+  const realMood = agent.runMoodAgent;
+  const realMark = generation.markMoodGenerationConsumed;
+  const realWait = generation.waitForMoodGeneration;
+  const realTransaction = f.db.runTransaction.bind(f.db);
+  let claimPath: string | undefined;
+  let paused = false;
+  let sent = 0;
+  const screened: string[] = [];
+  // Pause inside the actual consumption transaction, after account-active
+  // validation but before the claim read. No provider or live auth is used.
+  t.mock.method(generation, 'markMoodGenerationConsumed', (...args: Parameters<typeof realMark>) => {
+    claimPath = args[0].ref.path;
+    return realMark(...args);
   });
-}
+  t.mock.method(f.db, 'runTransaction', <T>(update: (tx: Transaction) => Promise<T>) =>
+    realTransaction(async tx => {
+      const realGet = tx.get.bind(tx);
+      t.mock.method(tx, 'get', async (ref: DocumentReference) => {
+        if (!paused && ref.path === claimPath) {
+          paused = true;
+          started.release();
+          await finish.promise;
+        }
+        return realGet(ref);
+      });
+      return update(tx);
+    }));
+  t.mock.method(generation, 'waitForMoodGeneration', (claim: generation.MoodGenerationClaim) => {
+    joined.release();
+    return realWait(claim);
+  });
+  t.mock.method(globalThis, 'fetch', async (_url: unknown, init?: RequestInit) => {
+    screened.push((JSON.parse(String(init?.body)) as { input: string }).input);
+    return globalThis.Response.json({ results: [{ flagged: false, categories: {
+      'self-harm': false, 'self-harm/intent': false, 'self-harm/instructions': false,
+    } }] });
+  });
+  t.mock.method(agent, 'runMoodAgent', (...[input, _key, check, model, _generate, before]: Parameters<typeof realMood>) =>
+    realMood(input, 'synthetic-key', check, model, async () => {
+      sent++;
+      return { message: 'Take a quiet moment today.', verseId: 'psalm_46_1' };
+    }, before));
+  const first = f.post();
+  await Promise.race([started.promise, delay(5000).then(() => { throw new Error('Consumption did not pause'); })]);
+  const second = f.post();
+  try {
+    await Promise.race([joined.promise, delay(5000).then(() => { throw new Error('Follower did not join'); })]);
+    await savePrivacyConsent(f.db, f.uid, { aiSharing: false });
+  } finally { finish.release(); }
+  const responses = await Promise.all([first, second]);
+  assert.deepEqual(responses.map(r => r.status), [403, 403]);
+  assert.deepEqual(responses[0].body, responses[1].body);
+  assert.equal(sent, 0);
+  assert.equal(screened.length, 1);
+  assert.equal((await f.budget()).get('callCount'), 0);
+  const claims = await f.db.collection(`users/${f.uid}/moodGenerationClaims`).get();
+  assert.equal(claims.size, 1);
+  assert.equal(claims.docs[0].get('consumed'), false);
+  assert.equal(claims.docs[0].get('status'), 'failed');
+});
 
 test('overlapping identical mood requests generate once and keep the hourly admissions', emulator, async t => {
   const f = await fixture(t);
@@ -496,7 +481,7 @@ test('coalesced failures preserve consent errors, while saved content remains re
 
 test('followers receive the same reviewed fixed response even when a profile word appears in it', emulator, async t => {
   const f = await fixture(t);
-  t.mock.method(profile, 'getUserProfileOnce', async () => ({ timezone: 'UTC', optInTailored: false, hobbies: ['words'] }));
+  t.mock.method(profile, 'getUserProfileOnce', async () => ({ timezone: 'UTC', hobbies: ['words'] }));
   const started = gate();
   const finish = gate();
   const joined = gate();

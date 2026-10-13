@@ -1,7 +1,6 @@
 /**
- * Regression tests for the PII output guardrail and the profile echo-check
- * (added after a Codex adversarial review found the regex-only guardrail
- * couldn't catch the model repeating profile values back to the user).
+ * Regression tests for the PII output guardrail and the re-screen of stored
+ * AI content.
  *
  * Runs with Node's built-in test runner: `npm test` (build + node --test).
  */
@@ -9,15 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import {
-  containsPii,
-  assertNoProfileEcho,
-  isCleanStoredAiContent,
-  GuardrailTripError,
-} from "../lib/model-config";
-import { collectProfileValues } from "../lib/profile-sanitize";
-import { sanitizeProfile } from "../lib/profile-sanitize";
-import type { UserProfilePayload } from "../lib/profile-sanitize";
+import { containsPii, isCleanStoredAiContent } from "../lib/model-config";
 import { CRISIS_RESPONSE } from "../lib/mood-agent";
 
 // ============================================================================
@@ -65,71 +56,6 @@ test("containsPii does NOT match clean encouragement prose", () => {
 });
 
 // ============================================================================
-// assertNoProfileEcho
-// ============================================================================
-
-test("assertNoProfileEcho trips on an echoed occupation", () => {
-  const output = {
-    message: "As a nursing student you already carry others' burdens.",
-    verseRef: "Galatians 6:2",
-  };
-  assert.throws(
-    () => assertNoProfileEcho(output, ["nursing student"]),
-    GuardrailTripError,
-  );
-});
-
-test("assertNoProfileEcho trips on an echoed custom hobby", () => {
-  const output = { reflection: "Your varsity soccer season mirrors your walk." };
-  assert.throws(
-    () => assertNoProfileEcho(output, ["varsity soccer"]),
-    GuardrailTripError,
-  );
-});
-
-test("assertNoProfileEcho is case-insensitive", () => {
-  assert.throws(
-    () => assertNoProfileEcho({ message: "ENGINEERING is your calling" }, ["engineering"]),
-    GuardrailTripError,
-  );
-});
-
-test("assertNoProfileEcho does not trip on clean output", () => {
-  assert.doesNotThrow(() =>
-    assertNoProfileEcho(
-      { message: "God is near to the brokenhearted.", verseRef: "Psalm 34:18" },
-      ["engineering", "varsity soccer", "18-24"],
-    ),
-  );
-});
-
-test("assertNoProfileEcho skips values shorter than 4 characters", () => {
-  assert.doesNotThrow(() =>
-    assertNoProfileEcho({ message: "art and heart alike" }, ["art"]),
-  );
-});
-
-test("assertNoProfileEcho uses whole-word matching (Male vs female)", () => {
-  assert.doesNotThrow(() =>
-    assertNoProfileEcho({ message: "every female student here" }, ["Male"]),
-  );
-  assert.throws(
-    () => assertNoProfileEcho({ message: "as a male student" }, ["Male"]),
-    GuardrailTripError,
-  );
-});
-
-test("assertNoProfileEcho handles regex special characters in values", () => {
-  assert.doesNotThrow(() =>
-    assertNoProfileEcho({ message: "clean text" }, ["C++ (competitive)"]),
-  );
-  assert.throws(
-    () => assertNoProfileEcho({ message: "your C++ (competitive) skills" }, ["C++ (competitive)"]),
-    GuardrailTripError,
-  );
-});
-
-// ============================================================================
 // isCleanStoredAiContent — re-screening of cached/persisted responses
 // ============================================================================
 
@@ -139,34 +65,28 @@ test("isCleanStoredAiContent passes clean stored content", () => {
     generatedAt: "2026-07-05T18:00:00Z",
     date: "2026-07-05",
   };
-  assert.equal(isCleanStoredAiContent(stored, ["engineering", "varsity soccer"]), true);
-});
-
-test("isCleanStoredAiContent fails stored content with a profile echo", () => {
-  const stored = { reflection: "Your nursing studies mirror Galatians 6:2." };
-  assert.equal(isCleanStoredAiContent(stored, ["nursing"]), false);
+  assert.equal(isCleanStoredAiContent(stored), true);
 });
 
 test("isCleanStoredAiContent fails stored content with regex-class PII", () => {
   const stored = { message: "reach out to pastor@example.com" };
-  assert.equal(isCleanStoredAiContent(stored, []), false);
+  assert.equal(isCleanStoredAiContent(stored), false);
 });
 
 test("stored crisis encouragement remains readable without changing its help card", () => {
   const before = JSON.stringify(CRISIS_RESPONSE);
-  assert.equal(isCleanStoredAiContent(CRISIS_RESPONSE, []), true);
+  assert.equal(isCleanStoredAiContent(CRISIS_RESPONSE), true);
   assert.equal(JSON.stringify(CRISIS_RESPONSE), before);
 });
 
 test("reviewed support link never exempts unsafe prose or other resource fields", () => {
   for (const message of ["Email private@example.com", "Visit https://988lifeline.org"]) {
-    assert.equal(isCleanStoredAiContent({ ...CRISIS_RESPONSE, message }, []), false);
+    assert.equal(isCleanStoredAiContent({ ...CRISIS_RESPONSE, message }), false);
   }
-  assert.equal(isCleanStoredAiContent({ ...CRISIS_RESPONSE, message: "Your nursing studies matter." }, ["nursing"]), false);
   assert.equal(isCleanStoredAiContent({
     ...CRISIS_RESPONSE,
     supportResource: { ...CRISIS_RESPONSE.supportResource, body: "Email private@example.com" },
-  }, []), false);
+  }), false);
 });
 
 test("unreviewed support URLs remain blocked even on purported fixed responses", () => {
@@ -174,60 +94,16 @@ test("unreviewed support URLs remain blocked even on purported fixed responses",
     assert.equal(isCleanStoredAiContent({
       ...CRISIS_RESPONSE,
       supportResource: { ...CRISIS_RESPONSE.supportResource, url },
-    }, []), false);
+    }), false);
   }
 });
 
-// ============================================================================
-// collectProfileValues
-// ============================================================================
-
-const baseProfile: UserProfilePayload = {
-  ageRange: "18-24",
-  occupation: "Nurse",
-  major: "Nursing",
-  hobbies: ["Worship", "Music", "competitive fencing"],
-  optInTailored: true,
-};
-
-test("collectProfileValues includes identity fields and custom hobbies", () => {
-  const values = collectProfileValues(baseProfile);
-  assert.ok(values.includes("Nurse"));
-  assert.ok(values.includes("Nursing"));
-  assert.ok(values.includes("competitive fencing"));
-});
-
-test("collectProfileValues excludes preset hobby vocabulary", () => {
-  const values = collectProfileValues(baseProfile);
-  assert.equal(values.includes("Worship"), false);
-  assert.equal(values.includes("Music"), false);
-});
-
-test("collectProfileValues excludes the generic ageRange enum", () => {
-  const values = collectProfileValues(baseProfile);
-  assert.equal(values.includes("18-24"), false);
-});
-
-test("Scripture containing demographic tokens passes for a female 18-24 user", () => {
-  // Regression for the Codex review false positives: Genesis 1:27 contains
-  // "male and female"; the verse range "Romans 8:18-24" contains "18-24".
+test("Scripture with verse ranges passes the stored-content screen", () => {
+  // "Romans 8:18-24" must not read as a phone number or other PII.
   const output = {
     message: "You are seen and known.",
     verseRef: "Romans 8:18-24",
     verseText: "So God created man in his own image... male and female he created them.",
   };
-  const values = collectProfileValues(baseProfile);
-  assert.doesNotThrow(() => assertNoProfileEcho(output, values));
-  assert.equal(isCleanStoredAiContent(output, values), true);
-});
-
-test("collectProfileValues returns empty for null profile", () => {
-  assert.deepEqual(collectProfileValues(null), []);
-});
-
-test("sanitizeProfile drops legacy gender values before AI sharing", () => {
-  const legacyProfile = { ...baseProfile, gender: "female" };
-  const sanitized = sanitizeProfile(legacyProfile);
-  assert.ok(sanitized);
-  assert.equal("gender" in sanitized, false);
+  assert.equal(isCleanStoredAiContent(output), true);
 });

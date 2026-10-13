@@ -2,7 +2,6 @@ import { safeErrorMetadata } from '../shared/safe-logging';
 import { FUNCTIONS_REVISION } from '../shared/version';
 import { AccountDeletingError } from '../shared/account-lifecycle';
 import { requireAiConsent, AiConsentRequiredError } from '../shared/privacy-consent';
-import { createAiPersonalization } from '../shared/ai-personalization';
 /**
  * Daily Reflection API
  *
@@ -16,12 +15,10 @@ import { logger } from "firebase-functions/v2";
 import type { Request, Response } from "express";
 import { getDb, COLLECTIONS, initializeFirebase } from "../shared/firebase";
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from "../shared/auth";
-import { runReflectionAgent, FIXED_REFLECTION } from "../lib/reflection-agent";
+import { runReflectionAgent } from "../lib/reflection-agent";
 import { isCleanStoredAiContent } from "../lib/model-config";
-import { collectProfileValues, sanitizeProfile } from "../lib/profile-sanitize";
 import { getUserProfileOnce } from "../shared/profile";
 import { getLogicalDateString, shiftLogicalDate } from "../shared/time";
-import type { UserProfilePayload } from "../lib/profile-sanitize";
 import type { DailyMoodSummary } from "../shared/types";
 import { checkRateLimit, checkDailyAiBudget, refundDailyAiBudget, getTodayUtcDateString, sendLimitCheckResponse, DAILY_REFLECTION_USER_LIMIT, REFLECTION_DAILY_AI_BUDGET } from '../shared/rate-limiter';
 
@@ -84,7 +81,7 @@ async function handleGet(req: Request, res: Response): Promise<void> {
   }
 
   try {
-    // Load profile up-front for timezone (cache key alignment) and personalization.
+    // Load profile up-front for timezone (cache key alignment).
     const profile = await getUserProfileOnce(userId);
     const timezone = profile?.timezone || 'America/New_York';
     const userToday = getLogicalDateString(timezone);
@@ -95,11 +92,10 @@ async function handleGet(req: Request, res: Response): Promise<void> {
     const cached = await cacheRef.get();
 
     if (cached.exists) {
-      // Re-screen before serving: cached reflections can predate the profile
-      // echo-check (older ones predate any guardrail at all). A failed screen
+      // Re-screen before serving: cached reflections can predate the current
+      // guardrails (older ones predate any guardrail at all). A failed screen
       // drops the cache entry and falls through to regeneration below.
-      const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
-      if (isCleanStoredAiContent(cached.data(), profileValues)) {
+      if (isCleanStoredAiContent(cached.data())) {
         logger.info("dailyReflection: cache hit");
         return successResponse(res, cached.data());
       }
@@ -135,21 +131,15 @@ async function handleGet(req: Request, res: Response): Promise<void> {
     try {
       // Generate reflection
       const consent = await requireAiConsent(db, userId);
-      const personalization = await createAiPersonalization(db, userId, async transaction => {
-        await requireAiConsent(db, userId, transaction, consent.revision);
-      });
       const result = await runReflectionAgent(summaries, openaiApiKey.value(), async () => {
         await requireAiConsent(db, userId, undefined, consent.revision);
-      }, personalization);
+      });
       const generatedAt = new Date().toISOString();
-      let payload = { reflection: result.reflection, isGenerated: result.isGenerated, generatedAt, date: today };
+      const payload = { reflection: result.reflection, isGenerated: result.isGenerated, generatedAt, date: today };
 
       // Cache in Firestore
       await db.runTransaction(async tx => {
         await requireAiConsent(db, userId, tx, consent.revision);
-        const currentResult = result.isGenerated && !(await personalization.isResultCurrent(tx))
-          ? FIXED_REFLECTION : result;
-        payload = { reflection: currentResult.reflection, isGenerated: currentResult.isGenerated, generatedAt, date: today };
         tx.set(cacheRef, payload);
       });
 

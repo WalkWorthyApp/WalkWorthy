@@ -26,7 +26,7 @@ const agents = [
   {
     name: 'reflection', inputModerations: 0, output: reflectionOutput,
     invoke: (check: ProviderConsentCheck, generate?: config.GenerationRunner) =>
-      runReflectionAgent([], `synthetic-${randomUUID()}`, check, null, generate),
+      runReflectionAgent([], `synthetic-${randomUUID()}`, check, generate),
   },
 ];
 
@@ -52,25 +52,14 @@ test('mood withdrawal after input moderation prevents generation', async t => {
 });
 
 for (const agent of agents) {
-  test(`${agent.name}: profile echo rejection still stops without retry`, async t => {
+  test(`${agent.name}: guardrail trip stops without retry`, async t => {
     t.mock.method(globalThis, 'fetch', async () => allowed());
     const delay = t.mock.method(config, 'sleep', async () => {});
     let generations = 0;
-    const generate = async () => {
+    await assert.rejects(agent.invoke(async () => {}, async () => {
       generations++;
-      return agent.name === 'mood'
-        ? { message: 'Your marine biology studies matter.', verseId: 'psalm_46_1' }
-        : { reflection: 'Your marine biology studies matter.' };
-    };
-    const profile = { major: 'Marine Biology' };
-    const personalization = {
-      forGeneration: async () => ({ profile, isCurrent: async () => true }),
-      isResultCurrent: async () => true,
-    };
-    const result = agent.name === 'mood'
-      ? runMoodAgent({ ...input, personalization }, 'synthetic', async () => {}, undefined, generate)
-      : runReflectionAgent([], 'synthetic', async () => {}, personalization, generate);
-    await assert.rejects(result, config.GuardrailTripError);
+      throw new config.GuardrailTripError();
+    }), config.GuardrailTripError);
     assert.equal(generations, 1);
     assert.equal(delay.mock.callCount(), 0);
   });

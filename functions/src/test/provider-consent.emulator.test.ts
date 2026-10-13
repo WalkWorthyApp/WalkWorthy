@@ -19,6 +19,12 @@ import { deletionRef } from '../shared/account-lifecycle';
 import { deleteAllUserFirestoreData } from '../shared/account-deletion';
 import { getLogicalDateString } from '../shared/time';
 
+// A legacy opted-in profile: none of it may ever reach the model.
+const legacyProfile = {
+  timezone: 'UTC', optInTailored: true, ageRange: '18-24' as const, firstName: 'SYNTHETIC_NAME',
+  major: 'SYNTHETIC_MAJOR', occupation: 'SYNTHETIC_OCCUPATION', hobbies: ['Music', 'SYNTHETIC_HOBBY'],
+};
+
 const scenarios = [
   'after-input', 'after-generation', 'during-backoff', 'before-persistence',
   'withdraw-and-regrant', 'consent-read-failure', 'account-deleting', 'provider-failure', 'success',
@@ -43,11 +49,12 @@ for (const endpoint of ['mood', 'reflection'] as const) {
       let moderations = 0;
       let denyReads = false;
       let backoffs = 0;
+      const modelInputs: string[] = [];
       const withdraw = () => consent.savePrivacyConsent(db, uid, { aiSharing: false });
       t.mock.method(firebase, 'getDb', () => db);
       t.mock.method(auth, 'verifyAppCheck', async () => true);
       t.mock.method(auth, 'requireAuth', async (req: Request) => Object.assign(req, { userId: uid }));
-      t.mock.method(profile, 'getUserProfileOnce', async () => ({ timezone: 'UTC', optInTailored: false }));
+      t.mock.method(profile, 'getUserProfileOnce', async () => legacyProfile);
       t.mock.method(consent, 'requireAiConsent', async (...args: Parameters<typeof realRequireConsent>) => {
         if (denyReads) throw new TypeError('Synthetic consent read failure');
         return realRequireConsent(...args);
@@ -56,7 +63,8 @@ for (const endpoint of ['mood', 'reflection'] as const) {
         backoffs++;
         if (scenario === 'during-backoff') await withdraw();
       });
-      const generate = async () => {
+      const generate = async (serialized: string) => {
+        modelInputs.push(serialized);
         generations++;
         if (scenario === 'during-backoff' || scenario === 'provider-failure') {
           throw new Error('Synthetic provider failure');
@@ -77,8 +85,8 @@ for (const endpoint of ['mood', 'reflection'] as const) {
       };
       t.mock.method(moodAgent, 'runMoodAgent', (...[input, _key, check, model, _generate, beforeGeneration]: Parameters<typeof realMood>) =>
         realMood(input, 'synthetic-key', check, model, generate, beforeGeneration));
-      t.mock.method(reflectionAgent, 'runReflectionAgent', (...[summaries, _key, check, userProfile]: Parameters<typeof realReflection>) =>
-        realReflection(summaries, 'synthetic-key', check, userProfile, generate));
+      t.mock.method(reflectionAgent, 'runReflectionAgent', (...[summaries, _key, check]: Parameters<typeof realReflection>) =>
+        realReflection(summaries, 'synthetic-key', check, generate));
       t.mock.method(globalThis, 'fetch', async (url: string | URL | globalThis.Request) => {
         assert.ok(String(url).endsWith('/moderations'), 'Only synthetic moderation transport is expected');
         moderations++;
@@ -109,7 +117,12 @@ for (const endpoint of ['mood', 'reflection'] as const) {
         await consent.savePrivacyConsent(db, uid, {
           aiSharing: true, noticeVersion: consent.NOTICE_VERSION, ageGroup: '18+', expectedRevision: 0,
         });
+        await db.doc(`users/${uid}/profile/data`).set(legacyProfile);
         const result = await invoke();
+        for (const sent of modelInputs) {
+          assert.equal('profile' in JSON.parse(sent), false);
+          assert.doesNotMatch(sent, /SYNTHETIC_|18-24/);
+        }
         const expectedStatus = scenario === 'success' ? (endpoint === 'mood' ? 201 : 200)
           : scenario === 'provider-failure' || scenario === 'consent-read-failure' ? 500 : 403;
         assert.equal(result.status, expectedStatus, JSON.stringify(result));

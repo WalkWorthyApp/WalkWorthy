@@ -147,7 +147,6 @@ func race(
     let work = start(f.state)
     try await waitUntil("\(path) work did not reach the hold point") { gate.isHeld }
     if let transition { try await transition.apply(to: f) }
-    let preferenceBeforeRelease = f.state.useProfilePersonalization
     gate.open()
     if transition == nil {
         let expected = unauthorizedOnce ? 2 : 1
@@ -155,8 +154,6 @@ func race(
     } else {
         // Give a wrongly authorized request every chance to be dispatched.
         try await Task.sleep(for: .milliseconds(300))
-        try check(f.state.useProfilePersonalization == preferenceBeforeRelease,
-                  "\(path): superseded work rolled back the new session's preference")
     }
     // Settle before the next fixture reuses the process-wide Firebase stand-in.
     await work?.value
@@ -193,15 +190,13 @@ struct TransportBindingTests {
         let holdRefresh: (Gate) -> Void = { gate in FakeFirebase.beforeToken = { forcing in if forcing { await gate.pass() } } }
         let holdAppCheck: (Gate) -> Void = { gate in FakeFirebase.beforeAppCheck = { await gate.pass() } }
         let saveProfile: (AppState) -> Task<Void, Never>? = {
-            $0.updateProfile(firstName: "Alice", age: 30, occupation: "student", major: "", hobbies: [], optIn: true)
+            $0.updateProfile(firstName: "Alice", age: 30, occupation: "student", major: "", hobbies: [])
             return nil
         }
-        let togglePersonalization: (AppState) -> Task<Void, Never>? = { $0.setUseProfilePersonalization(true); return nil }
 
         try await checkRaces("debounced profile save at token fetch", "userProfile", holdAt: holdToken, start: saveProfile)
         try await checkRaces("debounced profile save after App Check", "userProfile", holdAt: holdAppCheck, start: saveProfile)
         try await checkRaces("profile save 401 forced-refresh retry", "userProfile", unauthorizedOnce: true, holdAt: holdRefresh, start: saveProfile)
-        try await checkRaces("personalization toggle at token fetch", "userProfile", holdAt: holdToken, start: togglePersonalization)
         try await checkRaces("account deletion at token fetch", "deleteAccount", holdAt: holdToken) { state in
             Task { try? await state.deleteAccount(session: state.authenticatedSession!) }
         }

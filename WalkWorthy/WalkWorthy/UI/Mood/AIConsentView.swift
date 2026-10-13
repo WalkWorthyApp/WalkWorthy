@@ -49,7 +49,6 @@ struct AIConsentView: View {
                             bulletRow("The life areas you select")
                             bulletRow("Your optional note, if you write one — it may reveal sensitive health or religious information")
                             bulletRow("For daily reflections: a seven-day summary of check-in dates, mood levels, and overall sentiment")
-                            bulletRow("If personalization is on: your age range, occupation or major, and hobbies — never your name or gender")
                         }
 
                         Text("OpenAI processes this information for generation and safety screening. Avoid names, contact information, medical records, or details about other people in notes. WalkWorthy disables API response storage and AI tracing, and OpenAI says API data is not used to train its models unless a customer opts in. OpenAI may retain abuse-monitoring logs for up to 30 days, or longer where legally required; disabling response storage does not eliminate that retention. Your generated responses are saved in your WalkWorthy account.")

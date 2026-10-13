@@ -23,7 +23,7 @@ test('mood retries reuse identical content but persist changed context, includin
   t.mock.method(firebase, 'getDb', () => db);
   t.mock.method(auth, 'verifyAppCheck', async () => true);
   t.mock.method(auth, 'requireAuth', async (req: Request) => Object.assign(req, { userId: uid }));
-  t.mock.method(profile, 'getUserProfileOnce', async () => ({ timezone: 'UTC', optInTailored: false }));
+  t.mock.method(profile, 'getUserProfileOnce', async () => ({ timezone: 'UTC' }));
   let generations = 0;
   let release: () => void = () => {};
   let started: () => void = () => {};
@@ -100,7 +100,7 @@ test('regeneration targets the displayed check-in and cannot create or replace a
   t.mock.method(firebase, 'getDb', () => db);
   t.mock.method(auth, 'verifyAppCheck', async () => true);
   t.mock.method(auth, 'requireAuth', async (req: Request) => Object.assign(req, { userId: uid }));
-  t.mock.method(profile, 'getUserProfileOnce', async () => ({ timezone: 'UTC', optInTailored: false }));
+  t.mock.method(profile, 'getUserProfileOnce', async () => ({ timezone: 'UTC' }));
   let generations = 0;
   t.mock.method(agent, 'runMoodAgent', async (_input: agent.MoodAgentInput, _key: string, _check: unknown, _model: unknown, _generate: unknown, beforeGeneration?: Parameters<typeof agent.runMoodAgent>[5]) => {
     await beforeGeneration?.();

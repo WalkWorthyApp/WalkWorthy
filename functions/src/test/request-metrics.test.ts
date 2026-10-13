@@ -52,12 +52,12 @@ test("runMoodAgent records each stage of a generated response", async (t) => {
   const input: MoodAgentInput = { checkInType: "morning", moodSpectrumData, metrics };
 
   await runMoodAgent(input, "synthetic-key", async () => {}, undefined,
-    async () => ({ message: "Take a quiet moment today.", verseId: "psalm_46_1" }));
+    async () => ({ message: "Take a quiet moment today.", verseId: "psalm_46_1" }), async () => {});
 
   const summary = metrics.summary();
   assert.deepEqual(Object.keys(summary).sort(), [
     "agentConsentMs", "generationClaimMs", "inputModerationMs", "modelAttempts", "modelMs",
-    "outputModerationMs", "resultCheckMs", "totalMs",
+    "outputModerationMs", "totalMs",
   ]);
   assert.equal(summary.modelAttempts, 1);
   for (const value of Object.values(summary)) assert.equal(typeof value, "number");
