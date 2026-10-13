@@ -31,11 +31,9 @@ test('withdrawal requires no preflight revision, notice, or age assertion', () =
     assert.equal(validateConsentInput({aiSharing: false, ...patch}), null);
   }
 });
-test('profile opt-in never coerces values to consent', () => {
+test('profile validation drops the retired AI opt-in', () => {
   const base = {ageRange: '18-24', timezone: 'America/New_York', hobbies: []};
-  for (const value of ['false', 'true', 1, 0, null, undefined, [], {}]) {
-    assert.equal(validateUserProfileInput({...base, optInTailored: value}), undefined);
-  }
-  assert.equal(validateUserProfileInput({...base, optInTailored: false})?.optInTailored, false);
-  assert.equal(validateUserProfileInput({...base, optInTailored: true})?.optInTailored, true);
+  const validated = validateUserProfileInput({...base, optInTailored: true});
+  assert.ok(validated);
+  assert.equal('optInTailored' in validated, false);
 });

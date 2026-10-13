@@ -31,7 +31,7 @@ cleanup before completion (including intents already marked locally complete).
 A second executable (`TransportTests.swift`, `DeletionFlowTests.swift`) compiles
 the production `LiveAPIClient`, `SessionCredentialBinding`, `AuthenticatedRequestContext`
 and `AccountDeletionFlow` over a stub `URLProtocol`. It holds account-owned work
-(debounced profile save, personalization toggle, 401 forced-refresh retry, post-App
+(debounced profile save, 401 forced-refresh retry, post-App
 Check dispatch, account deletion, and every deletion-ceremony wait) and switches
 accounts: A→B and same-UID re-sign-in before AppState observes Firebase, and
 observed A→B, A→B→A and sign-out→sign-in as A. Every case must dispatch nothing with

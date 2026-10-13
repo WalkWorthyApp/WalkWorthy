@@ -12,15 +12,9 @@ import { logger } from "firebase-functions/v2";
 import { safeErrorMetadata } from "../shared/safe-logging";
 import type { DailyMoodSummary } from "../shared/types";
 import {
-  collectProfileValues,
-  sanitizeProfile,
-  type UserProfilePayload,
-} from "./profile-sanitize";
-import {
   MOOD_MODEL,
   MOOD_MODEL_REASONING,
   GuardrailTripError,
-  assertNoProfileEcho,
   isGuardrailTrip,
   piiGuardrail,
   sleep,
@@ -29,7 +23,6 @@ import {
   type GenerationRunner,
 } from "./model-config";
 import { moderateText } from "./content-safety";
-import { NO_PERSONALIZATION, type AiPersonalization } from "../shared/ai-personalization";
 
 // ============================================================================
 // Output Schema
@@ -56,20 +49,6 @@ Given a summary of the student's mood check-ins over the past week, write a shor
 - Conversational and warm, without pretending to be a person or therapist
 - Scripture-adjacent in spirit without quoting specific verses (encouragements elsewhere in the app handle that)
 - Specific enough to feel personal, not generic enough to feel like a form letter
-
-## Using the User Profile (SUBTLE CONTEXT ONLY)
-You may receive a "profile" object with optional fields: ageRange, occupation, major, hobbies. Treat this as SILENT CONTEXT that shapes TONE and IMAGERY — never as material to name or list back.
-
-**DO:**
-- Let ageRange, occupation/major, and hobbies inform your word choice and the season-of-life texture of your reflection (e.g., "a week of long study hours" vs. "a week of meeting after meeting").
-- Choose resonant imagery without announcing it.
-
-**DON'T:**
-- Name-drop hobbies, major, occupation, or age.
-- List the user's profile back to them.
-- Refer to the user by an identity label ("Hey engineer,", "As a student…").
-
-If the profile is null or empty, fall back to neutral, universally-applicable warmth.
 
 ## Output
 Return a single JSON object: { "reflection": "your 2-3 sentence reflection here" }
@@ -106,10 +85,7 @@ function ensureAgent(apiKey: string): Agent<object, typeof reflectionOutputSchem
 // Input Builder
 // ============================================================================
 
-function buildPrompt(
-  summaries: DailyMoodSummary[],
-  profile: UserProfilePayload | null,
-): string {
+function buildPrompt(summaries: DailyMoodSummary[]): string {
   const weekSummary =
     summaries.length === 0
       ? "No check-ins recorded this week."
@@ -121,11 +97,7 @@ function buildPrompt(
           evening: s.evening?.moodLevel ?? null,
         }));
 
-  return JSON.stringify(
-    { profile: sanitizeProfile(profile), weekSummary },
-    null,
-    2,
-  );
+  return JSON.stringify({ weekSummary }, null, 2);
 }
 
 // ============================================================================
@@ -146,7 +118,6 @@ export async function runReflectionAgent(
   summaries: DailyMoodSummary[],
   apiKey: string,
   checkConsent: ProviderConsentCheck,
-  personalization: AiPersonalization | null = null,
   generate: GenerationRunner = async (input, signal) =>
     // Every new model attempt must return through the consent check below.
     (await run(ensureAgent(apiKey), input, { signal, maxTurns: 1 })).finalOutput,
@@ -156,6 +127,7 @@ export async function runReflectionAgent(
   });
 
   const MAX_RETRIES = 2;
+  const input = buildPrompt(summaries);
   let lastError: unknown;
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     // Exponential backoff between attempts — first attempt runs immediately.
@@ -168,10 +140,6 @@ export async function runReflectionAgent(
     // Do not catch authorization/read failures as retryable provider failures.
     await checkConsent();
     let reflection: string;
-    // Resolve after the base-consent await, using a new payload on each retry.
-    const current = await personalization?.forGeneration() ?? NO_PERSONALIZATION;
-    const profile = current.profile;
-    const input = buildPrompt(summaries, profile);
     try {
       const result = await withTimeout((signal) =>
         generate(input, signal),
@@ -202,13 +170,10 @@ export async function runReflectionAgent(
       continue;
     }
 
+    // Output moderation is another provider request; recheck consent first.
     await checkConsent();
-    // Recheck after the base-consent await; this output belongs to this attempt.
-    if (!(await current.isCurrent())) return FIXED_REFLECTION;
     const outputSafety = await moderateText(reflection, apiKey, "output");
     if (outputSafety !== "allow") return FIXED_REFLECTION;
-    // Deterministic profile echoes fail without retrying generation.
-    assertNoProfileEcho(reflection, collectProfileValues(sanitizeProfile(profile)));
     return { reflection, isGenerated: true };
   }
 

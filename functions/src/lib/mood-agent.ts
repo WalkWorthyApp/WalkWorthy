@@ -17,15 +17,11 @@ import type {
   AIEncouragementResponse,
   MoodSpectrumData,
 } from "../shared/types";
-import {
-  collectProfileValues,
-  sanitizeText,
-} from "./profile-sanitize";
+import { sanitizeText } from "./text-sanitize";
 import {
   MOOD_MODEL,
   MOOD_MODEL_REASONING,
   GuardrailTripError,
-  assertNoProfileEcho,
   isGuardrailTrip,
   piiGuardrail,
   sleep,
@@ -40,19 +36,13 @@ import {
   resolveScripture,
 } from "./scripture-catalog";
 import { moderateText } from "./content-safety";
-import { NO_PERSONALIZATION, type AiPersonalization, type PersonalizationAttempt } from "../shared/ai-personalization";
 import { RequestMetrics } from "../shared/request-metrics";
 
 // ============================================================================
 // Types
 // ============================================================================
 
-// Re-export UserProfilePayload for backwards compatibility with consumers
-// (e.g., api/mood-checkin.ts) that previously imported it from this module.
-export type { UserProfilePayload } from "./profile-sanitize";
-
 export interface MoodAgentInput {
-  personalization?: AiPersonalization;
   checkInType: CheckInType;
   moodSpectrumData: MoodSpectrumData;
   /** Receives stage timings and token usage for the caller's log line. */
@@ -138,29 +128,6 @@ For score=5, tags=["Calm","Steady"], categories=["Tasks"], midday, followUpScore
   "verseId": "psalm_46_1"
 }
 
-## Using the User Profile (SUBTLE CONTEXT ONLY)
-
-You may receive a "profile" object with optional fields: ageRange, occupation, major, hobbies. Treat this as SILENT CONTEXT that quietly shapes your response — never as material to name or list back.
-
-**DO:**
-- Let ageRange, occupation/major, and hobbies inform your TONE, IMAGERY, and VERSE CHOICE. A verse about diligence hits differently for a grad student than for a retiree.
-- Match life-stage vocabulary naturally: "exam season" or "before class" for students; "Monday morning" or "project deadline" for working professionals; "the week ahead" when unclear.
-- Pick imagery that resonates with their world without announcing it (e.g., for someone with outdoor hobbies, a verse about God's creation may land more than one about city streets).
-
-**DON'T:**
-- Name-drop hobbies, major, occupation, or age. Never write "As a nursing student…", "I know you love reading…", or "Hey engineer,".
-- List the user's profile back to them in any form.
-- Mention that a profile or personalization exists.
-- Refer to the user by an identity label or role.
-
-**Contrast example** — profile: {ageRange: "18-24", major: "Nursing", hobbies: ["Music","Reading"]}, morning, score=3, tags=["Anxious"]:
-
-BAD (name-dropping): "Hey nursing student, clinicals are tough. Maybe put on some music later."
-
-GOOD (subtle): "Mornings before a heavy day can feel like the whole weight lands before you've even started. You don't have to carry all of it right now."
-
-If the profile is null or empty, fall back to neutral, universally-applicable warmth.
-
 ## Scripture Catalog
 Choose exactly one verseId from this reviewed catalog:
 ${SCRIPTURE_SELECTION_GUIDE}
@@ -178,12 +145,6 @@ ${SCRIPTURE_SELECTION_GUIDE}
 let cachedAgent: Agent<object, typeof encouragementOutputSchema> | undefined;
 let cachedModel: string | undefined;
 let cachedApiKey: string | undefined;
-
-// ============================================================================
-// Input Sanitization
-// ============================================================================
-// sanitizeProfile() and sanitizeText() live in ./profile-sanitize so the
-// reflection agent can share the same sanitization logic.
 
 // ============================================================================
 // Agent Instance
@@ -309,7 +270,7 @@ export async function runMoodAgent(
     for (const response of result.rawResponses) input.metrics?.recordTokenUsage(response.usage);
     return result.finalOutput;
   },
-  beforeGeneration?: () => Promise<PersonalizationAttempt>,
+  beforeGeneration?: () => Promise<void>,
 ): Promise<AIEncouragementResponse> {
   logger.info("[MoodAgent] Starting encouragement");
   const metrics = input.metrics ?? new RequestMetrics();
@@ -320,8 +281,8 @@ export async function runMoodAgent(
   const normalizedNote = moodSpectrumData.note
     ? sanitizeText(moodSpectrumData.note, moodSpectrumData.note.length)
     : undefined;
-  // Profile strings are sanitized and checked for echoes.
-  const payload = {
+  // Only check-in data reaches the model; the user's profile is never sent.
+  const serializedInput = JSON.stringify({
     checkInType: input.checkInType,
     moodScore: moodSpectrumData.moodScore,
     moodLevel: moodSpectrumData.moodLevel,
@@ -329,7 +290,7 @@ export async function runMoodAgent(
     impactCategories: moodSpectrumData.impactCategories.slice(0, 10).map((c) => sanitizeText(c, 30)),
     followUpScore: moodSpectrumData.followUpScore,
     note: normalizedNote?.slice(0, 300),
-  };
+  }, null, 2);
 
   await metrics.time("agentConsent", checkConsent);
   const inputSafety = await metrics.time("inputModeration", () => moderateText(normalizedNote, apiKey, "input"));
@@ -353,15 +314,9 @@ export async function runMoodAgent(
     // Checks live outside provider catches: denial/read failure must stop work,
     // including when consent changes during backoff. Sent requests cannot be recalled.
     await metrics.time("agentConsent", checkConsent);
-    // Admission resolves live consent and the exact profile in its consumption
-    // transaction. Serialize only its committed result; no asynchronous quota
-    // boundary may separate profile validation from prompt construction.
+    // Admission rechecks live consent in its consumption transaction.
     // Denial/ownership errors remain outside the provider retry loop.
-    const personalization = await metrics.time("generationClaim", async () => beforeGeneration
-      ? await beforeGeneration()
-      : await input.personalization?.forGeneration() ?? NO_PERSONALIZATION);
-    const profile = personalization.profile;
-    const serializedInput = JSON.stringify({ ...payload, profile }, null, 2);
+    if (beforeGeneration) await metrics.time("generationClaim", beforeGeneration);
     logger.info(`[MoodAgent] Attempt ${attempt + 1}/${MAX_RETRIES}`);
     let parsed: AIEncouragementResponse;
     try {
@@ -388,10 +343,8 @@ export async function runMoodAgent(
       continue;
     }
 
+    // Output moderation is another provider request; recheck consent first.
     await metrics.time("agentConsent", checkConsent);
-    // Generated prose can contain profile-derived details. Validate the exact
-    // attempt after the base-consent await, before disclosing it to moderation.
-    if (!(await metrics.time("resultCheck", () => personalization.isCurrent()))) return BLOCKED_OUTPUT_RESPONSE;
     // A flagged OUTPUT says the model misbehaved, not that the user is at risk.
     const outputSafety = await metrics.time("outputModeration", () => moderateText(parsed.message, apiKey, "output"));
     if (outputSafety !== "allow") {
@@ -400,8 +353,6 @@ export async function runMoodAgent(
       });
       return BLOCKED_OUTPUT_RESPONSE;
     }
-    // Deterministic profile echoes fail without retrying generation.
-    assertNoProfileEcho(parsed, collectProfileValues(profile));
     return parsed;
   }
 

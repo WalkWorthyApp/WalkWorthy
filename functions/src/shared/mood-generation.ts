@@ -21,7 +21,6 @@ export interface MoodGenerationIdentity {
   // Record identity is stable across regenerations; updateTime distinguishes
   // later deliberate generations from followers of the same observed version.
   baseVersion: string;
-  profileContext: unknown;
 }
 
 export interface MoodGenerationClaim {
@@ -47,14 +46,14 @@ type ClaimResult =
   | { type: 'completed'; response: MoodCheckInResponse }
   | { type: 'denied'; budget: DailyBudgetResult };
 
-/** Private, user-scoped records contain hashes, not the submitted note/profile.
+/** Private, user-scoped records contain hashes, not the submitted note.
  * A new observed record version permits another deliberate regeneration. */
 export function moodGenerationRef(db: Firestore, userId: string, identity: MoodGenerationIdentity): DocumentReference {
   const { input } = identity;
   const digest = createHash('sha256').update(JSON.stringify([
     identity.checkInDocId, identity.regenerate, identity.baseVersion, input.moodScore,
     input.followUpScore, input.note, [...input.emotionTags].sort(),
-    [...input.impactCategories].sort(), identity.profileContext,
+    [...input.impactCategories].sort(),
   ])).digest('hex');
   return db.collection('users').doc(userId).collection('moodGenerationClaims').doc(digest);
 }

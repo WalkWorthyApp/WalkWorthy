@@ -21,9 +21,9 @@ export type Gender = 'female' | 'male' | 'nonBinary' | 'preferNotToSay';
  * - NEVER log these fields in plain text
  * - Validate incoming values against defined enums before storage
  * - Use redactSensitiveFields() when logging this data
- * - Consider field importance before including in AI prompts
+ * - Never include these fields in AI prompts
  *
- * REQUIRED FIELDS: ageRange, hobbies, optInTailored, timezone
+ * REQUIRED FIELDS: ageRange, hobbies, timezone
  * OPTIONAL FIELDS: major, occupation (not everyone is in school or employed)
  */
 export interface UserProfileInput {
@@ -44,9 +44,6 @@ export interface UserProfileInput {
 
   /** REQUIRED - List of user hobbies/interests */
   hobbies: string[];
-
-  /** REQUIRED - Whether user opts in to tailored encouragement */
-  optInTailored: boolean;
 
   /** OPTIONAL - User's preferred check-in notification times */
   checkInTimes?: CheckInTimes;
@@ -86,7 +83,7 @@ export function validateGender(value: unknown): Gender | undefined {
  * SECURITY: Validates all fields including sensitive PII fields (ageRange, major, occupation).
  * Sensitive fields should be treated as identifying information and protected accordingly.
  *
- * REQUIRED FIELDS: ageRange, hobbies, optInTailored, timezone
+ * REQUIRED FIELDS: ageRange, hobbies, timezone
  * OPTIONAL FIELDS: major, occupation
  *
  * @param input The untrusted profile input from client
@@ -96,8 +93,6 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
   if (!input || typeof input !== 'object') return undefined;
 
   const obj = input as Record<string, unknown>;
-
-  if (typeof obj.optInTailored !== "boolean") return undefined;
 
   // REQUIRED: Validate ageRange
   const ageRange = validateAgeRange(obj.ageRange);
@@ -143,7 +138,6 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
   return {
     ageRange,
     hobbies,
-    optInTailored: obj.optInTailored,
     timezone,
     // Optional fields
     firstName,

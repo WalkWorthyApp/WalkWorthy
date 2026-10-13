@@ -5,11 +5,7 @@ export interface UserProfile {
   /** SENSITIVE: Stored PII - use redactSensitiveFields() when logging */
   ageRange?: AgeRange;
 
-  /**
-   * OPTIONAL - SENSITIVE: User's first name for Home-view greeting personalization.
-   * NOT passed to AI agents — see profile-sanitize.ts::UserProfilePayload which
-   * intentionally omits this field.
-   */
+  /** OPTIONAL - SENSITIVE: User's first name for Home-view greeting personalization. */
   firstName?: string;
 
   /** SENSITIVE: Optional major/field of study (for students). Can identify users when combined with other profile data. */
@@ -22,7 +18,6 @@ export interface UserProfile {
   gender?: Gender;
 
   hobbies?: string[];
-  optInTailored?: boolean;
 
   /** User's preferred check-in notification times */
   checkInTimes?: CheckInTimes;
@@ -38,7 +33,7 @@ export interface UserProfile {
  *
  * Historically this was backed by an in-process LRU cache to reduce Firestore
  * reads, but that cache introduced a privacy-sensitive consistency bug:
- * opt-out toggles (e.g., `optInTailored = false`) could take up to 10 minutes
+ * profile edits (then including the AI-personalization opt-out) could take up to 10 minutes
  * to propagate because multiple Cloud Functions instances each held their own
  * TTL'd copy. At WalkWorthy's scale the savings are negligible (~5ms per call)
  * and not worth the coherence risk. Every call now round-trips to Firestore.

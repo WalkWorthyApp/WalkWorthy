@@ -2,7 +2,6 @@ import { FUNCTIONS_REVISION } from '../shared/version';
 import { safeErrorMetadata } from '../shared/safe-logging';
 import { AccountDeletingError } from '../shared/account-lifecycle';
 import { requireAiConsent, AiConsentRequiredError } from '../shared/privacy-consent';
-import { createAiPersonalization } from '../shared/ai-personalization';
 import { RequestMetrics } from '../shared/request-metrics';
 /**
  * Mood Check-in API
@@ -20,9 +19,8 @@ import type { Request, Response } from 'express';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from '../shared/auth';
 import { getUserProfileOnce } from '../shared/profile';
-import { runMoodAgent, BLOCKED_OUTPUT_RESPONSE, UserProfilePayload, MoodAgentInput } from '../lib/mood-agent';
+import { runMoodAgent, MoodAgentInput } from '../lib/mood-agent';
 import { isCleanStoredAiContent } from '../lib/model-config';
-import { collectProfileValues, sanitizeProfile } from '../lib/profile-sanitize';
 import {
   validateCheckInType,
   validateMoodSpectrumData,
@@ -289,7 +287,7 @@ async function handlePostCheckIn(req: Request, res: Response, metrics: RequestMe
 
     // Fast-path: Return existing response if same mood — but only after
     // re-screening it against the CURRENT guardrails. Stored responses can
-    // predate the profile echo-check, so a failed screen falls through to
+    // predate the current guardrails, so a failed screen falls through to
     // regeneration (same flow as a mood update) instead of re-serving.
     //
     // Two things bypass the fast path, for different reasons but with the same
@@ -304,8 +302,7 @@ async function handlePostCheckIn(req: Request, res: Response, metrics: RequestMe
         overwriteExistingResponse = true;
         transactionResult = { ...transactionResult, type: 'update' as const };
       } else {
-        const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
-        if (isCleanStoredAiContent(transactionResult.data.aiResponse, profileValues)) {
+        if (isCleanStoredAiContent(transactionResult.data.aiResponse)) {
           return successResponse(res, {
             checkInId: transactionResult.data.id,
             aiResponse: transactionResult.data.aiResponse,
@@ -320,13 +317,11 @@ async function handlePostCheckIn(req: Request, res: Response, metrics: RequestMe
       }
     }
 
-    const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
     let admission;
     try {
       admission = await metrics.time('admission', () => claimMoodGeneration(db, userId, {
         checkInDocId, input: input.moodSpectrumData, regenerate: regenerateRequested,
         baseVersion: transactionResult.baseVersion,
-        profileContext: profile?.optInTailored === true ? sanitizeProfile(profile as UserProfilePayload) : null,
       }));
     } catch (error) {
       if (error instanceof AccountDeletingError) throw error;
@@ -340,8 +335,7 @@ async function handlePostCheckIn(req: Request, res: Response, metrics: RequestMe
       const response = admission.type === 'completed' ? admission.response : await waitForMoodGeneration(admission.claim);
       if (regenerateRequested && (await checkInRef.get()).get('id') !== expectedCheckInId) throw new CheckInConflictError();
       // This is the same operation's validated result, including reviewed fixed
-      // responses. An additional profile echo screen could reject harmless words
-      // in a fixed crisis card that its owner successfully returned.
+      // responses, so it is not screened again.
       return successResponse(res, response, 201);
     }
     const claim = admission.claim;
@@ -349,14 +343,7 @@ async function handlePostCheckIn(req: Request, res: Response, metrics: RequestMe
     try {
       // Step 2: Generate AI response (outside transaction - may take time)
       const consent = await metrics.time('consent', () => requireAiConsent(db, userId));
-      // The earlier profile is only for local timezone/echo screening. Bind
-      // outbound attributes to a fresh permission and server-owned revision.
-      const personalization = await metrics.time('personalization', () =>
-        createAiPersonalization(db, userId, async transaction => {
-          await requireAiConsent(db, userId, transaction, consent.revision);
-        }));
       const agentInput: MoodAgentInput = {
-        personalization,
         checkInType: input.checkInType,
         moodSpectrumData: input.moodSpectrumData,
         metrics,
@@ -367,7 +354,6 @@ async function handlePostCheckIn(req: Request, res: Response, metrics: RequestMe
       }, undefined, undefined,
         () => markMoodGenerationConsumed(claim, async transaction => {
           await requireAiConsent(db, userId, transaction, consent.revision);
-          return personalization.forGeneration(transaction);
         }));
       logger.info('AI response generated');
 
@@ -391,8 +377,6 @@ async function handlePostCheckIn(req: Request, res: Response, metrics: RequestMe
 
       const response = await metrics.time('finalSave', () => db.runTransaction(async (transaction) => {
         await requireAiConsent(db, userId, transaction, consent.revision);
-        const currentResponse = aiResponse.isGenerated && !(await personalization.isResultCurrent(transaction))
-          ? BLOCKED_OUTPUT_RESPONSE : aiResponse;
         const settlement = await readMoodGenerationSettlement(transaction, claim);
         const existingCheckInDoc = await transaction.get(checkInRef);
         if (regenerateRequested && (!existingCheckInDoc.exists ||
@@ -402,7 +386,7 @@ async function handlePostCheckIn(req: Request, res: Response, metrics: RequestMe
         if (existingCheckInDoc.exists && !overwriteExistingResponse) {
           const existing = existingCheckInDoc.data() as MoodCheckIn;
           if (sameMoodInput(existing.moodSpectrumData, input.moodSpectrumData) &&
-              isCleanStoredAiContent(existing.aiResponse, profileValues)) {
+              isCleanStoredAiContent(existing.aiResponse)) {
             const existingResponse: MoodCheckInResponse = {
               checkInId: existing.id, aiResponse: existing.aiResponse,
               createdAt: existing.createdAt, expiresAt: existing.expiresAt,
@@ -439,11 +423,11 @@ async function handlePostCheckIn(req: Request, res: Response, metrics: RequestMe
         );
 
         // Set check-in (creates or updates - deterministic docID ensures no duplicates)
-        transaction.set(checkInRef, { ...checkInData, aiResponse: currentResponse });
+        transaction.set(checkInRef, checkInData);
         // Set summary atomically with merge to preserve any other fields
         transaction.set(summaryRef, updatedSummary, { merge: true });
         const savedResponse: MoodCheckInResponse = {
-          checkInId: checkInData.id, aiResponse: currentResponse,
+          checkInId: checkInData.id, aiResponse,
           createdAt: checkInData.createdAt, expiresAt: checkInData.expiresAt,
         };
         completeMoodGeneration(transaction, claim, settlement, savedResponse);
@@ -533,11 +517,8 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // Screen values for re-serving stored AI responses (see isCleanStoredAiContent).
-    const profileValues = collectProfileValues(sanitizeProfile(profile as UserProfilePayload | null));
-
     if (fullHistoryDays && fullHistoryDays > 0) {
-      return handleGetFullHistory(userId, Math.min(fullHistoryDays, 31), db, timezone, res, profileValues, startDateParam, endDateParam);
+      return handleGetFullHistory(userId, Math.min(fullHistoryDays, 31), db, timezone, res, startDateParam, endDateParam);
     }
 
     if (historyDays && historyDays > 0) {
@@ -579,7 +560,7 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
         // Re-screen the stored response before serving (it may predate the
         // current guardrails). On failure, fall through to pending — the
         // re-submitted check-in then regenerates via the POST screen path.
-        if (isCleanStoredAiContent(storedCheckIn.aiResponse, profileValues)) {
+        if (isCleanStoredAiContent(storedCheckIn.aiResponse)) {
           return successResponse(res, {
             status: 'completed',
             checkIn: storedCheckIn,
@@ -673,7 +654,7 @@ async function handleGetHistory(userId: string, days: number, db: FirebaseFirest
  * subsequent windows contain exactly N dates ending at the requested endDate.
  * Within a day the iOS client reorders by check-in type (morning → midday → evening).
  */
-async function handleGetFullHistory(userId: string, days: number, db: FirebaseFirestore.Firestore, timezone: string, res: Response, profileValues: readonly string[], startDateOverride?: string, endDateOverride?: string): Promise<void> {
+async function handleGetFullHistory(userId: string, days: number, db: FirebaseFirestore.Firestore, timezone: string, res: Response, startDateOverride?: string, endDateOverride?: string): Promise<void> {
   try {
     // Reject impossible dates before shifting them (JS normalizes February 30).
     const isCalendarDate = (value: string): boolean => {
@@ -721,7 +702,7 @@ async function handleGetFullHistory(userId: string, days: number, db: FirebaseFi
     // current guardrails); entries failing the screen are omitted from the
     // log rather than served with unscreened content.
     const checkIns = allCheckIns.filter(
-      (c) => isCleanStoredAiContent(c.aiResponse, profileValues),
+      (c) => isCleanStoredAiContent(c.aiResponse),
     );
     if (checkIns.length < allCheckIns.length) {
       logger.warn('Omitted stored check-ins that failed guardrail screen');

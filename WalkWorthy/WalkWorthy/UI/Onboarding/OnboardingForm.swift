@@ -26,7 +26,6 @@ struct OnboardingForm: View {
     @State private var major: String = ""
     @State private var selectedHobbies: Set<String> = []
     @State private var customHobby: String = ""
-    @State private var optIn: Bool = false
     @State private var ageError: String?
     @State private var isEditingExistingProfile = false
     @FocusState private var focusedField: Field?
@@ -62,7 +61,6 @@ struct OnboardingForm: View {
                     ageSection
                     contextSection
                     hobbiesSection
-                    optInSection
                     privacyCopy
                     primaryButton
                 }
@@ -209,22 +207,8 @@ struct OnboardingForm: View {
         }
     }
 
-    private var optInSection: some View {
-        Toggle(isOn: $optIn) {
-            VStack(alignment: .leading, spacing: scaled(4)) {
-                Text("Use profile details for AI personalization")
-                    .font(.newsreaderSemiBoldItalic(size: scaled(20)))
-                Text("If on, your age range, occupation or major, and hobbies may shape AI encouragements. You can change this in Settings.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .toggleStyle(.switch)
-        .padding(.top, scaled(12))
-    }
-
     private var privacyCopy: some View {
-        Text("Profile details are stored in your WalkWorthy account. They are shared with OpenAI only if you separately consent to AI sharing and turn on profile personalization.")
+        Text("Profile details are stored in your WalkWorthy account and are never sent to OpenAI.")
             .font(.footnote)
             .foregroundStyle(.secondary)
             .padding(.top, scaled(8))
@@ -265,7 +249,6 @@ struct OnboardingForm: View {
         occupation = profile.occupation
         major = profile.major
         selectedHobbies = profile.hobbies
-        optIn = profile.optIn
         resetValidationMessages()
 
         if !appState.onboardingCompleted {
@@ -322,7 +305,7 @@ struct OnboardingForm: View {
         firstName = trimmedFirstName
         occupation = trimmedOccupation
         major = trimmedMajor
-        appState.updateProfile(firstName: trimmedFirstName, age: age, occupation: trimmedOccupation, major: trimmedMajor, hobbies: selectedHobbies, optIn: optIn)
+        appState.updateProfile(firstName: trimmedFirstName, age: age, occupation: trimmedOccupation, major: trimmedMajor, hobbies: selectedHobbies)
         appState.markOnboardingComplete()
 
         if isEditingExistingProfile {

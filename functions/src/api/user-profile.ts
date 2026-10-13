@@ -78,7 +78,6 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
           major: validated.major,
           occupation: validated.occupation,
           hobbies: validated.hobbies,
-          optInTailored: validated.optInTailored,
           timezone: validated.timezone,
           checkInTimes: validated.checkInTimes,
           updatedAt: new Date().toISOString(),
@@ -173,11 +172,6 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
           }
         }
 
-        if (req.body.optInTailored !== undefined) {
-          if (typeof req.body.optInTailored !== 'boolean') return errorResponse(res, 400, 'Invalid optInTailored value');
-          updates.optInTailored = req.body.optInTailored;
-        }
-
         if (req.body.timezone !== undefined) {
           if (typeof req.body.timezone === 'string' && req.body.timezone.length > 0 && req.body.timezone.length <= 50) {
             updates.timezone = req.body.timezone;
@@ -200,12 +194,13 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
           return errorResponse(res, 400, 'No valid fields to update');
         }
 
-        // Gender is no longer collected, and translationPreference no longer
-        // exists (the app is ESV-only). Any real profile change purges both
-        // legacy values stored by prerelease builds.
+        // Gender is no longer collected, translationPreference no longer exists
+        // (the app is ESV-only), and optInTailored is retired (the profile is
+        // never sent to AI). Any real profile change purges these legacy values.
         updates.gender = FieldValue.delete() as unknown as UserProfile['gender'];
         (updates as Record<string, unknown>).translationPreference =
           FieldValue.delete();
+        (updates as Record<string, unknown>).optInTailored = FieldValue.delete();
         updates.updatedAt = new Date().toISOString();
 
         // Atomically create or update the document using merge

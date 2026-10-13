@@ -5,7 +5,6 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
 import { moodGenerationRef, type MoodGenerationIdentity } from '../shared/mood-generation';
 import { runMoodAgent, CRISIS_RESPONSE, type MoodAgentInput } from '../lib/mood-agent';
-import { NO_PERSONALIZATION } from '../shared/ai-personalization';
 import { validateMoodSpectrumData } from '../shared/types';
 
 const input: MoodAgentInput = { checkInType: 'morning', moodSpectrumData: {
@@ -17,7 +16,7 @@ test('claim identity covers normalized context, intent, user, date and generatio
   const app = initializeApp({ projectId: 'demo-walkworthy-compliance' }, randomUUID());
   const db = getFirestore(app);
   const identity: MoodGenerationIdentity = { checkInDocId: 'day_morning', input: input.moodSpectrumData,
-    regenerate: false, baseVersion: 'one', profileContext: null };
+    regenerate: false, baseVersion: 'one' };
   const key = (value = identity, uid = 'user') => moodGenerationRef(db, uid, value).path;
   try {
     const normalized = validateMoodSpectrumData({ moodScore: 5, followUpScore: 2,
@@ -29,10 +28,8 @@ test('claim identity covers normalized context, intent, user, date and generatio
       assert.notEqual(key({ ...identity, input: { ...identity.input, ...change } }), key());
     }
     for (const change of [{ checkInDocId: 'day_midday' }, { checkInDocId: 'tomorrow_morning' },
-      { regenerate: true }, { baseVersion: 'two' }, { profileContext: { occupation: 'PRIVATE_SENTINEL' } }]) {
-      const path = key({ ...identity, ...change });
-      assert.notEqual(path, key());
-      assert.doesNotMatch(path, /PRIVATE_SENTINEL/);
+      { regenerate: true }, { baseVersion: 'two' }]) {
+      assert.notEqual(key({ ...identity, ...change }), key());
     }
     assert.notEqual(key(identity, 'another-user'), key());
   } finally { await deleteApp(app); }
@@ -43,7 +40,7 @@ test('generation admission runs before each dispatch, and admission errors never
   await assert.rejects(runMoodAgent(input, 'synthetic-key', async () => {}, undefined, async () => {
     events.push('dispatch');
     throw new Error('Synthetic provider failure');
-  }, async () => { events.push('admit'); return NO_PERSONALIZATION; }));
+  }, async () => { events.push('admit'); }));
   assert.deepEqual(events, ['admit', 'dispatch', 'admit', 'dispatch']);
   events.length = 0;
   const denied = new Error('Ownership lost');
