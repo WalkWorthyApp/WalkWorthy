@@ -2,9 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- Analytics stays OFF until the user explicitly opts in. The Core
-	     product and flags below remove advertising-ID capability, IDFV
-	     collection, and ad-personalization use. -->
+	<!-- Firebase Analytics is not linked in 1.0. These keys are a backstop:
+	     if Google's measurement SDK is ever pulled in again, collection,
+	     IDFV and ad-personalization stay off until the app deliberately
+	     opts in. -->
 	<key>FIREBASE_ANALYTICS_COLLECTION_ENABLED</key>
 	<false/>
 	<!-- No automatic screen_view events. The privacy policy describes

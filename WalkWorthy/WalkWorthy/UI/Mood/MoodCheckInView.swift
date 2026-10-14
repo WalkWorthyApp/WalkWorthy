@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import FirebaseAnalytics
 
 struct MoodCheckInView: View {
     let checkInType: CheckInType
@@ -212,8 +211,8 @@ struct MoodCheckInView: View {
     /// Regenerates the encouragement for the check-in that was just submitted.
     ///
     /// Deliberately NOT a re-run of `submitCheckIn()`: that path also creates a
-    /// journal entry from the note and logs the completion analytics event, and
-    /// neither should happen twice for one check-in. This only swaps the AI
+    /// journal entry from the note, which should not happen twice for one
+    /// check-in. This only swaps the AI
     /// response. A failure keeps the existing encouragement on screen and
     /// reports inline — losing the response the user already has would be a
     /// worse outcome than a failed retry.
@@ -280,10 +279,6 @@ struct MoodCheckInView: View {
                 )
                 let response = try await appState.submitMoodCheckIn(request)
                 try Task.checkCancellation()
-                // Type only (morning/midday/evening) — no mood data in analytics.
-                // Neutral name: analytics goes to Google, so the event itself should not
-                // describe mood/health activity (FTC and Washington MHMDA sensitivity).
-                Analytics.logEvent("checkin_completed", parameters: ["check_in_type": checkInType.rawValue])
 
                 if !noteValue.isEmpty {
                     // Journal creation is best-effort. Surface a failure as a

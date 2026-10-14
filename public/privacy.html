@@ -114,8 +114,8 @@
                 assigned when you sign up. Used to link your data to your account.
             </li>
             <li>
-                <strong>App and device identifiers</strong> — Firebase assigns installation or
-                app-instance identifiers, and Apple App Attest supplies integrity assertions used
+                <strong>App and device identifiers</strong> — Firebase assigns installation
+                identifiers, and Apple App Attest supplies integrity assertions used
                 to help verify that requests come from a genuine copy of the app. We do not use
                 these identifiers to track you across other companies' apps or websites.
             </li>
@@ -133,11 +133,9 @@
                 and provider network logs may remain subject to retention and deletion processes.
             </li>
             <li>
-                <strong>Optional analytics</strong> — only if you turn analytics on, Firebase
-                Analytics receives app interactions (such as a feature being used), an app-instance
-                identifier, device/app information, and coarse location derived from a masked IP
-                address. Analytics never receives mood check-ins, notes, journal text, or profile
-                fields from our event code.
+                <strong>No usage analytics</strong> — the app does not include an analytics or
+                advertising SDK. Earlier test versions offered optional Google Analytics; any event
+                data collected then expires under Google Analytics retention settings.
             </li>
         </ul>
     </section>
@@ -176,7 +174,7 @@
             <li>
                 <strong>Google Firebase</strong> (Google Cloud) — hosts our database, authenticates
                 your account, stores mood, generated encouragement, reflection, and profile data,
-                provides crash reporting and optional analytics, and verifies device integrity.
+                provides crash reporting, and verifies device integrity.
                 Reminder notifications are scheduled locally on your device and never touch our
                 servers. Our database is hosted in Google Cloud's United States multi-region
                 and our backend runs in the United States. Some Firebase services, such as
@@ -211,13 +209,6 @@
                 ways to find support or report a concern.
             </li>
             <li>
-                <strong>Firebase Analytics</strong> — only if you opt in, we count app interactions
-                (for example, that a check-in was completed) to understand which features are used.
-                We disable advertising-ID capability, IDFV collection, and ad-personalization
-                signals. Analytics events never include check-in content, notes, journals, or
-                profile details, and you can turn analytics off anytime in Settings.
-            </li>
-            <li>
                 <strong>Apple</strong> — if you sign in with your Apple ID, Apple handles the
                 authentication and returns a signed identity token. See Apple's privacy policy.
             </li>
@@ -248,9 +239,8 @@
                 after seven days. Unfinished records remain until cleanup is resolved, and we
                 automatically retry failed cleanup. You can also retry deletion in the app or contact support. These records contain
                 no mood notes or generated content.</li>
-            <li>Crash and analytics records — Firebase Crashlytics keeps crash reports for 90 days.
-                Optional Google Analytics event data is kept for our configured retention period
-                of 2 months. Firebase Authentication keeps sign-in IP logs for a few weeks.</li>
+            <li>Crash and sign-in records — Firebase Crashlytics keeps crash reports for 90 days.
+                Firebase Authentication keeps sign-in IP logs for a few weeks.</li>
         </ul>
         <p>
             When you delete your account via Settings → Account → Delete Account, we permanently
@@ -299,10 +289,6 @@
                 account deletion remain available. The current combined check-in/generation flow
                 requires AI permission to submit new check-ins.
             </li>
-            <li>
-                <strong>Disable analytics</strong> — analytics is off by default and can be
-                switched on or off independently in Settings.
-            </li>
         </ul>
         <p>
             Depending on applicable law, you may also request restriction, object to processing,
@@ -331,7 +317,7 @@
             We do not track your activity across other companies' services. The app does not
             interpret browser Do Not Track signals; our no-tracking practice applies regardless.
             We do not enable third parties to collect data through the app for tracking across
-            unrelated services. Optional service analytics remains subject to your separate choice.
+            unrelated services, and the app contains no analytics or advertising SDKs.
         </p>
     </section>
 

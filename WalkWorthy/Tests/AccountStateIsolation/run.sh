@@ -9,7 +9,7 @@ trap 'rm -rf "$build_dir"' EXIT
 swift_compiler="$(xcrun --find swiftc)"
 sdk_path="$(xcrun --sdk macosx --show-sdk-path)"
 
-for sdk_stub in FirebaseAnalytics FirebaseCrashlytics; do
+for sdk_stub in FirebaseCrashlytics; do
   "$swift_compiler" -sdk "$sdk_path" -emit-module -emit-library \
     -module-cache-path "$build_dir/module-cache" \
     -module-name "$sdk_stub" "$test_dir/$sdk_stub.swift" \
@@ -22,7 +22,7 @@ python3 "$test_dir/extract-cache.py" "$app_dir/Networking/LiveAPIClient.swift" "
 "$swift_compiler" -sdk "$sdk_path" -swift-version 5 -default-isolation MainActor \
   -module-cache-path "$build_dir/module-cache" \
   -parse-as-library -I "$build_dir" -L "$build_dir" \
-  -lFirebaseAnalytics -lFirebaseCrashlytics -Xlinker -rpath -Xlinker "$build_dir" \
+  -lFirebaseCrashlytics -Xlinker -rpath -Xlinker "$build_dir" \
   "$app_dir/Auth/AuthSessionIdentity.swift" "$app_dir/App/AppState.swift" \
   "$app_dir/Auth/AuthenticatedRequestContext.swift" "$app_dir/Auth/SessionCredentialBinding.swift" \
   "$app_dir/Auth/BearerTokenProviding.swift" "$app_dir/Auth/AppCheckTokenProviding.swift" \
@@ -39,7 +39,7 @@ python3 "$test_dir/extract-cache.py" "$app_dir/Networking/LiveAPIClient.swift" "
 "$swift_compiler" -sdk "$sdk_path" -swift-version 5 -default-isolation MainActor \
   -module-cache-path "$build_dir/module-cache" \
   -parse-as-library -I "$build_dir" -L "$build_dir" \
-  -lFirebaseAnalytics -lFirebaseCrashlytics -Xlinker -rpath -Xlinker "$build_dir" \
+  -lFirebaseCrashlytics -Xlinker -rpath -Xlinker "$build_dir" \
   "$app_dir/Auth/AuthSessionIdentity.swift" "$app_dir/App/AppState.swift" \
   "$app_dir/Auth/AuthenticatedRequestContext.swift" "$app_dir/Auth/SessionCredentialBinding.swift" \
   "$app_dir/Auth/BearerTokenProviding.swift" "$app_dir/Auth/AppCheckTokenProviding.swift" \

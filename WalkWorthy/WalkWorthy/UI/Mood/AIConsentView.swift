@@ -7,8 +7,7 @@
 //  explicit, in-app consent naming the provider — a privacy-policy link
 //  alone is not sufficient. Shown as the first step of the user's first
 //  mood check-in (see MoodCheckInView); declining returns without any
-//  AI call. Also carries the analytics disclosure and the mental-health
-//  disclaimer (Guideline 1.4).
+//  AI call. Also carries the mental-health disclaimer (Guideline 1.4).
 //
 //  It is also WalkWorthy's own sensitive-data consent: check-ins can reveal
 //  mental health and religious beliefs, which Connecticut's privacy law (and
@@ -90,8 +89,6 @@ struct AIConsentView: View {
                         }
                         .accessibilityHint("Required. WalkWorthy is available only to adults.")
                         Text("No birth date is needed. This is your declaration, not age verification. WalkWorthy is for ages 18 and older.")
-                            .font(.footnote)
-                        Text("Optional usage analytics are separate and off by default. Adults can choose whether to enable them in Settings.")
                             .font(.footnote)
                     }
                     .glassCard()
