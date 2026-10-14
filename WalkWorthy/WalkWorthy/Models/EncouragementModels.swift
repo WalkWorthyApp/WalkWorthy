@@ -23,6 +23,34 @@ struct PrivacyConsentUpdate: Encodable {
     var withdrawalId: String? = nil
 }
 
+/// A suggestion-box entry. `id` is generated once per draft and reused on
+/// resend so a retry after a dropped response is stored only once.
+struct SuggestionRequest: Encodable {
+    enum Category: String, Encodable, CaseIterable, Identifiable {
+        case idea
+        case confusing
+        case other
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .idea: return "Idea"
+            case .confusing: return "Confusing"
+            case .other: return "Other"
+            }
+        }
+    }
+
+    /// Matches the backend limit, which counts Unicode code points.
+    static let maxLength = 1000
+
+    var id: String
+    var category: Category
+    var text: String
+    var appVersion: String?
+}
+
 protocol EncouragementAPI {
     func fetchPrivacyConsent() async throws -> PrivacyConsent
     func updatePrivacyConsent(_ update: PrivacyConsentUpdate) async throws -> PrivacyConsent
@@ -48,6 +76,9 @@ protocol EncouragementAPI {
     /// Firebase Auth user. Required for App Store Guideline 5.1.1(v).
     /// On success the backend returns `{ "deleted": true }`; AppState signs out.
     func deleteAccount(context: AuthenticatedRequestContext) async throws
+
+    /// Stores a suggestion-box entry for the developer to read.
+    func submitSuggestion(_ request: SuggestionRequest) async throws
 
 }
 

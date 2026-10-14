@@ -17,6 +17,7 @@ struct SettingsView: View {
     @EnvironmentObject private var deletionFlow: AccountDeletionFlow
     @State private var showAIConsent = false
     @State private var didCopySupportAddress = false
+    @State private var showSuggestionBox = false
 
     var body: some View {
         NavigationStack {
@@ -162,6 +163,18 @@ struct SettingsView: View {
                             }
                         }
                         .listRowBackground(Color.wwCardBackground)
+                        Button {
+                            showSuggestionBox = true
+                        } label: {
+                            HStack {
+                                Text("Send a Suggestion")
+                                Spacer()
+                                Image(systemName: "lightbulb")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                        .disabled(!appState.isAuthenticated)
+                        .listRowBackground(Color.wwCardBackground)
                         // Not a Link: `mailto:` is inert with no mail client
                         // (Simulator, or Mail removed / no account), and a dead
                         // tap is unacceptable for the only rights-request and
@@ -199,6 +212,9 @@ struct SettingsView: View {
                 .sheet(isPresented: $showAIConsent) {
                     AIConsentView(onContinue: { showAIConsent = false }, onDecline: { showAIConsent = false })
                         .interactiveDismissDisabled(appState.aiConsentBusy)
+                }
+                .sheet(isPresented: $showSuggestionBox) {
+                    SuggestionBoxView()
                 }
             }
         }
@@ -526,7 +542,7 @@ struct NotificationSettingsView: View {
     }
 }
 
-private extension Bundle {
+extension Bundle {
     var versionString: String {
         let version = object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "1.0"
         let build = object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
