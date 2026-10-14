@@ -54,15 +54,14 @@
             </li>
             <li><strong>Display name</strong> — optional and shown only in the home-screen greeting.</li>
             <li>
-                <strong>Age eligibility and optional profile details</strong> — the age you enter
-                is used on-device to enforce the 18+ minimum. When you grant AI permission,
-                we store your self-declared confirmation that you are 18 or older with your
-                permission record. This is a declaration, not identity verification. We may also store
-                an optional profile age range. You may also provide an occupation, field of study, and hobbies.
-                Profile details are never sent to our AI provider. Earlier
-                test versions also collected gender; that field is no longer collected or sent to
-                our AI provider and is removed when the profile is next updated or the account is
-                deleted.
+                <strong>Age eligibility</strong> — the age you enter is used on-device to enforce
+                the 18+ minimum, and we store the matching age range (for example, 25–34) with your
+                profile. When you grant AI permission, we store your self-declared confirmation that
+                you are 18 or older with your permission record. This is a declaration, not identity
+                verification. Your display name and age range are never sent to our AI provider.
+                Earlier versions also collected gender, occupation, field of study, and hobbies;
+                those fields are no longer collected or sent to our AI provider and are removed when
+                the profile is next updated or the account is deleted.
             </li>
             <li>
                 <strong>Mood check-ins</strong> — the numeric score you select, emotion tags you
@@ -82,7 +81,7 @@
             </li>
         </ul>
 
-        <p>Free-text notes, hobbies, and other optional fields may reveal health information,
+        <p>Free-text notes may reveal health information,
             religious beliefs, or identifying details about you or others. Avoid entering names,
             contact information, medical records, or other details unnecessary for your reflection.</p>
         <h3>Information we generate or receive automatically</h3>
@@ -92,6 +91,11 @@
             <li><strong>AI permission record</strong> — your sharing choice, disclosure version,
                 self-declared age group, revision and server-recorded update time. We use this to
                 enforce your choice across devices and prevent outdated requests from changing it.</li>
+            <li>
+                <strong>Time zone</strong> — your device's time zone (for example,
+                America/New_York), stored with your profile so check-ins and daily reflections
+                follow your local day.
+            </li>
             <li>
                 <strong>Firebase user identifier (UID)</strong> — an opaque internal identifier
                 assigned when you sign up. Used to link your data to your account.

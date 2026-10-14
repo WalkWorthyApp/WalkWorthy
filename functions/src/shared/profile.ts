@@ -8,16 +8,8 @@ export interface UserProfile {
   /** OPTIONAL - SENSITIVE: User's first name for Home-view greeting personalization. */
   firstName?: string;
 
-  /** SENSITIVE: Optional major/field of study (for students). Can identify users when combined with other profile data. */
-  major?: string;
-
-  /** SENSITIVE: Optional occupation/job title (for non-students). Can identify users when combined with other profile data. */
-  occupation?: string;
-
   /** SENSITIVE: Stored PII - use redactSensitiveFields() when logging */
   gender?: Gender;
-
-  hobbies?: string[];
 
   /** User's preferred check-in notification times */
   checkInTimes?: CheckInTimes;

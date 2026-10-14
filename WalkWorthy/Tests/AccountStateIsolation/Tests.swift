@@ -42,7 +42,7 @@ struct Fixture {
 
 @MainActor
 func profile(_ name: String) -> RemoteUserProfileResponse {
-    .init(ageRange: nil, firstName: name, occupation: nil, major: nil, hobbies: nil, timezone: nil, checkInTimes: nil)
+    .init(ageRange: nil, firstName: name, timezone: nil, checkInTimes: nil)
 }
 
 @MainActor

@@ -190,7 +190,7 @@ struct TransportBindingTests {
         let holdRefresh: (Gate) -> Void = { gate in FakeFirebase.beforeToken = { forcing in if forcing { await gate.pass() } } }
         let holdAppCheck: (Gate) -> Void = { gate in FakeFirebase.beforeAppCheck = { await gate.pass() } }
         let saveProfile: (AppState) -> Task<Void, Never>? = {
-            $0.updateProfile(firstName: "Alice", age: 30, occupation: "student", major: "", hobbies: [])
+            $0.updateProfile(firstName: "Alice", age: 30)
             return nil
         }
 

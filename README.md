@@ -10,7 +10,7 @@ WalkWorthy is a Scripture-based encouragement app for Christians. It combines mo
 
 ## How It Works
 
-1. Users sign up and complete a brief profile (optional display name, age range, occupation or field of study, interests).
+1. Users sign up and complete a brief profile (optional display name and an 18+ age check). The profile is never sent to the AI.
 2. Throughout the day, they do mood check-ins — select a mood and answer a follow-up question.
 3. With the user's explicit consent, the backend sends the mood context to an AI agent (OpenAI Agents SDK) that writes a personalized encouragement and selects a passage by ID.
 4. Encouragements include a message plus a verse reference and text served from a reviewed server-side ESV catalog — the model never writes or transcribes the quotation itself.
