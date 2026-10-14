@@ -66,17 +66,24 @@ struct MoodCheckInView: View {
         // hard-cut straight to the mood slider. The timing matches the
         // between-step animation below, so the whole wizard reads as one
         // continuous flow rather than a gate bolted onto its front.
-        ZStack {
-            if appState.aiConsentGiven {
-                checkInFlow
-            } else {
-                AIConsentView(
-                    onContinue: {},
-                    onDecline: onComplete
-                )
+        //
+        // The NavigationStack only exists so the response's "Need to talk to
+        // someone?" link can push a page with a Back button. Its bar stays
+        // hidden here, so the wizard and cinematic lay out exactly as before.
+        NavigationStack {
+            ZStack {
+                if appState.aiConsentGiven {
+                    checkInFlow
+                } else {
+                    AIConsentView(
+                        onContinue: {},
+                        onDecline: onComplete
+                    )
+                }
             }
+            .animation(Self.stepAnimation, value: appState.aiConsentGiven)
+            .toolbar(.hidden, for: .navigationBar)
         }
-        .animation(Self.stepAnimation, value: appState.aiConsentGiven)
     }
 
     private var checkInFlow: some View {

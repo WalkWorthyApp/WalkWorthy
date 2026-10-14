@@ -23,9 +23,11 @@ struct MoodResponseContent: View {
     var onRetry: (() -> Void)?
     var isRetrying: Bool = false
     var retryErrorMessage: String?
-    /// A quiet 988 pointer for a "very unpleasant" check-in. The backend only
-    /// attaches `supportResource` when moderation flags a note, so a very low
-    /// score with no note would otherwise get no route to help.
+    /// A quiet "Need to talk to someone?" link for a "very unpleasant"
+    /// check-in. The backend only attaches `supportResource` when moderation
+    /// flags a note, so a very low score with no note would otherwise get no
+    /// route to help. Pushes `TalkToSomeoneView`, so it needs an enclosing
+    /// NavigationStack (MoodCheckInView provides one).
     var showsSupportLine: Bool = false
 
     @State private var showMessage = false
@@ -178,21 +180,30 @@ struct MoodResponseContent: View {
         .accessibilityHint("Replaces this encouragement with a newly generated one")
     }
 
+    /// One quiet link; the call/text options live on their own page so a
+    /// stray tap here can't dial anything.
     private var supportLine: some View {
-        HStack(spacing: scaled(10)) {
-            Text("Need to talk to someone?")
-                .foregroundStyle(.secondary)
-            if let callURL = URL(string: "tel://988") {
-                Link("Call 988", destination: callURL)
-                    .fontWeight(.semibold)
+        NavigationLink {
+            TalkToSomeoneView()
+        } label: {
+            HStack(spacing: scaled(6)) {
+                Text("Need to talk to someone?")
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
             }
-            if let textURL = URL(string: "sms:988") {
-                Link("Text 988", destination: textURL)
-                    .fontWeight(.semibold)
-            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.vertical, scaled(10))
+            .padding(.horizontal, scaled(16))
+            // The cinematic photo behind this is bright; a frosted capsule
+            // keeps the text readable without adding another card.
+            .background(.ultraThinMaterial, in: Capsule())
+            .environment(\.colorScheme, .dark)
+            .contentShape(Capsule())
         }
-        .font(.footnote)
+        .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
+        .accessibilityHint("Opens ways to reach the 988 Suicide and Crisis Lifeline")
     }
 
     /// Renders an offered help resource. Nothing here dials or contacts

@@ -232,14 +232,14 @@ private struct OnboardingAccountActions: View {
     @EnvironmentObject private var deletionFlow: AccountDeletionFlow
 
     var body: some View {
-        HStack {
+        // Stacked with generous spacing so a tap meant for one can't land on
+        // the other; deletion sits last, furthest from the primary button.
+        VStack(spacing: scaled(36)) {
             Button("Sign out") {
                 appState.signOut()
             }
             .foregroundStyle(.secondary)
             .disabled(deletionFlow.isWorking)
-
-            Spacer()
 
             Button("Delete account") {
                 deletionFlow.begin(using: appState)
@@ -248,6 +248,7 @@ private struct OnboardingAccountActions: View {
             .disabled(deletionFlow.isWorking)
         }
         .font(.footnote)
-        .padding(.top, scaled(8))
+        .frame(maxWidth: .infinity)
+        .padding(.top, scaled(32))
     }
 }
