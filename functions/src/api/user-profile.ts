@@ -14,6 +14,16 @@ import { checkRateLimit, sendLimitCheckResponse, STANDARD_USER_LIMIT } from '../
 // Initialize Firebase on module load
 initializeFirebase();
 
+/**
+ * Fields earlier builds stored but the app no longer collects. Any real
+ * profile change deletes them: gender is no longer asked, translationPreference
+ * is gone (ESV-only), optInTailored is retired (the profile is never sent to
+ * AI), and major/occupation/hobbies are no longer collected.
+ */
+const RETIRED_PROFILE_FIELDS = [
+  'gender', 'translationPreference', 'optInTailored', 'major', 'occupation', 'hobbies',
+] as const;
+
 const httpsOptions: HttpsOptions = {
   // CORS removed - not needed for mobile-only API (mobile apps don't enforce CORS)
   maxInstances: 10,
@@ -75,9 +85,6 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
         const profileData: UserProfile = {
           ageRange: validated.ageRange,
           firstName: validated.firstName,
-          major: validated.major,
-          occupation: validated.occupation,
-          hobbies: validated.hobbies,
           timezone: validated.timezone,
           checkInTimes: validated.checkInTimes,
           updatedAt: new Date().toISOString(),
@@ -123,55 +130,6 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
           }
         }
 
-        if (req.body.major !== undefined) {
-          if (req.body.major === null) {
-            updates.major = FieldValue.delete() as unknown as string | undefined;
-          } else if (typeof req.body.major === 'string') {
-            const trimmed = req.body.major.trim();
-            if (trimmed.length === 0) {
-              updates.major = FieldValue.delete() as unknown as string | undefined;
-            } else if (trimmed.length <= 120) {
-              updates.major = trimmed;
-            } else {
-              return errorResponse(res, 400, 'Invalid major value');
-            }
-          } else {
-            return errorResponse(res, 400, 'Invalid major value');
-          }
-        }
-
-        if (req.body.occupation !== undefined) {
-          if (req.body.occupation === null) {
-            updates.occupation = FieldValue.delete() as unknown as string | undefined;
-          } else if (typeof req.body.occupation === 'string') {
-            const trimmed = req.body.occupation.trim();
-            if (trimmed.length === 0) {
-              updates.occupation = FieldValue.delete() as unknown as string | undefined;
-            } else if (trimmed.length <= 120) {
-              updates.occupation = trimmed;
-            } else {
-              return errorResponse(res, 400, 'Invalid occupation value');
-            }
-          } else {
-            return errorResponse(res, 400, 'Invalid occupation value');
-          }
-        }
-
-        if (req.body.hobbies !== undefined) {
-          if (Array.isArray(req.body.hobbies)) {
-            const filtered = req.body.hobbies
-              .filter((h: unknown) => typeof h === 'string')
-              .map((h: string) => h.trim())
-              .filter((h: string) => h.length > 0 && h.length <= 120)
-              .slice(0, 10);
-            updates.hobbies = filtered.length > 0 ? filtered : FieldValue.delete() as unknown as string[] | undefined;
-          } else if (req.body.hobbies === null) {
-            updates.hobbies = FieldValue.delete() as unknown as string[] | undefined;
-          } else {
-            return errorResponse(res, 400, 'Invalid hobbies value');
-          }
-        }
-
         if (req.body.timezone !== undefined) {
           if (typeof req.body.timezone === 'string' && req.body.timezone.length > 0 && req.body.timezone.length <= 50) {
             updates.timezone = req.body.timezone;
@@ -194,13 +152,9 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
           return errorResponse(res, 400, 'No valid fields to update');
         }
 
-        // Gender is no longer collected, translationPreference no longer exists
-        // (the app is ESV-only), and optInTailored is retired (the profile is
-        // never sent to AI). Any real profile change purges these legacy values.
-        updates.gender = FieldValue.delete() as unknown as UserProfile['gender'];
-        (updates as Record<string, unknown>).translationPreference =
-          FieldValue.delete();
-        (updates as Record<string, unknown>).optInTailored = FieldValue.delete();
+        for (const field of RETIRED_PROFILE_FIELDS) {
+          (updates as Record<string, unknown>)[field] = FieldValue.delete();
+        }
         updates.updatedAt = new Date().toISOString();
 
         // Atomically create or update the document using merge

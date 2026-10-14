@@ -198,25 +198,17 @@ final class AppState: ObservableObject {
 
     /// Updates user profile data in memory and syncs to the Firebase backend.
     ///
-    /// Profile PII (age, occupation, major, hobbies, first name) is
+    /// Profile PII (age, first name) is
     /// never persisted in UserDefaults — the authoritative copy lives on the
     /// backend and is fetched into `currentProfile` at sign-in. UserDefaults
     /// plists inherit `NSFileProtectionCompleteUntilFirstUserAuthentication`
     /// and are readable from unencrypted iTunes backups; keeping PII out of
     /// them removes that exposure without a Keychain migration.
-    func updateProfile(firstName: String, age: Int?, occupation: String, major: String, hobbies: Set<String>) {
+    func updateProfile(firstName: String, age: Int?) {
         let trimmedFirstName = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedOccupation = occupation.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedMajor = major.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // Refresh observable profile so Home greeting updates without a relaunch.
-        currentProfile = OnboardingProfile(
-            firstName: trimmedFirstName,
-            age: age,
-            occupation: trimmedOccupation,
-            major: trimmedMajor,
-            hobbies: hobbies
-        )
+        currentProfile = OnboardingProfile(firstName: trimmedFirstName, age: age)
 
         // Flip the "setup complete" flag so the Home name banner stops showing
         // on offline cold-launches. Only set it when the user actually supplied
@@ -226,20 +218,14 @@ final class AppState: ObservableObject {
             setHasCompletedProfileSetup(true)
         }
 
-        syncProfile(firstName: trimmedFirstName, age: age, occupation: trimmedOccupation, major: trimmedMajor, hobbies: hobbies)
+        syncProfile(firstName: trimmedFirstName, age: age)
     }
 
     /// Returns the current observable profile, or an empty profile for the
     /// pre-sign-in / pre-fetch state. Callers that need the authoritative
     /// copy from the backend should await `refreshProfileFromBackend()`.
     func loadProfile() -> OnboardingProfile {
-        currentProfile ?? OnboardingProfile(
-            firstName: "",
-            age: nil,
-            occupation: "",
-            major: "",
-            hobbies: []
-        )
+        currentProfile ?? OnboardingProfile(firstName: "", age: nil)
     }
 
     /// Fetch the authoritative user profile from the backend and hydrate
@@ -334,13 +320,7 @@ final class AppState: ObservableObject {
             }
         }()
 
-        return OnboardingProfile(
-            firstName: response.firstName ?? "",
-            age: age,
-            occupation: response.occupation ?? "",
-            major: response.major ?? "",
-            hobbies: Set(response.hobbies ?? [])
-        )
+        return OnboardingProfile(firstName: response.firstName ?? "", age: age)
     }
 
     /// A local preference is never proof of permission. Only the server's
@@ -1128,15 +1108,15 @@ final class AppState: ObservableObject {
         hasCompletedProfileSetup = defaults.bool(forKey: storageKey(StorageKey.hasCompletedProfileSetup))
     }
 
-    private func syncProfile(firstName: String, age: Int?, occupation: String, major: String, hobbies: Set<String>) {
+    private func syncProfile(firstName: String, age: Int?) {
         guard let session = authenticatedSession, isCurrentSession(session) else { return }
         let context = authenticatedRequestContext(for: session)
-        let profile = OnboardingProfile(firstName: firstName, age: age, occupation: occupation, major: major, hobbies: hobbies)
+        let profile = OnboardingProfile(firstName: firstName, age: age)
 
         // Debounce: cancel any in-flight sync and schedule a new one after a
-        // short delay. Rapid edits in the onboarding form (e.g. toggling
-        // hobbies) now collapse into a single PATCH instead of racing
-        // concurrent requests that can land out of order.
+        // short delay. Rapid saves from the onboarding form collapse into a
+        // single PATCH instead of racing concurrent requests that can land
+        // out of order.
         profileSyncTask?.cancel()
         profileSyncTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(500))
@@ -1149,9 +1129,6 @@ final class AppState: ObservableObject {
         guard !Task.isCancelled, isCurrentSession(context.identity) else { return }
         let requestSub = context.identity.userSub
         let trimmedFirstName = profile.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedOccupation = profile.occupation.trimmingCharacters(in: .whitespacesAndNewlines)
-        let trimmedMajor = profile.major.trimmingCharacters(in: .whitespacesAndNewlines)
-        let hobbies = profile.hobbies.sorted()
 
         // Get user's timezone
         let timezone = TimeZone.current.identifier
@@ -1162,9 +1139,6 @@ final class AppState: ObservableObject {
             // field unchanged.
             ageRange: ageRangeString(for: profile.age) ?? "",
             firstName: trimmedFirstName,
-            occupation: trimmedOccupation,
-            major: trimmedMajor,
-            hobbies: hobbies,
             checkInTimes: nil,  // TODO: Add UI for custom check-in times
             timezone: timezone
         )
@@ -1192,13 +1166,11 @@ final class AppState: ObservableObject {
         }
     }
 
-    /// Maps a user-entered age to the backend `AgeRange` bucket used for
-    /// personalization. The backend only supports 18+ buckets today, so
-    /// Sign-up is gated at 18 (`OnboardingForm.minimumAge`), so every value
-    /// here lands in a real bucket; anything below 18 maps to `nil` purely as
-    /// a defensive fallback and the agents fall back to other profile fields
-    /// (occupation/major/hobbies) for tone. This is personalization-only —
-    /// auth/usage is gated separately in the onboarding form, not here.
+    /// Maps a user-entered age to the backend `AgeRange` bucket stored with
+    /// the profile (it pre-fills the age field when editing). Sign-up is gated
+    /// at 18 (`OnboardingForm.minimumAge`), so every value here lands in a real
+    /// bucket; anything below 18 maps to `nil` purely as a defensive fallback.
+    /// The age gate itself lives in the onboarding form, not here.
     private func ageRangeString(for age: Int?) -> String? {
         guard let age else { return nil }
         switch age {

@@ -32,7 +32,7 @@ test('withdrawal requires no preflight revision, notice, or age assertion', () =
   }
 });
 test('profile validation drops the retired AI opt-in', () => {
-  const base = {ageRange: '18-24', timezone: 'America/New_York', hobbies: []};
+  const base = {ageRange: '18-24', timezone: 'America/New_York'};
   const validated = validateUserProfileInput({...base, optInTailored: true});
   assert.ok(validated);
   assert.equal('optInTailored' in validated, false);

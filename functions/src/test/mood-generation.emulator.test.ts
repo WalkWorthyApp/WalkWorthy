@@ -479,9 +479,8 @@ test('coalesced failures preserve consent errors, while saved content remains re
   assert.equal((await f.budget()).get('callCount'), 2);
 });
 
-test('followers receive the same reviewed fixed response even when a profile word appears in it', emulator, async t => {
+test('followers receive the same reviewed fixed response', emulator, async t => {
   const f = await fixture(t);
-  t.mock.method(profile, 'getUserProfileOnce', async () => ({ timezone: 'UTC', hobbies: ['words'] }));
   const started = gate();
   const finish = gate();
   const joined = gate();

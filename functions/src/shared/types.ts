@@ -16,15 +16,15 @@ export type Gender = 'female' | 'male' | 'nonBinary' | 'preferNotToSay';
  * User profile input from client.
  *
  * SECURITY NOTES:
- * - ageRange, major, and occupation are SENSITIVE DATA (PII)
+ * - ageRange and firstName are SENSITIVE DATA (PII)
  * - Can identify users when combined with other profile fields (GDPR/CCPA concern)
  * - NEVER log these fields in plain text
  * - Validate incoming values against defined enums before storage
  * - Use redactSensitiveFields() when logging this data
  * - Never include these fields in AI prompts
  *
- * REQUIRED FIELDS: ageRange, hobbies, timezone
- * OPTIONAL FIELDS: major, occupation (not everyone is in school or employed)
+ * REQUIRED FIELDS: ageRange, timezone
+ * OPTIONAL FIELDS: firstName, checkInTimes
  */
 export interface UserProfileInput {
   /** REQUIRED - SENSITIVE: Must be one of the predefined age ranges */
@@ -35,15 +35,6 @@ export interface UserProfileInput {
    * NOT passed to AI agents. Validated: trimmed, 1–60 chars.
    */
   firstName?: string;
-
-  /** OPTIONAL - SENSITIVE: major/field of study (for students). May be free-form but should be validated. */
-  major?: string;
-
-  /** OPTIONAL - SENSITIVE: occupation/job title (for non-students). Can identify users when combined with other profile data. */
-  occupation?: string;
-
-  /** REQUIRED - List of user hobbies/interests */
-  hobbies: string[];
 
   /** OPTIONAL - User's preferred check-in notification times */
   checkInTimes?: CheckInTimes;
@@ -80,11 +71,11 @@ export function validateGender(value: unknown): Gender | undefined {
 
 /**
  * Validates and normalizes user profile input.
- * SECURITY: Validates all fields including sensitive PII fields (ageRange, major, occupation).
+ * SECURITY: Validates all fields including sensitive PII fields (ageRange, firstName).
  * Sensitive fields should be treated as identifying information and protected accordingly.
  *
- * REQUIRED FIELDS: ageRange, hobbies, timezone
- * OPTIONAL FIELDS: major, occupation
+ * REQUIRED FIELDS: ageRange, timezone
+ * OPTIONAL FIELDS: firstName, checkInTimes
  *
  * @param input The untrusted profile input from client
  * @returns Validated and sanitized UserProfileInput or undefined if required fields are missing/invalid
@@ -111,15 +102,6 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
     return undefined;
   }
 
-  // REQUIRED: Validate hobbies (must be array, can be empty)
-  let hobbies: string[];
-  if (Array.isArray(obj.hobbies)) {
-    hobbies = obj.hobbies.filter((h) => typeof h === 'string').slice(0, 10);
-  } else {
-    logger.error('Profile validation failed: missing or invalid hobbies');
-    return undefined;
-  }
-
   // OPTIONAL: Validate check-in times if provided
   let checkInTimes: CheckInTimes | undefined;
   if (obj.checkInTimes !== undefined) {
@@ -137,12 +119,9 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
 
   return {
     ageRange,
-    hobbies,
     timezone,
     // Optional fields
     firstName,
-    major: typeof obj.major === 'string' ? obj.major.slice(0, 120) : undefined,
-    occupation: typeof obj.occupation === 'string' ? obj.occupation.slice(0, 120) : undefined,
     checkInTimes,
   };
 }

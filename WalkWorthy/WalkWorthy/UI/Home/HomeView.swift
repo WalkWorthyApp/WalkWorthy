@@ -137,55 +137,15 @@ struct HomeView: View {
         return name.isEmpty ? base : "\(base), \(name)"
     }
 
-    /// Tone categories for the greeting subtitle, derived from profile identity markers.
-    private enum SubtitleTone {
-        case student
-        case professional
-        case none
-    }
-
-    /// If the user has a major, treat them as a student; else if they have an occupation,
-    /// treat them as a professional; else fall back to the original generic tone.
-    private var subtitleTone: SubtitleTone {
-        guard let profile = appState.currentProfile else { return .none }
-        let hasMajor = !profile.major.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hasOccupation = !profile.occupation.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if hasMajor { return .student }
-        if hasOccupation { return .professional }
-        return .none
-    }
-
     private var motivationalSubtitle: String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        switch (subtitleTone, hour) {
-        // Student tone
-        case (.student, 3..<12):
-            return "A quiet moment before the day begins."
-        case (.student, 12..<17):
-            return "A breath between classes."
-        case (.student, 17..<22):
-            return "How did your day of learning feel?"
-        case (.student, _):
-            return "Rest up — tomorrow holds more to learn."
-
-        // Professional tone
-        case (.professional, 3..<12):
-            return "Catch your breath before the day starts."
-        case (.professional, 12..<17):
-            return "A breath between meetings."
-        case (.professional, 17..<22):
-            return "How did work feel today?"
-        case (.professional, _):
-            return "Rest well. Tomorrow is its own day."
-
-        // Default (no identity markers yet)
-        case (.none, 3..<12):
+        switch Calendar.current.component(.hour, from: Date()) {
+        case 3..<12:
             return "Let's start the day with intention."
-        case (.none, 12..<17):
+        case 12..<17:
             return "Pause and check in with yourself."
-        case (.none, 17..<22):
+        case 17..<22:
             return "Reflect on how today went."
-        case (.none, _):
+        default:
             return "Rest well and prepare for tomorrow."
         }
     }

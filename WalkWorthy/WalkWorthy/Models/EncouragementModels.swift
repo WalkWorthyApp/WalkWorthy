@@ -56,9 +56,6 @@ struct RemoteUserProfileRequest: Codable {
     /// Optional first name used only for Home-view greeting personalization.
     /// NOT forwarded to AI agents on the backend.
     var firstName: String?
-    var occupation: String?
-    var major: String?
-    var hobbies: [String]?
     var checkInTimes: CheckInTimes?
     var timezone: String?
 }
@@ -76,9 +73,6 @@ struct RemoteUserProfileRequest: Codable {
 nonisolated struct RemoteUserProfileResponse: Codable {
     var ageRange: String?
     var firstName: String?
-    var occupation: String?
-    var major: String?
-    var hobbies: [String]?
     var timezone: String?
     var checkInTimes: CheckInTimes?
 }
@@ -88,31 +82,4 @@ struct OnboardingProfile {
     /// greeting personalization — never passed to AI agents.
     var firstName: String
     var age: Int?
-    var occupation: String  // For professionals
-    var major: String       // For students
-    var hobbies: Set<String>
-}
-
-enum Hobby: String, CaseIterable {
-    case worship
-    case serving
-    case music
-    case athletics
-    case art
-    case reading
-    case mentoring
-    case outdoors
-
-    var label: String {
-        switch self {
-        case .worship: return "Worship"
-        case .serving: return "Serving"
-        case .music: return "Music"
-        case .athletics: return "Athletics"
-        case .art: return "Art"
-        case .reading: return "Reading"
-        case .mentoring: return "Mentoring"
-        case .outdoors: return "Outdoors"
-        }
-    }
 }
