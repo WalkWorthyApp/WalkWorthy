@@ -23,12 +23,11 @@ struct MoodResponseContent: View {
     var onRetry: (() -> Void)?
     var isRetrying: Bool = false
     var retryErrorMessage: String?
-    /// A quiet "Need to talk to someone?" link for a "very unpleasant"
-    /// check-in. The backend only attaches `supportResource` when moderation
-    /// flags a note, so a very low score with no note would otherwise get no
-    /// route to help. Pushes `TalkToSomeoneView`, so it needs an enclosing
-    /// NavigationStack (MoodCheckInView provides one).
-    var showsSupportLine: Bool = false
+    /// Shows a quiet "Need to talk to someone?" link for a "very unpleasant"
+    /// check-in when set; the owner presents `TalkToSomeoneView`. The backend
+    /// only attaches `supportResource` when moderation flags a note, so a very
+    /// low score with no note would otherwise get no route to help.
+    var onTalkToSomeone: (() -> Void)?
 
     @State private var showMessage = false
     @State private var showVerse = false
@@ -62,8 +61,8 @@ struct MoodResponseContent: View {
             if showVerse, let resource = response.aiResponse.supportResource {
                 supportResourceCard(resource)
                     .transition(.opacity)
-            } else if showVerse, showsSupportLine {
-                supportLine
+            } else if showVerse, let onTalkToSomeone {
+                supportLine(action: onTalkToSomeone)
                     .transition(.opacity)
             }
 
@@ -81,7 +80,9 @@ struct MoodResponseContent: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .onAppear { animateContentSequence() }
+        // Coming back from the support page re-fires onAppear; replaying the
+        // entrance (and the verse glow) over a visible response looks broken.
+        .onAppear { if !showMessage { animateContentSequence() } }
     }
 
     // MARK: - Subviews
@@ -182,10 +183,8 @@ struct MoodResponseContent: View {
 
     /// One quiet link; the call/text options live on their own page so a
     /// stray tap here can't dial anything.
-    private var supportLine: some View {
-        NavigationLink {
-            TalkToSomeoneView()
-        } label: {
+    private func supportLine(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
             HStack(spacing: scaled(6)) {
                 Text("Need to talk to someone?")
                 Image(systemName: "chevron.right")

@@ -21,7 +21,6 @@ final class AppState: ObservableObject {
     @Published private(set) var aiConsentGiven: Bool = false
     @Published private(set) var aiConsentBusy = false
     @Published private(set) var aiConsentError: String?
-    @Published private(set) var consentAgeGroup = "unknown"
     @Published private(set) var accountDeletionPending = false
     @Published private(set) var accountDeletionBusy = false
     @Published private(set) var accountDeletionError: String?
@@ -352,8 +351,7 @@ final class AppState: ObservableObject {
 
     private func applyConsent(_ receipt: PrivacyConsent) {
         consentRevision = receipt.revision
-        consentAgeGroup = receipt.ageGroup
-        aiConsentGiven = receipt.aiSharing && receipt.noticeVersion == "2026-10-14"
+        aiConsentGiven = receipt.aiSharing && receipt.noticeVersion == PrivacyConsent.currentNoticeVersion
             && receipt.ageGroup == "18+" && !pendingWithdrawal
     }
 
@@ -432,9 +430,13 @@ final class AppState: ObservableObject {
                 guard !Task.isCancelled, self.authenticatedUserSub == sub,
                       self.consentEpoch == epoch, self.consentTicket == ticket else { return false }
                 self.aiConsentGiven = false
-                self.aiConsentError = given
-                    ? "Permission was not confirmed. Review your choice and try again."
-                    : "AI is off on this device, but withdrawal is not yet confirmed by the server. Retry when connected; other devices may still share data."
+                if given, case APIError.updateRequired = error {
+                    self.aiConsentError = error.localizedDescription
+                } else {
+                    self.aiConsentError = given
+                        ? "Permission was not confirmed. Review your choice and try again."
+                        : "AI is off on this device, but withdrawal is not yet confirmed by the server. Retry when connected; other devices may still share data."
+                }
                 return false
             }
         }
@@ -845,11 +847,11 @@ final class AppState: ObservableObject {
         }
     }
 
-    func signOut() {
+    func signOut(notice: String = "You have been signed out. Please sign in again.") {
         ReminderPreferences.discardOwnerlessValues(in: defaults)
         LiveAPIClient.purgeLegacyHTTPResponseCache()
         let departingSub = authenticatedUserSub
-        authenticationNotice = "You have been signed out. Please sign in again."
+        authenticationNotice = notice
         // Invalidate publication before Firebase's asynchronous sign-out callback.
         // Keep authenticatedUserSub until that callback for existing disk/journal
         // cleanup; this reset itself never deletes persisted account data.
@@ -978,7 +980,6 @@ final class AppState: ObservableObject {
         aiConsentBusy = false
         aiConsentGiven = false
         aiConsentError = nil
-        consentAgeGroup = "unknown"
         consentRevision = 0
         currentProfile = nil
         clearMoodState()

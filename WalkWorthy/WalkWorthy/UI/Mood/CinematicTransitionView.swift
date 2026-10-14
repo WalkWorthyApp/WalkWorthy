@@ -26,8 +26,11 @@ struct CinematicTransitionView: View {
     var onRegenerate: (() -> Void)?
     var isRegenerating: Bool = false
     var regenerateErrorMessage: String?
-    /// Passed through to `MoodResponseContent.showsSupportLine`.
-    var showsSupportLine: Bool = false
+    /// Passed through to `MoodResponseContent.onTalkToSomeone`.
+    var onTalkToSomeone: (() -> Void)?
+    /// The intro runs once per presentation. Returning from a pushed page
+    /// re-fires `.task`, which would otherwise reset the pan mid-response.
+    @State private var introStarted = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -95,7 +98,7 @@ struct CinematicTransitionView: View {
                                 onRetry: onRegenerate,
                                 isRetrying: isRegenerating,
                                 retryErrorMessage: regenerateErrorMessage,
-                                showsSupportLine: showsSupportLine
+                                onTalkToSomeone: onTalkToSomeone
                             )
                                 .padding(.horizontal, scaled(8))
                                 .padding(.top, scaled(16))
@@ -115,6 +118,8 @@ struct CinematicTransitionView: View {
             .ignoresSafeArea()
             // .task ties the animation lifetime to the view — auto-cancels on dismiss
             .task {
+                guard !introStarted else { return }
+                introStarted = true
                 imageOffsetX = screenW * 0.5
                 // A re-created view can already have a response/error; onChange
                 // only observes later changes and cannot establish initial readiness.

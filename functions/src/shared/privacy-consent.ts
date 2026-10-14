@@ -44,6 +44,14 @@ export type ConsentInput =
 
 export class ConsentConflict extends Error {}
 
+/** A grant from an app build showing an older consent screen. Its wording is no
+ *  longer the notice in force, so it cannot be recorded; the app must update. */
+export function isOutdatedNoticeGrant(body: unknown): boolean {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return false;
+  const b = body as Record<string, unknown>;
+  return b.aiSharing === true && typeof b.noticeVersion === 'string' && b.noticeVersion !== NOTICE_VERSION;
+}
+
 export function validateConsentInput(body: unknown): ConsentInput | null {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return null;
   const b = body as Record<string, unknown>;

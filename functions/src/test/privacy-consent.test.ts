@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { NOTICE_VERSION, parseConsent, validateConsentInput } from '../shared/privacy-consent';
+import { NOTICE_VERSION, isOutdatedNoticeGrant, parseConsent, validateConsentInput } from '../shared/privacy-consent';
 import { validateUserProfileInput } from '../shared/types';
 const grant = {aiSharing: true, noticeVersion: NOTICE_VERSION, ageGroup: '18+', expectedRevision: 0};
 test('consent fails closed for missing, legacy and malformed records', () => {
@@ -29,6 +29,15 @@ test('withdrawal requires no preflight revision, notice, or age assertion', () =
   assert.deepEqual(validateConsentInput({aiSharing: false, withdrawalId}), {aiSharing: false, withdrawalId: withdrawalId.toLowerCase()});
   for (const patch of [{extra: true}, {expectedRevision: '0'}, {ageGroup: ['18+']}, {noticeVersion: 1}, {withdrawalId: ''}, {withdrawalId: 1}, {withdrawalId: 'not-a-uuid'}]) {
     assert.equal(validateConsentInput({aiSharing: false, ...patch}), null);
+  }
+});
+test('grants against an older consent screen are identified so the app can ask for an update', () => {
+  assert.equal(isOutdatedNoticeGrant({...grant, noticeVersion: '2026-09-04'}), true);
+  assert.equal(isOutdatedNoticeGrant(grant), false);
+  // Withdrawals never depend on the notice version.
+  assert.equal(isOutdatedNoticeGrant({aiSharing: false, noticeVersion: '2026-09-04'}), false);
+  for (const body of [null, [], 'x', {aiSharing: 'true', noticeVersion: '2026-09-04'}, {aiSharing: true}]) {
+    assert.equal(isOutdatedNoticeGrant(body), false);
   }
 });
 test('profile validation drops the retired AI opt-in', () => {

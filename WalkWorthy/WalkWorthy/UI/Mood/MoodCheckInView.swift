@@ -47,6 +47,9 @@ struct MoodCheckInView: View {
     @State private var regenerateTask: Task<Void, Never>?
     @State private var isRegenerating = false
     @State private var regenerateErrorMessage: String?
+    /// The pushed "Talk to someone" page. Owned here (not a NavigationLink in
+    /// the response) so `checkInFlow`'s cleanup can tell a push from a teardown.
+    @State private var isShowingSupport = false
     // MARK: - Derived
 
     private var currentMoodLevel: MoodLevel {
@@ -83,7 +86,18 @@ struct MoodCheckInView: View {
             }
             .animation(Self.stepAnimation, value: appState.aiConsentGiven)
             .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(isPresented: $isShowingSupport) {
+                TalkToSomeoneView()
+            }
         }
+        // The whole check-in is going away (e.g. the sheet was dismissed from
+        // the support page, where checkInFlow's own cleanup was skipped).
+        .onDisappear { cancelInFlightWork() }
+    }
+
+    private func cancelInFlightWork() {
+        submissionTask?.cancel()
+        regenerateTask?.cancel()
     }
 
     private var checkInFlow: some View {
@@ -100,8 +114,10 @@ struct MoodCheckInView: View {
         }
         .animation(.easeInOut(duration: 0.4), value: step == .cinematic)
         .onDisappear {
-            submissionTask?.cancel()
-            regenerateTask?.cancel()
+            // Pushing the support page also "disappears" this root view. That
+            // must not cancel a regeneration the user is waiting on.
+            guard !isShowingSupport else { return }
+            cancelInFlightWork()
             // Consent can temporarily remove this flow without dismissing
             // its owner. Never restore a loading step with no running task.
             if step == .cinematic && submissionResult == nil && errorMessage == nil {
@@ -209,7 +225,7 @@ struct MoodCheckInView: View {
             onRegenerate: regenerateEncouragement,
             isRegenerating: isRegenerating,
             regenerateErrorMessage: regenerateErrorMessage,
-            showsSupportLine: currentMoodLevel == .veryUnpleasant
+            onTalkToSomeone: currentMoodLevel == .veryUnpleasant ? { isShowingSupport = true } : nil
         )
     }
 

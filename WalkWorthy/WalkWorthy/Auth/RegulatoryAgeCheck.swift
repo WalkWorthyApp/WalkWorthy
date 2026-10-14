@@ -9,9 +9,10 @@
 //  the person's age with the Declared Age Range API, including 18+ apps.
 //  Everywhere else the self-declaration stands.
 //
-//  The age range is read once, in memory, to decide eligibility. It is never
-//  stored or sent anywhere — Texas §121.055 requires deleting app-store age
-//  data once verification is complete.
+//  Runs at sign-in (SignInFormView) and once per launch for a restored session
+//  (RootView). The age range is read once, in memory, to decide eligibility.
+//  It is never stored or sent anywhere — Texas §121.055 requires deleting
+//  app-store age data once verification is complete.
 //
 
 import DeclaredAgeRange
@@ -23,12 +24,63 @@ enum RegulatoryAgeCheck {
         case adult
         /// The App Store reports an age range under 18.
         case underage
-        /// The check is required here, but no age range could be obtained.
+        /// The check applies, but no age range could be obtained.
         case unconfirmed
+
+        /// What to tell the person when they can't continue.
+        var message: String? {
+            switch self {
+            case .adult:
+                return nil
+            case .underage:
+                return "Your App Store account shows an age under 18. WalkWorthy is only available to adults."
+            case .unconfirmed:
+                return "WalkWorthy needs to confirm with the App Store that you're 18 or older. Share your age range to continue."
+            }
+        }
     }
 
+    /// Set once a check passes, so a sign-in followed by the restored-session
+    /// check doesn't ask the same person twice in one launch.
+    private(set) static var confirmedThisLaunch = false
+
     static func run(_ requestAgeRange: DeclaredAgeRangeAction) async -> Outcome {
-        guard await isRequiredInCurrentRegion() else { return .adult }
+        let outcome: Outcome
+        switch await regionRequirement() {
+        case .notRequired:
+            outcome = .adult
+        case .required:
+            // Fail closed: a regulated account can't proceed on the
+            // self-declaration alone.
+            outcome = await requestRange(requestAgeRange, ifServiceUnavailable: .unconfirmed)
+        case .unknown:
+            // We couldn't tell whether the law applies here, so ask anyway
+            // rather than skip the check. Only if the age service itself is
+            // unavailable does the self-declaration stand.
+            outcome = await requestRange(requestAgeRange, ifServiceUnavailable: .adult)
+        }
+        if outcome == .adult { confirmedThisLaunch = true }
+        return outcome
+    }
+
+    private enum Requirement { case required, notRequired, unknown }
+
+    private static func regionRequirement() async -> Requirement {
+        do {
+            if #available(iOS 26.4, *) {
+                return try await AgeRangeService.shared.requiredRegulatoryFeatures
+                    .contains(.declaredAgeRangeRequired) ? .required : .notRequired
+            }
+            return try await AgeRangeService.shared.isEligibleForAgeFeatures ? .required : .notRequired
+        } catch {
+            return .unknown
+        }
+    }
+
+    private static func requestRange(
+        _ requestAgeRange: DeclaredAgeRangeAction,
+        ifServiceUnavailable fallback: Outcome
+    ) async -> Outcome {
         let minimumAge = OnboardingForm.minimumAge
         do {
             switch try await requestAgeRange(ageGates: minimumAge) {
@@ -42,27 +94,7 @@ enum RegulatoryAgeCheck {
                 return .unconfirmed
             }
         } catch {
-            // Required but unavailable: fail closed so a regulated account
-            // cannot sign up on the self-declaration alone.
-            return .unconfirmed
+            return fallback
         }
-    }
-
-    /// Whether this account's region legally requires the age signal. Before
-    /// iOS 26.2 the system cannot say, so the self-declaration applies.
-    private static func isRequiredInCurrentRegion() async -> Bool {
-        do {
-            if #available(iOS 26.4, *) {
-                return try await AgeRangeService.shared.requiredRegulatoryFeatures
-                    .contains(.declaredAgeRangeRequired)
-            }
-            if #available(iOS 26.2, *) {
-                return try await AgeRangeService.shared.isEligibleForAgeFeatures
-            }
-        } catch {
-            // Undeterminable (e.g. unsupported device): keep the
-            // self-declaration rather than locking out every user.
-        }
-        return false
     }
 }

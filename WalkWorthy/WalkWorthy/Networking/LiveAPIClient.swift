@@ -510,6 +510,10 @@ final class LiveAPIClient: EncouragementAPI {
         case 401:
             throw APIError.unauthorized
         case 409:
+            let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            if payload?["code"] as? String == "NOTICE_OUTDATED" {
+                throw APIError.updateRequired(message: parseErrorMessage(from: data))
+            }
             throw APIError.conflict(message: parseErrorMessage(from: data))
         case 429:
             throw parseRateLimitError(data: data, response: http)

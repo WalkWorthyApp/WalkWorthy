@@ -5,10 +5,12 @@
 //  Coordinates onboarding and the main tab experience.
 //
 
+import DeclaredAgeRange
 import SwiftUI
 
 struct RootView: View {
     @EnvironmentObject private var appState: AppState
+    @Environment(\.requestAgeRange) private var requestAgeRange
 
     var body: some View {
         Group {
@@ -41,6 +43,17 @@ struct RootView: View {
             } else {
                 OnboardingForm()
                     .transition(.asymmetric(insertion: .move(edge: .leading), removal: .opacity))
+            }
+        }
+        // A restored session never passes the sign-in age toggle, so check the
+        // App Store age signal (Texas SB 2420 and similar laws) once per launch
+        // for it too. RegulatoryAgeCheck skips this after a passing sign-in.
+        .task(id: appState.authenticatedUserSub) {
+            guard appState.authenticatedUserSub != nil, !appState.accountDeletionPending,
+                  !RegulatoryAgeCheck.confirmedThisLaunch else { return }
+            let outcome = await RegulatoryAgeCheck.run(requestAgeRange)
+            if let message = outcome.message, !Task.isCancelled {
+                appState.signOut(notice: message)
             }
         }
         // Owns the deletion ceremony so it survives Settings or email

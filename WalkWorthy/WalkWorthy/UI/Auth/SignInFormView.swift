@@ -114,14 +114,8 @@ struct SignInFormView: View {
         Task { @MainActor in
             let outcome = await RegulatoryAgeCheck.run(requestAgeRange)
             isCheckingAge = false
-            switch outcome {
-            case .adult:
-                minimumAgeConfirmed = true
-            case .underage:
-                ageCheckMessage = "Your App Store account shows an age under 18. WalkWorthy is only available to adults."
-            case .unconfirmed:
-                ageCheckMessage = "WalkWorthy needs to confirm with the App Store that you're 18 or older. Share your age range to continue."
-            }
+            minimumAgeConfirmed = outcome == .adult
+            ageCheckMessage = outcome.message
         }
     }
 
