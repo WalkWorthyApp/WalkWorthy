@@ -68,6 +68,12 @@ service cloud.firestore {
       allow write: if false; // Only Cloud Functions can write
     }
 
+    // Suggestion box - written by functions/src/api/suggestion.ts and read
+    // by the developer in the Firebase console; never exposed to clients.
+    match /users/{userId}/suggestions/{suggestionId} {
+      allow read, write: if false;
+    }
+
     // Internal rate-limiting and budget tracking (Cloud Functions only via Admin SDK)
     match /_rateLimits/{document=**} {
       allow read, write: if false;

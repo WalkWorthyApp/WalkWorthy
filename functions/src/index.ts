@@ -33,3 +33,6 @@ export { deleteAccount } from './api/delete-account';
 export { retryAccountDeletions } from './api/retry-account-deletions';
 
 export { privacyConsent } from './api/privacy-consent';
+
+// Suggestion box - user-written feedback, read in the Firestore console
+export { suggestion } from './api/suggestion';

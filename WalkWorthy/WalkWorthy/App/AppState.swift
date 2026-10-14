@@ -1290,6 +1290,13 @@ final class AppState: ObservableObject {
         return try await apiClient.fetchMoodLogFullHistory(days: days, endDate: endDate)
     }
 
+    /// Sends a Settings → Suggestion box entry. Not gated on AI consent:
+    /// suggestions are stored for the developer and never reach the AI provider.
+    func submitSuggestion(_ request: SuggestionRequest) async throws {
+        guard isAuthenticated else { throw APIError.notAuthenticated }
+        try await apiClient.submitSuggestion(request)
+    }
+
     /// Publishes a freshly fetched 7-day summary and snapshots it — but only
     /// if the account that requested the fetch is still signed in. The caller
     /// (MoodHistoryView) captures `session` before its fetch await; a

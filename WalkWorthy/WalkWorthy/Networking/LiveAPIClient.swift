@@ -147,6 +147,10 @@ final class LiveAPIClient: EncouragementAPI {
         }
     }
 
+    func submitSuggestion(_ request: SuggestionRequest) async throws {
+        _ = try await performRequest(path: "suggestion", method: "POST", body: request, endpointKind: .nonAI, decode: EmptyPayload.self)
+    }
+
     // MARK: - Mood API
 
     /// Submit a mood check-in with automatic retry for cold start errors.

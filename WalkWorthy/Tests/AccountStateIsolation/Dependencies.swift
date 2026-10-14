@@ -270,4 +270,5 @@ final class TestAPI: EncouragementAPI {
     func fetchMoodLogFullHistory(days: Int, endDate: String?) async throws -> MoodLogResponse { .init(checkIns: [], daysRequested: days) }
     func fetchDailyReflection() async throws -> DailyReflection { throw APIError.invalidResponse }
     func deleteAccount(context: AuthenticatedRequestContext) async throws { try await deletion?() }
+    func submitSuggestion(_ request: SuggestionRequest) async throws {}
 }
