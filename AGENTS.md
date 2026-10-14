@@ -16,7 +16,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## Project Overview
 
-WalkWorthy is a Scripture-based encouragement app for students. It combines daily context with personalized encouragement. The project has two main parts: a SwiftUI iOS app and a Firebase Cloud Functions backend.
+WalkWorthy is a Scripture-based encouragement app for adults (18+ only, e.g. college students and young adults). It combines daily context with personalized encouragement. The 18+ minimum is a deliberate product decision: it keeps COPPA, teen-privacy and minor-specific chatbot/app-store duties out of scope, so don't lower it without a full compliance review. The project has two main parts: a SwiftUI iOS app and a Firebase Cloud Functions backend.
 
 ## Build & Run Commands
 

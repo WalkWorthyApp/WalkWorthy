@@ -8,6 +8,10 @@
 import Foundation
 
 struct PrivacyConsent: Codable {
+    /// The consent-screen wording in force. Must match the backend
+    /// `NOTICE_VERSION`; bump both whenever AIConsentView's wording changes.
+    static let currentNoticeVersion = "2026-10-14"
+
     var aiSharing: Bool
     var noticeVersion: String
     var ageGroup: String
@@ -17,7 +21,7 @@ struct PrivacyConsent: Codable {
 
 struct PrivacyConsentUpdate: Encodable {
     var aiSharing: Bool
-    var noticeVersion: String? = "2026-09-04"
+    var noticeVersion: String? = PrivacyConsent.currentNoticeVersion
     var ageGroup: String?
     var expectedRevision: Int?
     var withdrawalId: String? = nil

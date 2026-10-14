@@ -153,7 +153,7 @@ export async function verifyAppCheck(
 /**
  * Machine-readable error codes the iOS client can branch on.
  */
-export type ApiErrorCode = "EMAIL_UNVERIFIED" | "AI_CONSENT_REQUIRED" | "CONSENT_CONFLICT" | "ACCOUNT_DELETING" | "LIMIT_CHECK_UNAVAILABLE";
+export type ApiErrorCode = "EMAIL_UNVERIFIED" | "AI_CONSENT_REQUIRED" | "CONSENT_CONFLICT" | "NOTICE_OUTDATED" | "ACCOUNT_DELETING" | "LIMIT_CHECK_UNAVAILABLE";
 
 /**
  * Standard error response format

@@ -9,7 +9,6 @@ import Foundation
 import SwiftUI
 import Combine
 import SwiftData
-import FirebaseAnalytics
 import FirebaseCrashlytics
 
 @MainActor
@@ -22,7 +21,6 @@ final class AppState: ObservableObject {
     @Published private(set) var aiConsentGiven: Bool = false
     @Published private(set) var aiConsentBusy = false
     @Published private(set) var aiConsentError: String?
-    @Published private(set) var consentAgeGroup = "unknown"
     @Published private(set) var accountDeletionPending = false
     @Published private(set) var accountDeletionBusy = false
     @Published private(set) var accountDeletionError: String?
@@ -40,10 +38,6 @@ final class AppState: ObservableObject {
         get { defaults.bool(forKey: storageKey(StorageKey.pendingWithdrawal)) }
         set { defaults.set(newValue, forKey: storageKey(StorageKey.pendingWithdrawal)) }
     }
-    /// Firebase Analytics collection toggle. Collection is disabled in
-    /// Info.plist (FIREBASE_ANALYTICS_COLLECTION_ENABLED = NO) and turned on
-    /// only when the user independently enables this setting.
-    @Published private(set) var analyticsEnabled: Bool = false
     /// In-memory mirror of the backend profile for SwiftUI-observable access
     /// (HomeView greeting + tone-aware subtitle). Hydrated via
     /// `refreshProfileFromBackend()` at sign-in; nil before sign-in / after
@@ -152,7 +146,7 @@ final class AppState: ObservableObject {
         StorageKey.aiConsentGiven,
         StorageKey.pendingWithdrawal,
         StorageKey.pendingWithdrawalId,
-        StorageKey.analyticsEnabled,
+        StorageKey.analyticsEnabled, // legacy opt-in; still cleared on deletion
         StorageKey.dismissedNameBackfill,
         StorageKey.hasCompletedProfileSetup,
     ]
@@ -357,10 +351,8 @@ final class AppState: ObservableObject {
 
     private func applyConsent(_ receipt: PrivacyConsent) {
         consentRevision = receipt.revision
-        consentAgeGroup = receipt.ageGroup
-        aiConsentGiven = receipt.aiSharing && receipt.noticeVersion == "2026-09-04"
+        aiConsentGiven = receipt.aiSharing && receipt.noticeVersion == PrivacyConsent.currentNoticeVersion
             && receipt.ageGroup == "18+" && !pendingWithdrawal
-        applyAnalyticsCollectionState()
     }
 
     func grantAIConsent(ageGroup: String) async -> Bool {
@@ -438,9 +430,13 @@ final class AppState: ObservableObject {
                 guard !Task.isCancelled, self.authenticatedUserSub == sub,
                       self.consentEpoch == epoch, self.consentTicket == ticket else { return false }
                 self.aiConsentGiven = false
-                self.aiConsentError = given
-                    ? "Permission was not confirmed. Review your choice and try again."
-                    : "AI is off on this device, but withdrawal is not yet confirmed by the server. Retry when connected; other devices may still share data."
+                if given, case APIError.updateRequired = error {
+                    self.aiConsentError = error.localizedDescription
+                } else {
+                    self.aiConsentError = given
+                        ? "Permission was not confirmed. Review your choice and try again."
+                        : "AI is off on this device, but withdrawal is not yet confirmed by the server. Retry when connected; other devices may still share data."
+                }
                 return false
             }
         }
@@ -456,18 +452,6 @@ final class AppState: ObservableObject {
             moodSubmissionTask?.cancel()
             aiConsentError = "AI sharing permission has changed. Review your choice before continuing."
         }
-    }
-
-    func setAnalyticsEnabled(_ isOn: Bool) {
-        analyticsEnabled = isOn && consentAgeGroup == "18+"
-        defaults.set(analyticsEnabled, forKey: storageKey(StorageKey.analyticsEnabled))
-        applyAnalyticsCollectionState()
-    }
-
-    /// Collection stays off (Info.plist FIREBASE_ANALYTICS_COLLECTION_ENABLED
-    /// = NO) until the user independently opts in to analytics.
-    private func applyAnalyticsCollectionState() {
-        Analytics.setAnalyticsCollectionEnabled(analyticsEnabled && consentAgeGroup == "18+")
     }
 
     /// Record the user's dismissal of the "add your first name" banner on Home.
@@ -569,7 +553,6 @@ final class AppState: ObservableObject {
             try await authSession.signIn(email: email, password: password)
             isAuthenticated = true
             authenticationNotice = nil
-            Analytics.logEvent(AnalyticsEventLogin, parameters: [AnalyticsParameterMethod: "password"])
             await refreshAuthenticatedUser()
             needsEmailVerification = await authSession.needsEmailVerification(reload: false)
             await refreshProfileFromBackend()
@@ -590,7 +573,6 @@ final class AppState: ObservableObject {
             try await authSession.createAccount(email: email, password: password)
             isAuthenticated = true
             authenticationNotice = nil
-            Analytics.logEvent(AnalyticsEventSignUp, parameters: [AnalyticsParameterMethod: "password"])
             await refreshAuthenticatedUser()
             // New password accounts must verify their address before using
             // the app (RootView gate + backend 403). Send the email now;
@@ -632,7 +614,6 @@ final class AppState: ObservableObject {
                                                   fullName: fullName)
             isAuthenticated = true
             authenticationNotice = nil
-            Analytics.logEvent(AnalyticsEventLogin, parameters: [AnalyticsParameterMethod: "apple"])
             await refreshAuthenticatedUser()
             await refreshProfileFromBackend()
             if currentProfile != nil {
@@ -700,8 +681,6 @@ final class AppState: ObservableObject {
         consentOperation = nil
         aiConsentBusy = false
         aiConsentGiven = false
-        analyticsEnabled = false
-        applyAnalyticsCollectionState()
         moodSubmissionTask?.cancel()
         reflectionFetchTask?.cancel()
         profileRefreshTask?.cancel()
@@ -868,11 +847,11 @@ final class AppState: ObservableObject {
         }
     }
 
-    func signOut() {
+    func signOut(notice: String = "You have been signed out. Please sign in again.") {
         ReminderPreferences.discardOwnerlessValues(in: defaults)
         LiveAPIClient.purgeLegacyHTTPResponseCache()
         let departingSub = authenticatedUserSub
-        authenticationNotice = "You have been signed out. Please sign in again."
+        authenticationNotice = notice
         // Invalidate publication before Firebase's asynchronous sign-out callback.
         // Keep authenticatedUserSub until that callback for existing disk/journal
         // cleanup; this reset itself never deletes persisted account data.
@@ -1001,7 +980,6 @@ final class AppState: ObservableObject {
         aiConsentBusy = false
         aiConsentGiven = false
         aiConsentError = nil
-        consentAgeGroup = "unknown"
         consentRevision = 0
         currentProfile = nil
         clearMoodState()
@@ -1089,18 +1067,14 @@ final class AppState: ObservableObject {
         if authenticatedUserSub == nil {
             onboardingCompleted = false
             aiConsentGiven = false
-            analyticsEnabled = false
             currentProfile = nil
             nameBackfillDismissed = false
             hasCompletedProfileSetup = false
-            applyAnalyticsCollectionState()
             return
         }
 
         onboardingCompleted = defaults.bool(forKey: storageKey(StorageKey.onboardingCompleted))
         aiConsentGiven = false // Legacy local consent does not authorize server sharing.
-        analyticsEnabled = defaults.object(forKey: storageKey(StorageKey.analyticsEnabled)) as? Bool ?? false
-        applyAnalyticsCollectionState()
 
         // Profile PII hydrates from the current user's snapshot/backend.
         // setAuthenticatedUserSub clears the outgoing profile before this runs.
@@ -1393,8 +1367,6 @@ final class AppState: ObservableObject {
         modelContext.insert(entry)
         try modelContext.save()
         journalEntries.insert(entry, at: 0)
-        // Count only — journal text never leaves the device.
-        Analytics.logEvent("journal_entry_created", parameters: nil)
         return entry
     }
 
@@ -1550,7 +1522,6 @@ final class AppState: ObservableObject {
         let today = Self.isoDateFormatter.string(from: Self.logicalDate())
         if let cached = loadCachedReflection(for: today) {
             dailyReflection = cached
-            Analytics.logEvent("reflection_viewed", parameters: ["source": "cache"])
             return
         }
         reflectionFetchTask?.cancel()
@@ -1564,7 +1535,6 @@ final class AppState: ObservableObject {
                 guard !Task.isCancelled, self.aiConsentGiven, self.consentEpoch == epoch, self.authenticatedUserSub == requestSub else { return }
                 self.dailyReflection = result
                 await self.cacheReflection(result)
-                Analytics.logEvent("reflection_viewed", parameters: ["source": "network"])
             } catch {
                 guard !Task.isCancelled, self.authenticatedUserSub == requestSub,
                       self.consentEpoch == epoch else { return }
@@ -1607,6 +1577,8 @@ extension AppState {
         static let pendingAccountDeletions = "walkworthy.pendingAccountDeletions.v1"
         static let accountDeletionIntents = "walkworthy.accountDeletionIntents.v2"
         static let aiConsentGiven = "walkworthy.ai.consentGiven.v2"
+        /// Legacy: Firebase Analytics was removed for 1.0. Kept only so any
+        /// stored opt-in is cleared with the user's other local data.
         static let analyticsEnabled = "walkworthy.settings.analyticsOptIn.v2"
         static let dismissedNameBackfill = "walkworthy.dismissed.nameBackfill"
         static let hasCompletedProfileSetup = "walkworthy.profile.hasCompletedSetup"

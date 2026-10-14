@@ -7,7 +7,6 @@
 //
 
 import SwiftUI
-import FirebaseAnalytics
 
 struct MoodCheckInView: View {
     let checkInType: CheckInType
@@ -48,6 +47,9 @@ struct MoodCheckInView: View {
     @State private var regenerateTask: Task<Void, Never>?
     @State private var isRegenerating = false
     @State private var regenerateErrorMessage: String?
+    /// The pushed "Talk to someone" page. Owned here (not a NavigationLink in
+    /// the response) so `checkInFlow`'s cleanup can tell a push from a teardown.
+    @State private var isShowingSupport = false
     // MARK: - Derived
 
     private var currentMoodLevel: MoodLevel {
@@ -67,17 +69,35 @@ struct MoodCheckInView: View {
         // hard-cut straight to the mood slider. The timing matches the
         // between-step animation below, so the whole wizard reads as one
         // continuous flow rather than a gate bolted onto its front.
-        ZStack {
-            if appState.aiConsentGiven {
-                checkInFlow
-            } else {
-                AIConsentView(
-                    onContinue: {},
-                    onDecline: onComplete
-                )
+        //
+        // The NavigationStack only exists so the response's "Need to talk to
+        // someone?" link can push a page with a Back button. Its bar stays
+        // hidden here, so the wizard and cinematic lay out exactly as before.
+        NavigationStack {
+            ZStack {
+                if appState.aiConsentGiven {
+                    checkInFlow
+                } else {
+                    AIConsentView(
+                        onContinue: {},
+                        onDecline: onComplete
+                    )
+                }
+            }
+            .animation(Self.stepAnimation, value: appState.aiConsentGiven)
+            .toolbar(.hidden, for: .navigationBar)
+            .navigationDestination(isPresented: $isShowingSupport) {
+                TalkToSomeoneView()
             }
         }
-        .animation(Self.stepAnimation, value: appState.aiConsentGiven)
+        // The whole check-in is going away (e.g. the sheet was dismissed from
+        // the support page, where checkInFlow's own cleanup was skipped).
+        .onDisappear { cancelInFlightWork() }
+    }
+
+    private func cancelInFlightWork() {
+        submissionTask?.cancel()
+        regenerateTask?.cancel()
     }
 
     private var checkInFlow: some View {
@@ -94,8 +114,10 @@ struct MoodCheckInView: View {
         }
         .animation(.easeInOut(duration: 0.4), value: step == .cinematic)
         .onDisappear {
-            submissionTask?.cancel()
-            regenerateTask?.cancel()
+            // Pushing the support page also "disappears" this root view. That
+            // must not cancel a regeneration the user is waiting on.
+            guard !isShowingSupport else { return }
+            cancelInFlightWork()
             // Consent can temporarily remove this flow without dismissing
             // its owner. Never restore a loading step with no running task.
             if step == .cinematic && submissionResult == nil && errorMessage == nil {
@@ -202,7 +224,8 @@ struct MoodCheckInView: View {
             },
             onRegenerate: regenerateEncouragement,
             isRegenerating: isRegenerating,
-            regenerateErrorMessage: regenerateErrorMessage
+            regenerateErrorMessage: regenerateErrorMessage,
+            onTalkToSomeone: currentMoodLevel == .veryUnpleasant ? { isShowingSupport = true } : nil
         )
     }
 
@@ -211,8 +234,8 @@ struct MoodCheckInView: View {
     /// Regenerates the encouragement for the check-in that was just submitted.
     ///
     /// Deliberately NOT a re-run of `submitCheckIn()`: that path also creates a
-    /// journal entry from the note and logs the completion analytics event, and
-    /// neither should happen twice for one check-in. This only swaps the AI
+    /// journal entry from the note, which should not happen twice for one
+    /// check-in. This only swaps the AI
     /// response. A failure keeps the existing encouragement on screen and
     /// reports inline — losing the response the user already has would be a
     /// worse outcome than a failed retry.
@@ -279,8 +302,6 @@ struct MoodCheckInView: View {
                 )
                 let response = try await appState.submitMoodCheckIn(request)
                 try Task.checkCancellation()
-                // Type only (morning/midday/evening) — no mood data in analytics.
-                Analytics.logEvent("mood_checkin_completed", parameters: ["check_in_type": checkInType.rawValue])
 
                 if !noteValue.isEmpty {
                     // Journal creation is best-effort. Surface a failure as a

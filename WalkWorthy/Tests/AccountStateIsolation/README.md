@@ -9,8 +9,8 @@ DEVELOPER_DIR='/Applications/Coding apps/Xcode.app/Contents/Developer' \
 
 The script compiles the production `AppState`, `AuthSessionIdentity`, reminder cleanup, configuration,
 API error types, and domain/SwiftData models directly. It uses in-memory SwiftData
-and preferences, fake auth/network/snapshot/notification dependencies, and no-op
-Firebase analytics/crash modules. No real account, credentials, Firebase app,
+and preferences, fake auth/network/snapshot/notification dependencies, and a no-op
+Firebase crash module. No real account, credentials, Firebase app,
 network request, notification, or existing user data is used. The two independent
 HTTP-cache methods are extracted verbatim from `LiveAPIClient` into a minimal
 Foundation-only type. Their tests replace `URLCache.shared` with a memory-only

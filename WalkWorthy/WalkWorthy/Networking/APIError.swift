@@ -22,6 +22,8 @@ enum APIError: LocalizedError {
     case accountDeleting
     case appCheckFailed
     case conflict(message: String?)
+    /// The server no longer accepts this build's consent notice (NOTICE_OUTDATED).
+    case updateRequired(message: String?)
     case rateLimited(retryAfterSeconds: Int?, scope: RateLimitScope)
     case server(statusCode: Int, message: String?)
     case decodingFailed(Error)
@@ -43,6 +45,8 @@ enum APIError: LocalizedError {
             return "Device verification unavailable. Please try again in a moment."
         case .conflict(let message):
             return message ?? "Request could not be completed."
+        case .updateRequired(let message):
+            return message ?? "This version of WalkWorthy is out of date. Update the app to continue."
         case .rateLimited(let retryAfterSeconds, let scope):
             return rateLimitedDescription(retryAfterSeconds: retryAfterSeconds, scope: scope)
         case .server(_, let message):

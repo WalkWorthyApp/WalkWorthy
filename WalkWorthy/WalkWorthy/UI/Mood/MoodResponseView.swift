@@ -23,6 +23,11 @@ struct MoodResponseContent: View {
     var onRetry: (() -> Void)?
     var isRetrying: Bool = false
     var retryErrorMessage: String?
+    /// Shows a quiet "Need to talk to someone?" link for a "very unpleasant"
+    /// check-in when set; the owner presents `TalkToSomeoneView`. The backend
+    /// only attaches `supportResource` when moderation flags a note, so a very
+    /// low score with no note would otherwise get no route to help.
+    var onTalkToSomeone: (() -> Void)?
 
     @State private var showMessage = false
     @State private var showVerse = false
@@ -56,6 +61,9 @@ struct MoodResponseContent: View {
             if showVerse, let resource = response.aiResponse.supportResource {
                 supportResourceCard(resource)
                     .transition(.opacity)
+            } else if showVerse, let onTalkToSomeone {
+                supportLine(action: onTalkToSomeone)
+                    .transition(.opacity)
             }
 
             Spacer(minLength: scaled(40))
@@ -72,7 +80,9 @@ struct MoodResponseContent: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .onAppear { animateContentSequence() }
+        // Coming back from the support page re-fires onAppear; replaying the
+        // entrance (and the verse glow) over a visible response looks broken.
+        .onAppear { if !showMessage { animateContentSequence() } }
     }
 
     // MARK: - Subviews
@@ -169,6 +179,30 @@ struct MoodResponseContent: View {
         .foregroundStyle(Color.accentColor)
         .disabled(isRetrying)
         .accessibilityHint("Replaces this encouragement with a newly generated one")
+    }
+
+    /// One quiet link; the call/text options live on their own page so a
+    /// stray tap here can't dial anything.
+    private func supportLine(action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: scaled(6)) {
+                Text("Need to talk to someone?")
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+            }
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(.white)
+            .padding(.vertical, scaled(10))
+            .padding(.horizontal, scaled(16))
+            // The cinematic photo behind this is bright; a frosted capsule
+            // keeps the text readable without adding another card.
+            .background(.ultraThinMaterial, in: Capsule())
+            .environment(\.colorScheme, .dark)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .accessibilityHint("Opens ways to reach the 988 Suicide and Crisis Lifeline")
     }
 
     /// Renders an offered help resource. Nothing here dials or contacts

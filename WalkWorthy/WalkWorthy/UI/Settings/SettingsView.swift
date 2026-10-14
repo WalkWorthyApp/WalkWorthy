@@ -66,19 +66,10 @@ struct SettingsView: View {
                                 .disabled(appState.aiConsentBusy)
                         }
                         if appState.aiConsentBusy { ProgressView("Updating permission…") }
-
-                        Toggle(isOn: Binding(
-                            get: { appState.analyticsEnabled },
-                            set: { appState.setAnalyticsEnabled($0) }
-                        )) {
-                            Text("Share app usage analytics")
-                        }
-                        .disabled(appState.consentAgeGroup != "18+")
-                        .listRowBackground(Color.wwCardBackground)
                     } header: {
                         Text("AI & Your Data")
                     } footer: {
-                        Text("OpenAI processes shared data for generation and safety screening. Provider abuse-monitoring logs may be retained for up to 30 days, or longer where legally required. Notes may reveal sensitive health or religious information. When OpenAI sharing is on, check-ins send your mood score and level, follow-up rating, tags, life areas, check-in period, and optional note. Daily reflections send a seven-day summary of check-in dates, mood levels, and overall sentiment. Your name and profile details are never included. You can withdraw AI sharing here at any time. Withdrawal stops future AI requests after the server confirms it; it does not erase history or data already processed. Optional analytics unlock once you have granted AI sharing and confirmed you are 18 or older; if you decline AI sharing, analytics stays off too. Firebase Analytics never receives check-ins, notes, or profile details, and is off by default.\n\nWalkWorthy offers Scripture-based encouragement, not medical or mental-health care. If you're struggling, call or text 988.")
+                        Text("OpenAI processes shared data for generation and safety screening. Provider abuse-monitoring logs may be retained for up to 30 days, or longer where legally required. Notes may reveal sensitive health or religious information. When OpenAI sharing is on, check-ins send your mood score and level, follow-up rating, tags, life areas, check-in period, and optional note. Daily reflections send a seven-day summary of check-in dates, mood levels, and overall sentiment. Your name and profile details are never included. You can withdraw AI sharing here at any time. Withdrawal stops future AI requests after the server confirms it; it does not erase history or data already processed. WalkWorthy has no advertising or usage analytics.\n\nWalkWorthy offers Scripture-based encouragement, not medical or mental-health care. If you're struggling, call or text 988.")
                     }
 
                     Section("Notifications") {

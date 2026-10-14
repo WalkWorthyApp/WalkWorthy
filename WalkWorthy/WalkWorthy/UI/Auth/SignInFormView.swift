@@ -7,12 +7,16 @@
 
 import SwiftUI
 import AuthenticationServices
+import DeclaredAgeRange
 
 struct SignInFormView: View {
     @ObservedObject var viewModel: AuthenticationViewModel
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.requestAgeRange) private var requestAgeRange
     @FocusState private var focusedField: Field?
     @State private var minimumAgeConfirmed = false
+    @State private var isCheckingAge = false
+    @State private var ageCheckMessage: String?
 
     enum Field {
         case email
@@ -79,13 +83,40 @@ struct SignInFormView: View {
     // MARK: - Components
 
     private var minimumAgeConfirmation: some View {
-        Toggle(isOn: $minimumAgeConfirmed) {
-            Text("I confirm I am 18 or older. WalkWorthy is not available to anyone under 18.")
-                .font(.footnote)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: scaled(6)) {
+            // Both sign-in buttons stay disabled until this is on, so the
+            // regional App Store age check here gates email and Apple alike.
+            Toggle(isOn: Binding(
+                get: { minimumAgeConfirmed },
+                set: { isOn in
+                    if isOn { confirmMinimumAge() } else { minimumAgeConfirmed = false }
+                }
+            )) {
+                Text("I confirm I am 18 or older. WalkWorthy is not available to anyone under 18.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .toggleStyle(.switch)
+            .disabled(isCheckingAge)
+            .accessibilityHint("Required before signing in or creating an account")
+
+            if let ageCheckMessage {
+                Text(ageCheckMessage)
+                    .font(.footnote)
+                    .foregroundStyle(.red)
+            }
         }
-        .toggleStyle(.switch)
-        .accessibilityHint("Required before signing in or creating an account")
+    }
+
+    private func confirmMinimumAge() {
+        ageCheckMessage = nil
+        isCheckingAge = true
+        Task { @MainActor in
+            let outcome = await RegulatoryAgeCheck.run(requestAgeRange)
+            isCheckingAge = false
+            minimumAgeConfirmed = outcome == .adult
+            ageCheckMessage = outcome.message
+        }
     }
 
     private var modeToggle: some View {
