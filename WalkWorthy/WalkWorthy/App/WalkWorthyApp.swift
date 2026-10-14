@@ -189,6 +189,10 @@ extension WalkWorthyApp {
                     [.protectionKey: FileProtectionType.complete],
                     ofItemAtPath: journalDir.path
                 )
+                // Exclude the whole directory, not just files that exist now:
+                // SQLite recreates -wal/-shm sidecars later, and a directory
+                // exclusion covers everything created inside it.
+                excludeFromBackup(journalDir)
 
                 let storeURL = journalDir.appendingPathComponent("default.store", isDirectory: false)
                 let config = ModelConfiguration(url: storeURL)
@@ -267,16 +271,20 @@ extension WalkWorthyApp {
                 #endif
             }
 
-            var mutableURL = url
-            var values = URLResourceValues()
-            values.isExcludedFromBackup = true
-            do {
-                try mutableURL.setResourceValues(values)
-            } catch {
-                #if DEBUG
-                print("[WalkWorthyApp] setResourceValues(noBackup) failed for \(url.lastPathComponent): \(error)")
-                #endif
-            }
+            excludeFromBackup(url)
+        }
+    }
+
+    private static func excludeFromBackup(_ url: URL) {
+        var mutableURL = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        do {
+            try mutableURL.setResourceValues(values)
+        } catch {
+            #if DEBUG
+            print("[WalkWorthyApp] setResourceValues(noBackup) failed for \(url.lastPathComponent): \(error)")
+            #endif
         }
     }
 }

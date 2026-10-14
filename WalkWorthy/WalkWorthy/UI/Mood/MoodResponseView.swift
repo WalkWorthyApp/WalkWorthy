@@ -23,6 +23,10 @@ struct MoodResponseContent: View {
     var onRetry: (() -> Void)?
     var isRetrying: Bool = false
     var retryErrorMessage: String?
+    /// A quiet 988 pointer for a "very unpleasant" check-in. The backend only
+    /// attaches `supportResource` when moderation flags a note, so a very low
+    /// score with no note would otherwise get no route to help.
+    var showsSupportLine: Bool = false
 
     @State private var showMessage = false
     @State private var showVerse = false
@@ -55,6 +59,9 @@ struct MoodResponseContent: View {
 
             if showVerse, let resource = response.aiResponse.supportResource {
                 supportResourceCard(resource)
+                    .transition(.opacity)
+            } else if showVerse, showsSupportLine {
+                supportLine
                     .transition(.opacity)
             }
 
@@ -169,6 +176,23 @@ struct MoodResponseContent: View {
         .foregroundStyle(Color.accentColor)
         .disabled(isRetrying)
         .accessibilityHint("Replaces this encouragement with a newly generated one")
+    }
+
+    private var supportLine: some View {
+        HStack(spacing: scaled(10)) {
+            Text("Need to talk to someone?")
+                .foregroundStyle(.secondary)
+            if let callURL = URL(string: "tel://988") {
+                Link("Call 988", destination: callURL)
+                    .fontWeight(.semibold)
+            }
+            if let textURL = URL(string: "sms:988") {
+                Link("Text 988", destination: textURL)
+                    .fontWeight(.semibold)
+            }
+        }
+        .font(.footnote)
+        .frame(maxWidth: .infinity)
     }
 
     /// Renders an offered help resource. Nothing here dials or contacts

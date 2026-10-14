@@ -16,10 +16,12 @@
  * "He restores my soul."; 1 John 3:1 stopped at "and so we are.") and were
  * completed to match their stated references. Re-verify after any edit.
  *
- * LICENSING: Crossway's gratis-use permission covers quotation up to its
- * published verse limit, provided no complete book is reproduced and the
- * quotations are less than half of the work. Keep additions well inside that
- * allowance and keep the ESV notice in public/terms.html current.
+ * LICENSING: Crossway's gratis-use terms (crossway.org/permissions, checked
+ * 2026-10-14) allow up to 500 verses, no more than half of any one book, under
+ * 25% of the work, and not within a commentary or biblical reference work.
+ * This catalog plus DailyVerseCard.swift ship ~106 distinct verses. Keep
+ * additions well inside that allowance and keep the ESV notice in
+ * public/terms.html current.
  */
 export const SCRIPTURE_CATALOG = {
   // --- Weariness, rest, burnout -------------------------------------------

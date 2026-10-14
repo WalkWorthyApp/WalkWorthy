@@ -26,6 +26,8 @@ struct CinematicTransitionView: View {
     var onRegenerate: (() -> Void)?
     var isRegenerating: Bool = false
     var regenerateErrorMessage: String?
+    /// Passed through to `MoodResponseContent.showsSupportLine`.
+    var showsSupportLine: Bool = false
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -92,7 +94,8 @@ struct CinematicTransitionView: View {
                                 onDismiss: onDone,
                                 onRetry: onRegenerate,
                                 isRetrying: isRegenerating,
-                                retryErrorMessage: regenerateErrorMessage
+                                retryErrorMessage: regenerateErrorMessage,
+                                showsSupportLine: showsSupportLine
                             )
                                 .padding(.horizontal, scaled(8))
                                 .padding(.top, scaled(16))

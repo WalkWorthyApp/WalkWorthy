@@ -71,7 +71,7 @@ struct SettingsView: View {
                             get: { appState.analyticsEnabled },
                             set: { appState.setAnalyticsEnabled($0) }
                         )) {
-                            Text("Share app usage analytics")
+                            Text("Share app usage analytics with Google")
                         }
                         .disabled(appState.consentAgeGroup != "18+")
                         .listRowBackground(Color.wwCardBackground)

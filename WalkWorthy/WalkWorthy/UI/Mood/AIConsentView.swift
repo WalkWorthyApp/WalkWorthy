@@ -10,6 +10,12 @@
 //  AI call. Also carries the analytics disclosure and the mental-health
 //  disclaimer (Guideline 1.4).
 //
+//  It is also WalkWorthy's own sensitive-data consent: check-ins can reveal
+//  mental health and religious beliefs, which Connecticut's privacy law (and
+//  similar state laws) only allow processing with opt-in consent — accepting
+//  the Terms at sign-in does not count. Changing this wording requires
+//  bumping the notice version (backend `NOTICE_VERSION`) so users re-consent.
+//
 
 import SwiftUI
 
@@ -28,13 +34,19 @@ struct AIConsentView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: scaled(20)) {
-                    Text("Choose AI sharing")
+                    Text("Your check-ins and AI")
                         .font(.newsreaderSemiBoldItalic(size: scaled(30)))
                         .foregroundStyle(.white)
                         .padding(.top, scaled(24))
                         .accessibilityAddTraits(.isHeader)
 
                     VStack(alignment: .leading, spacing: scaled(14)) {
+                        Label {
+                            Text("WalkWorthy saves each check-in — your mood score, emotions, life areas (which can include faith) and any note — in your private account so you can see your history. This information can reveal your mental health and religious beliefs.")
+                        } icon: {
+                            Image(systemName: "lock.shield")
+                        }
+
                         Label {
                             Text("WalkWorthy uses **OpenAI** to write your encouragement and daily reflection and screen submitted text and generated responses for safety.")
                         } icon: {
@@ -109,6 +121,11 @@ struct AIConsentView: View {
                     }
                     .padding(.horizontal, scaled(4))
 
+                    Text("By choosing Agree and continue, you consent to WalkWorthy storing and using your check-ins as described above and to sharing the listed information with OpenAI. You can turn off OpenAI sharing in Settings, and deleting your account removes your check-ins.")
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.9))
+                        .padding(.horizontal, scaled(4))
+
                     VStack(spacing: scaled(12)) {
                         if let error = appState.aiConsentError {
                             Text(error).font(.footnote).accessibilityLabel(error)
@@ -128,7 +145,7 @@ struct AIConsentView: View {
                                 .foregroundStyle(.black)
                         }
                         .disabled(ageGroup.isEmpty || appState.aiConsentBusy)
-                        .accessibilityHint("Agrees to share check-in data with OpenAI for generation and safety screening")
+                        .accessibilityHint("Agrees to WalkWorthy storing your check-ins and sharing check-in data with OpenAI for generation and safety screening")
 
                         Button {
                             if appState.aiConsentBusy { appState.withdrawAIConsent() }

@@ -55,6 +55,9 @@ struct OnboardingForm: View {
                     ageSection
                     privacyCopy
                     primaryButton
+                    if !appState.onboardingCompleted {
+                        OnboardingAccountActions()
+                    }
                 }
                 .padding(.vertical, scaled(32))
                 .padding(.horizontal, scaled(12))
@@ -215,5 +218,36 @@ struct OnboardingForm: View {
     private var formIsComplete: Bool {
         guard let age = Int(ageText), age > 0 else { return false }
         return age >= Self.minimumAge
+    }
+}
+
+/// Sign-out and deletion for the first-run onboarding gate. Account deletion
+/// must be reachable without entering more personal data (App Store Guideline
+/// 5.1.1(v)), and Settings is behind this gate. Only built while onboarding is
+/// incomplete — RootView then shows this form under `AccountDeletionPresentation`,
+/// which supplies `deletionFlow`; the Settings/Home profile editors never
+/// instantiate it.
+private struct OnboardingAccountActions: View {
+    @EnvironmentObject private var appState: AppState
+    @EnvironmentObject private var deletionFlow: AccountDeletionFlow
+
+    var body: some View {
+        HStack {
+            Button("Sign out") {
+                appState.signOut()
+            }
+            .foregroundStyle(.secondary)
+            .disabled(deletionFlow.isWorking)
+
+            Spacer()
+
+            Button("Delete account") {
+                deletionFlow.begin(using: appState)
+            }
+            .foregroundStyle(.red.opacity(0.9))
+            .disabled(deletionFlow.isWorking)
+        }
+        .font(.footnote)
+        .padding(.top, scaled(8))
     }
 }

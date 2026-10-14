@@ -358,7 +358,7 @@ final class AppState: ObservableObject {
     private func applyConsent(_ receipt: PrivacyConsent) {
         consentRevision = receipt.revision
         consentAgeGroup = receipt.ageGroup
-        aiConsentGiven = receipt.aiSharing && receipt.noticeVersion == "2026-09-04"
+        aiConsentGiven = receipt.aiSharing && receipt.noticeVersion == "2026-10-14"
             && receipt.ageGroup == "18+" && !pendingWithdrawal
         applyAnalyticsCollectionState()
     }

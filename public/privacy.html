@@ -12,7 +12,7 @@
     <header class="doc-header">
         <a class="doc-home" href="/">WalkWorthy</a>
         <h1>Privacy Policy</h1>
-        <p class="doc-meta">Effective date: <time datetime="2026-10-13">October 13, 2026</time></p>
+        <p class="doc-meta">Effective date: <time datetime="2026-10-14">October 14, 2026</time></p>
     </header>
 
     <section>
@@ -90,6 +90,13 @@
         <p>Free-text notes may reveal health information,
             religious beliefs, or identifying details about you or others. Avoid entering names,
             contact information, medical records, or other details unnecessary for your reflection.</p>
+        <p>Mood check-ins can reveal information about your mental health, and faith-related
+            selections — or simply using a Scripture-based app — can reveal religious beliefs. We
+            collect and use check-in information only after you agree to it on the in-app consent
+            screen shown before your first check-in; accepting these terms at sign-in is not that
+            consent. WalkWorthy is not a health care provider or health plan, and information you
+            enter is not protected by HIPAA. We protect it as described here and in our
+            <a href="/health-data">Consumer Health Data Privacy Policy</a>.</p>
         <h3>Information we generate or receive automatically</h3>
         <ul>
             <li><strong>Derived content</strong> — mood summaries, inferred overall sentiment,
@@ -150,6 +157,12 @@
             other apps or websites, or build a profile for marketing purposes. We do not have
             advertising partners.
         </p>
+        <p>
+            We do not collect, use, or sell personal information — including check-ins, notes, or
+            generated responses — to train large language models or other AI models. We do not
+            use personal information for targeted advertising or for profiling that produces
+            legal or similarly significant effects.
+        </p>
     </section>
 
     <section>
@@ -165,8 +178,10 @@
                 your account, stores mood, generated encouragement, reflection, and profile data,
                 provides crash reporting and optional analytics, and verifies device integrity.
                 Reminder notifications are scheduled locally on your device and never touch our
-                servers. Data is stored on Google Cloud infrastructure in the United
-                States. See
+                servers. Our database is hosted in Google Cloud's United States multi-region
+                and our backend runs in the United States. Some Firebase services, such as
+                crash reporting and app-integrity checks, may process data in other Google
+                facilities. See
                 <a href="https://firebase.google.com/support/privacy" target="_blank" rel="noopener">Firebase's Privacy and Security page</a>.
             </li>
             <li>
@@ -233,7 +248,9 @@
                 after seven days. Unfinished records remain until cleanup is resolved, and we
                 automatically retry failed cleanup. You can also retry deletion in the app or contact support. These records contain
                 no mood notes or generated content.</li>
-            <li>Crash and analytics records — retained according to our configured Firebase/Google retention settings or deleted when no longer needed for the stated purpose.</li>
+            <li>Crash and analytics records — Firebase Crashlytics keeps crash reports for 90 days.
+                Optional Google Analytics event data is kept for our configured retention period
+                of 2 months. Firebase Authentication keeps sign-in IP logs for a few weeks.</li>
         </ul>
         <p>
             When you delete your account via Settings → Account → Delete Account, we permanently
@@ -265,8 +282,10 @@
                 <strong>Correction</strong> — you can update your profile in Settings at any time.
             </li>
             <li>
-                <strong>Deletion</strong> — use Settings → Account → Delete Account to remove
-                everything. If you prefer we handle it manually, email us.
+                <strong>Deletion</strong> — use Settings → Account → Delete Account (also
+                available before you finish setting up your profile) to delete your account and
+                the data described in “How long we keep your information.” If you prefer we handle
+                it manually, email us.
             </li>
             <li>
                 <strong>Disable notifications</strong> — toggle reminders off in Settings.
@@ -297,6 +316,16 @@
             <a href="/health-data#rights">Consumer Health Data Privacy Policy</a>.
             You may complain directly to the relevant regulator without contacting us first.
         </p>
+        <p id="state-rights">
+            Depending on where you live (for example Connecticut, Washington, or Nevada), you may
+            request access to your personal data — including inferences we derived from it, such
+            as overall sentiment — and its correction, deletion, or a portable copy. Turning off
+            OpenAI sharing in Settings withdraws that consent; deleting your account withdraws
+            consent to our storage of your check-ins and removes them. We do not sell personal
+            data, use it for targeted advertising, or use it for significant-effect profiling, so
+            there is nothing to opt out of. If we deny a request, reply with “Appeal”; if we deny
+            your appeal, you may contact your state Attorney General.
+        </p>
         <p>
             We do not sell personal data or share it for cross-context behavioral advertising.
             We do not track your activity across other companies' services. The app does not
@@ -318,7 +347,9 @@
         </p>
         <p>
             Our age confirmation is self-declared: it is a statement by the user, not verified
-            identity or age assurance. We do not use it for advertising. If you are a parent or
+            identity. Where the law requires it (for example, in Texas), the app also checks the
+            age range provided by the App Store before sign-up; we use that only to confirm
+            eligibility and do not store it. We do not use age information for advertising. If you are a parent or
             guardian and believe a minor is using WalkWorthy, contact us and we will remove the
             account.
         </p>
@@ -341,7 +372,8 @@
             </li>
             <li>
                 Local journal data and authenticated server-response snapshots are stored with
-                iOS complete file protection and excluded from device backups.
+                iOS complete file protection and marked to be excluded from iCloud and
+                computer backups.
             </li>
             <li>
                 Firestore security rules enforce per-user access — no user can read or write

@@ -294,10 +294,9 @@ export async function runMoodAgent(
 
   await metrics.time("agentConsent", checkConsent);
   const inputSafety = await metrics.time("inputModeration", () => moderateText(normalizedNote, apiKey, "input"));
-  if (inputSafety === "crisis") {
-    logger.info("[MoodAgent] Self-harm signal in note; returning fixed crisis response");
-    return CRISIS_RESPONSE;
-  }
+  // Deliberately not logged: request traces can link a log line to the user,
+  // turning it into a recorded mental-health inference about that person.
+  if (inputSafety === "crisis") return CRISIS_RESPONSE;
   if (inputSafety === "block") return BLOCKED_INPUT_RESPONSE;
   if (inputSafety === "unavailable") return UNAVAILABLE_INPUT_RESPONSE;
 

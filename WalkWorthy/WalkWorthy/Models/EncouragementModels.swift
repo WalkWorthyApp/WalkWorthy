@@ -17,7 +17,8 @@ struct PrivacyConsent: Codable {
 
 struct PrivacyConsentUpdate: Encodable {
     var aiSharing: Bool
-    var noticeVersion: String? = "2026-09-04"
+    /// Must match the backend `NOTICE_VERSION` and the AIConsentView wording.
+    var noticeVersion: String? = "2026-10-14"
     var ageGroup: String?
     var expectedRevision: Int?
     var withdrawalId: String? = nil

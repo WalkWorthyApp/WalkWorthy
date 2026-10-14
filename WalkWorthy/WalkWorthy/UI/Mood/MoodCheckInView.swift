@@ -202,7 +202,8 @@ struct MoodCheckInView: View {
             },
             onRegenerate: regenerateEncouragement,
             isRegenerating: isRegenerating,
-            regenerateErrorMessage: regenerateErrorMessage
+            regenerateErrorMessage: regenerateErrorMessage,
+            showsSupportLine: currentMoodLevel == .veryUnpleasant
         )
     }
 
@@ -280,7 +281,9 @@ struct MoodCheckInView: View {
                 let response = try await appState.submitMoodCheckIn(request)
                 try Task.checkCancellation()
                 // Type only (morning/midday/evening) — no mood data in analytics.
-                Analytics.logEvent("mood_checkin_completed", parameters: ["check_in_type": checkInType.rawValue])
+                // Neutral name: analytics goes to Google, so the event itself should not
+                // describe mood/health activity (FTC and Washington MHMDA sensitivity).
+                Analytics.logEvent("checkin_completed", parameters: ["check_in_type": checkInType.rawValue])
 
                 if !noteValue.isEmpty {
                     // Journal creation is best-effort. Surface a failure as a
