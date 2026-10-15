@@ -52,13 +52,17 @@
                 accounts, or the identifiers and any email relay address supplied through Sign in
                 with Apple.
             </li>
-            <li><strong>Display name</strong> — optional and shown only in the home-screen greeting.</li>
+            <li><strong>Display name</strong> — optional. Shown in the home-screen greeting and, if you
+                turn on birthday messages, in your birthday notification.</li>
             <li>
-                <strong>Age eligibility</strong> — the age you enter is used on-device to enforce
-                the 18+ minimum, and we store the matching age range (for example, 25–34) with your
-                profile. When you grant AI permission, we store your self-declared confirmation that
-                you are 18 or older with your permission record. This is a declaration, not identity
-                verification. Your display name and age range are never sent to our AI provider.
+                <strong>Birthday</strong> — the birthday (month, day and year) you enter is stored
+                with your profile. We use it to enforce the 18+ minimum and, on your birthday, to
+                show a greeting on the home screen and, if you turn on birthday messages in
+                Settings, a notification scheduled on your device. Profiles saved before birthdays were collected stored an age range (for
+                example, 25–34) instead; it is deleted when you save your birthday. When you grant
+                AI permission, we store your self-declared confirmation that you are 18 or older with
+                your permission record. This is a declaration, not identity verification. Your
+                display name and birthday are never sent to our AI provider.
                 Earlier versions also collected gender, occupation, field of study, and hobbies;
                 those fields are no longer collected or sent to our AI provider and are removed when
                 the profile is next updated or the account is deleted.
@@ -81,9 +85,9 @@
                 AI provider.
             </li>
             <li>
-                <strong>Notification preferences</strong> — your chosen check-in reminder times,
-                stored on your device. Reminders are local notifications; we do not collect a push
-                notification token.
+                <strong>Notification preferences</strong> — your chosen check-in reminder times and
+                birthday message setting, stored on your device. Reminders and the birthday message
+                are local notifications; we do not collect a push notification token.
             </li>
         </ul>
 
@@ -145,7 +149,7 @@
         <ul>
             <li>To operate the core features of the app (sign-in, mood check-ins, daily reflections, journal).</li>
             <li>To personalize the Scripture-based encouragements we generate for you, based on your mood check-ins.</li>
-            <li>To send notifications at the times you have configured.</li>
+            <li>To send the reminder and birthday notifications you turn on.</li>
             <li>To prevent abuse, enforce rate limits, and protect the integrity of the service.</li>
             <li>To diagnose and fix bugs and crashes.</li>
             <li>To read the suggestions you send and use them to improve the app.</li>
@@ -327,15 +331,17 @@
             WalkWorthy is an adults-only service, intended for users age 18 and older. It is
             not directed to children, and we do not knowingly collect information from anyone
             under 18. Before account creation, the app requires the person signing up to confirm
-            that they are at least 18; onboarding also rejects an age below 18, and AI permission
+            that they are at least 18; onboarding also rejects a birthday under 18, and AI permission
             requires a separate adult confirmation. If you believe someone under 18 has created an
             account, please email us and we will delete it promptly.
         </p>
         <p>
             Our age confirmation is self-declared: it is a statement by the user, not verified
             identity. Where the law requires it (for example, in Texas), the app also checks the
-            age range provided by the App Store before sign-up; we use that only to confirm
-            eligibility and do not store it. We do not use age information for advertising. If you are a parent or
+            age range provided by the App Store at sign-in and when the app opens; we use that
+            only to confirm eligibility and do not store it. If the App Store reports that a
+            signed-in user is under 18, the app blocks access and deletes the account once the
+            user confirms their sign-in. We do not use age information for advertising. If you are a parent or
             guardian and believe a minor is using WalkWorthy, contact us and we will remove the
             account.
         </p>

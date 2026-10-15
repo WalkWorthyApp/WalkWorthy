@@ -29,7 +29,7 @@ python3 "$test_dir/extract-cache.py" "$app_dir/Networking/LiveAPIClient.swift" "
   "$app_dir/Notifications/ReminderPreferences.swift" "$build_dir/LiveAPIClientCache.swift" \
   "$app_dir/App/Config.swift" "$app_dir/Networking/APIError.swift" \
   "$app_dir/Models/EncouragementModels.swift" "$app_dir/Models/MoodModels.swift" \
-  "$app_dir/Models/JournalModels.swift" \
+  "$app_dir/Models/JournalModels.swift" "$app_dir/Models/BirthDate.swift" \
   "$test_dir/Dependencies.swift" "$test_dir/Tests.swift" \
   -o "$build_dir/account-state-tests"
 "$build_dir/account-state-tests"
@@ -46,7 +46,7 @@ python3 "$test_dir/extract-cache.py" "$app_dir/Networking/LiveAPIClient.swift" "
   "$app_dir/Notifications/ReminderPreferences.swift" "$app_dir/Networking/LiveAPIClient.swift" \
   "$app_dir/App/Config.swift" "$app_dir/Networking/APIError.swift" \
   "$app_dir/Models/EncouragementModels.swift" "$app_dir/Models/MoodModels.swift" \
-  "$app_dir/Models/JournalModels.swift" \
+  "$app_dir/Models/JournalModels.swift" "$app_dir/Models/BirthDate.swift" \
   "$app_dir/Auth/AccountDeletionFlow.swift" \
   "$test_dir/Dependencies.swift" "$test_dir/TransportTests.swift" "$test_dir/DeletionFlowTests.swift" \
   -o "$build_dir/transport-binding-tests"

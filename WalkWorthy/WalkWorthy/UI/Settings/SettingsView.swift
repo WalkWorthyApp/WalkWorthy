@@ -45,9 +45,9 @@ struct SettingsView: View {
                         // catalog text for whatever translations are added.
                     }
 
-                    // In-app AI disclosure required by App Review Guideline
-                    // 5.1.2(i) — mirrors the one-time AIConsentView shown
-                    // before the first check-in.
+                    // Withdrawal control for the AIConsentView permission
+                    // (App Review Guideline 5.1.2(i)); the footer is a short
+                    // summary, the full disclosure is the consent screen.
                     Section {
                         Toggle(isOn: Binding(
                             get: { appState.aiConsentGiven },
@@ -69,14 +69,14 @@ struct SettingsView: View {
                     } header: {
                         Text("AI & Your Data")
                     } footer: {
-                        Text("OpenAI processes shared data for generation and safety screening. Provider abuse-monitoring logs may be retained for up to 30 days, or longer where legally required. Notes may reveal sensitive health or religious information. When OpenAI sharing is on, check-ins send your mood score and level, follow-up rating, tags, life areas, check-in period, and optional note. Daily reflections send a seven-day summary of check-in dates, mood levels, and overall sentiment. Your name and profile details are never included. You can withdraw AI sharing here at any time. Withdrawal stops future AI requests after the server confirms it; it does not erase history or data already processed. WalkWorthy has no advertising or usage analytics.\n\nWalkWorthy offers Scripture-based encouragement, not medical or mental-health care. If you're struggling, call or text 988.")
+                        Text("When on, check-ins are sent to OpenAI to write your encouragement and reflections and to screen for safety. Turning this off stops future requests but doesn't erase past ones. WalkWorthy isn't medical or mental-health care; in the U.S., call or text 988.")
                     }
 
                     Section("Notifications") {
                         NavigationLink {
                             NotificationSettingsView()
                         } label: {
-                            Label("Check-in reminders", systemImage: "bell.badge")
+                            Label("Reminders", systemImage: "bell.badge")
                         }
                         .listRowBackground(Color.wwCardBackground)
                     }
@@ -227,6 +227,7 @@ struct NotificationSettingsView: View {
     @State private var morningEnabled = true
     @State private var middayEnabled = true
     @State private var eveningEnabled = true
+    @State private var birthdayEnabled = false
     @State private var showNotificationDeniedAlert = false
     @State private var pendingAuthorizationFor: ReminderType?
     @State private var reminderSession: NotificationScheduler.Session?
@@ -248,13 +249,6 @@ struct NotificationSettingsView: View {
                 .ignoresSafeArea()
 
             Form {
-                Section {
-                    Text("Choose when you'd like to receive check-in reminders. We'll send a gentle nudge at each time you enable.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .listRowBackground(Color.wwCardBackground)
-                }
-
                 Section("Morning") {
                     Toggle("Enable morning reminder", isOn: Binding(
                         get: { morningEnabled },
@@ -291,20 +285,22 @@ struct NotificationSettingsView: View {
                     }
                 }
 
-                Section {
-                    Text("Notification times are stored on your device. Actual reminder delivery depends on your notification permissions.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .listRowBackground(Color.wwCardBackground)
+                Section("Birthday") {
+                    Toggle("Send a birthday message", isOn: Binding(
+                        get: { birthdayEnabled },
+                        set: { handleBirthdayToggle(newValue: $0) }
+                    ))
+                    .listRowBackground(Color.wwCardBackground)
                 }
             }
             .scrollContentBackground(.hidden)
-            .navigationTitle("Check-in Reminders")
+            .navigationTitle("Reminders")
             .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             guard let sub = appState.authenticatedUserSub, !appState.accountDeletionPending else { return }
             reminderSession = NotificationScheduler.shared.session(for: sub)
             loadSavedSettings()
+            showActualReminderState()
         }
         .onChange(of: morningTime) { _, _ in
             saveAndSchedule()
@@ -321,7 +317,7 @@ struct NotificationSettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Check-in reminders require notification permissions. Please enable notifications in Settings to receive reminders.")
+            Text("Turn on notifications for WalkWorthy in Settings to get reminders.")
         }
         }
     }
@@ -357,6 +353,40 @@ struct NotificationSettingsView: View {
         eveningEnabled = true
         pendingAuthorizationFor = .evening
         checkAuthorizationAndSchedule()
+    }
+
+    /// Toggles must reflect what will actually be delivered: without
+    /// notification permission nothing can fire, so show them off; with it,
+    /// book what is shown (reminders are cleared on sign-out and otherwise
+    /// only rebooked when a setting changes).
+    private func showActualReminderState() {
+        Task {
+            if await NotificationScheduler.shared.isAuthorized {
+                saveAndSchedule()
+            } else {
+                morningEnabled = false
+                middayEnabled = false
+                eveningEnabled = false
+                birthdayEnabled = false
+            }
+        }
+    }
+
+    private func handleBirthdayToggle(newValue: Bool) {
+        guard let session = reminderSession, NotificationScheduler.shared.isCurrent(session),
+              !appState.accountDeletionPending else { return }
+        birthdayEnabled = newValue
+        ReminderPreferences.setBirthdayEnabled(newValue, for: session.userSub)
+        Task {
+            if newValue, await NotificationScheduler.shared.resolveAuthorization() == .denied {
+                guard NotificationScheduler.shared.isCurrent(session) else { return }
+                birthdayEnabled = false
+                ReminderPreferences.setBirthdayEnabled(false, for: session.userSub)
+                showNotificationDeniedAlert = true
+                return
+            }
+            await NotificationScheduler.shared.syncBirthdayReminder(using: appState)
+        }
     }
 
     private func checkAuthorizationAndSchedule() {
@@ -423,6 +453,9 @@ struct NotificationSettingsView: View {
         }
         if defaults.object(forKey: eveningEnabledKey) != nil {
             eveningEnabled = defaults.bool(forKey: eveningEnabledKey)
+        }
+        if let userSub = reminderSession?.userSub {
+            birthdayEnabled = ReminderPreferences.birthdayEnabled(for: userSub)
         }
 
         // Load times

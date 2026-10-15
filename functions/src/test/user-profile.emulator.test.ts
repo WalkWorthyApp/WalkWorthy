@@ -60,3 +60,22 @@ test('retired fields sent by a client are never stored', emulator, async t => {
   assert.equal(await patch({ firstName: 'Sam', ...retired }), 200);
   assert.deepEqual(Object.keys((await profile.get()).data() ?? {}).sort(), ['firstName', 'updatedAt']);
 });
+
+test('saving a birth date stores it and deletes the legacy age range', emulator, async t => {
+  const { profile } = fixture(t);
+  await profile.set({ ageRange: '18-24', firstName: 'Sam', timezone: 'UTC' });
+  assert.equal(await patch({ birthDate: '1999-06-15', firstName: 'Sam', timezone: 'UTC' }), 200);
+  const saved = (await profile.get()).data() ?? {};
+  assert.deepEqual(Object.keys(saved).sort(), ['birthDate', 'firstName', 'timezone', 'updatedAt']);
+  assert.equal(saved.birthDate, '1999-06-15');
+});
+
+test('an invalid or under-18 birth date is refused without writing anything', emulator, async t => {
+  const { profile } = fixture(t);
+  await profile.set({ ageRange: '18-24', firstName: 'Sam', timezone: 'UTC' });
+  const nextYear = new Date().getUTCFullYear() + 1;
+  for (const birthDate of [`${nextYear - 17}-01-01`, '1999-02-30', '06/15/1999']) {
+    assert.equal(await patch({ birthDate, firstName: 'Changed' }), 400, birthDate);
+  }
+  assert.deepEqual((await profile.get()).data(), { ageRange: '18-24', firstName: 'Sam', timezone: 'UTC' });
+});

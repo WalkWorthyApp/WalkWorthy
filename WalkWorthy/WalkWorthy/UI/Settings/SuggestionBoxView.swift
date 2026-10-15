@@ -117,7 +117,7 @@ struct SuggestionBoxView: View {
             }
 
             Section {
-                Text("Please don't include personal or sensitive details. Suggestions are read by the developer and aren't monitored for emergencies; in the U.S., call or text 988 for crisis support. For help with your account, use Contact Support.")
+                Text("Please leave out personal or sensitive details. Suggestions aren't monitored for emergencies; in the U.S., call or text 988.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .listRowBackground(Color.clear)

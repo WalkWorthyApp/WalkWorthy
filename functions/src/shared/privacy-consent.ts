@@ -2,8 +2,9 @@ import type { Firestore, Transaction } from 'firebase-admin/firestore';
 import { assertAccountActive, deletionRef, AccountDeletingError } from './account-lifecycle';
 /** Bump whenever the consent screen's wording changes; older grants then lapse
  *  and the user re-consents. 2026-10-14: notice also covers WalkWorthy's own
- *  storage of sensitive check-in data (Connecticut CTDPA sensitive-data consent). */
-export const NOTICE_VERSION = '2026-10-14';
+ *  storage of sensitive check-in data (Connecticut CTDPA sensitive-data consent).
+ *  2026-10-14.2: same disclosures, shortened wording. */
+export const NOTICE_VERSION = '2026-10-14.2';
 export interface PrivacyConsent {
   aiSharing: boolean;
   noticeVersion: string;

@@ -92,7 +92,7 @@ struct SignInFormView: View {
                     if isOn { confirmMinimumAge() } else { minimumAgeConfirmed = false }
                 }
             )) {
-                Text("I confirm I am 18 or older. WalkWorthy is not available to anyone under 18.")
+                Text("I confirm I'm 18 or older")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }

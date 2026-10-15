@@ -5,7 +5,7 @@ import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from '../shared/auth';
-import { validateUserProfileInput, validateAgeRange, validateCheckInTimes } from '../shared/types';
+import { validateUserProfileInput, validateAgeRange, validateBirthDate, validateCheckInTimes } from '../shared/types';
 import type { UserProfile } from '../shared/profile';
 import { clearUserProfileCache } from '../shared/profile';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -109,6 +109,20 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
             return errorResponse(res, 400, 'Invalid ageRange value');
           } else {
             updates.ageRange = validAge;
+          }
+        }
+
+        if (req.body.birthDate !== undefined) {
+          if (req.body.birthDate === null || req.body.birthDate === '') {
+            updates.birthDate = FieldValue.delete() as unknown as string | undefined;
+          } else {
+            const validBirthDate = validateBirthDate(req.body.birthDate);
+            if (!validBirthDate) {
+              return errorResponse(res, 400, 'Invalid birthDate value');
+            }
+            updates.birthDate = validBirthDate;
+            // The birth date supersedes the legacy age bucket; keep one source.
+            updates.ageRange = FieldValue.delete() as unknown as UserProfile['ageRange'];
           }
         }
 

@@ -22,6 +22,10 @@ final class AppState: ObservableObject {
     @Published private(set) var aiConsentBusy = false
     @Published private(set) var aiConsentError: String?
     @Published private(set) var accountDeletionPending = false
+    /// The App Store reported this signed-in account as under 18. RootView
+    /// then blocks the app and runs account deletion (Terms: accounts of
+    /// people under 18 are deleted). Cleared with the account's memory.
+    @Published private(set) var accountIsUnderage = false
     @Published private(set) var accountDeletionBusy = false
     @Published private(set) var accountDeletionError: String?
     private var consentRevision = 0
@@ -119,10 +123,9 @@ final class AppState: ObservableObject {
     /// fire cancels the previous fetch so stale results never pile up or land
     /// after a sign-out/account switch.
     private var profileRefreshTask: Task<Void, Never>?
-    /// Debounced profile PATCH. Cancelled on each `syncProfile` call and on
-    /// sign-out so rapid edits collapse into a single network round-trip and
+    /// In-flight profile PATCH. Cancelled by a newer save and on sign-out so
     /// stale writes never land after the user has signed out.
-    private var profileSyncTask: Task<Void, Never>?
+    private var profileSyncTask: Task<Bool, Never>?
     /// Tracks the in-flight Firebase sign-out so rapid taps on the Sign Out
     /// button don't stack multiple concurrent sign-out calls against the auth
     /// actor. Each new sign-out cancels any prior in-flight task.
@@ -190,19 +193,32 @@ final class AppState: ObservableObject {
         configurationError = message
     }
 
-    /// Updates user profile data in memory and syncs to the Firebase backend.
+    /// Saves the profile to the backend and, only once the server has stored
+    /// it, publishes it in memory. Returns false when the save failed (offline,
+    /// rejected birthday, account switch), so callers can keep the form open.
     ///
-    /// Profile PII (age, first name) is
+    /// Profile PII (birthdate, first name) is
     /// never persisted in UserDefaults — the authoritative copy lives on the
     /// backend and is fetched into `currentProfile` at sign-in. UserDefaults
     /// plists inherit `NSFileProtectionCompleteUntilFirstUserAuthentication`
     /// and are readable from unencrypted iTunes backups; keeping PII out of
     /// them removes that exposure without a Keychain migration.
-    func updateProfile(firstName: String, age: Int?) {
+    func updateProfile(firstName: String, birthDate: BirthDate?) async -> Bool {
+        guard let session = authenticatedSession, isCurrentSession(session) else { return false }
         let trimmedFirstName = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let profile = OnboardingProfile(firstName: trimmedFirstName, birthDate: birthDate)
+        let context = authenticatedRequestContext(for: session)
+
+        // Tracked so sign-out/account switches cancel an in-flight save.
+        profileSyncTask?.cancel()
+        let save = Task { [weak self] in
+            await self?.sendProfileUpdate(profile, context: context) ?? false
+        }
+        profileSyncTask = save
+        guard await save.value, isCurrentSession(session) else { return false }
 
         // Refresh observable profile so Home greeting updates without a relaunch.
-        currentProfile = OnboardingProfile(firstName: trimmedFirstName, age: age)
+        currentProfile = profile
 
         // Flip the "setup complete" flag so the Home name banner stops showing
         // on offline cold-launches. Only set it when the user actually supplied
@@ -211,15 +227,14 @@ final class AppState: ObservableObject {
         if !trimmedFirstName.isEmpty {
             setHasCompletedProfileSetup(true)
         }
-
-        syncProfile(firstName: trimmedFirstName, age: age)
+        return true
     }
 
     /// Returns the current observable profile, or an empty profile for the
     /// pre-sign-in / pre-fetch state. Callers that need the authoritative
     /// copy from the backend should await `refreshProfileFromBackend()`.
     func loadProfile() -> OnboardingProfile {
-        currentProfile ?? OnboardingProfile(firstName: "", age: nil)
+        currentProfile ?? OnboardingProfile(firstName: "", birthDate: nil)
     }
 
     /// Fetch the authoritative user profile from the backend and hydrate
@@ -296,25 +311,14 @@ final class AppState: ObservableObject {
         // to keep the biggest decode off the launch path.
     }
 
-    /// Maps an `age range` bucket (e.g. "25-34") to the midpoint so the
-    /// onboarding form has something sensible to render. The numeric age
-    /// entered at onboarding isn't persisted on the backend — only the
-    /// bucket is — so this is a lossy round-trip by design.
+    /// Profiles saved before birthdates were collected carry only a legacy
+    /// `ageRange` bucket. They map to no birthdate, so the profile form asks
+    /// for one on the next save.
     private static func profile(from response: RemoteUserProfileResponse) -> OnboardingProfile {
-        let age: Int? = {
-            guard let bucket = response.ageRange else { return nil }
-            switch bucket {
-            case "18-24": return 21
-            case "25-34": return 30
-            case "35-44": return 40
-            case "45-54": return 50
-            case "55-64": return 60
-            case "65+": return 65
-            default: return nil
-            }
-        }()
-
-        return OnboardingProfile(firstName: response.firstName ?? "", age: age)
+        OnboardingProfile(
+            firstName: response.firstName ?? "",
+            birthDate: response.birthDate.flatMap(BirthDate.init(isoString:))
+        )
     }
 
     /// A local preference is never proof of permission. Only the server's
@@ -874,7 +878,7 @@ final class AppState: ObservableObject {
 
         // Wipe any pending local reminders so the next account doesn't
         // inherit a stranger's notification schedule. The new user will
-        // re-register their own from Settings → Check-in Reminders.
+        // re-register their own from Settings → Reminders.
 
         // Cancel any previous in-flight sign-out so stacked taps don't queue
         // duplicate `authSession.signOut()` calls.
@@ -963,7 +967,13 @@ final class AppState: ObservableObject {
 
     /// Purely in-memory teardown. Do not call clearJournalState here: it deletes
     /// persisted rows and belongs to the existing explicit sign-out lifecycle.
+    func markAccountUnderage() {
+        guard authenticatedSession != nil else { return }
+        accountIsUnderage = true
+    }
+
     private func resetAccountMemory() {
+        accountIsUnderage = false
         authenticatedSession = nil
         profileRefreshTask?.cancel()
         profileRefreshTask = nil
@@ -1082,25 +1092,8 @@ final class AppState: ObservableObject {
         hasCompletedProfileSetup = defaults.bool(forKey: storageKey(StorageKey.hasCompletedProfileSetup))
     }
 
-    private func syncProfile(firstName: String, age: Int?) {
-        guard let session = authenticatedSession, isCurrentSession(session) else { return }
-        let context = authenticatedRequestContext(for: session)
-        let profile = OnboardingProfile(firstName: firstName, age: age)
-
-        // Debounce: cancel any in-flight sync and schedule a new one after a
-        // short delay. Rapid saves from the onboarding form collapse into a
-        // single PATCH instead of racing concurrent requests that can land
-        // out of order.
-        profileSyncTask?.cancel()
-        profileSyncTask = Task { [weak self] in
-            try? await Task.sleep(for: .milliseconds(500))
-            if Task.isCancelled { return }
-            await self?.sendProfileUpdate(profile, context: context)
-        }
-    }
-
-    private func sendProfileUpdate(_ profile: OnboardingProfile, context: AuthenticatedRequestContext) async {
-        guard !Task.isCancelled, isCurrentSession(context.identity) else { return }
+    private func sendProfileUpdate(_ profile: OnboardingProfile, context: AuthenticatedRequestContext) async -> Bool {
+        guard !Task.isCancelled, isCurrentSession(context.identity) else { return false }
         let requestSub = context.identity.userSub
         let trimmedFirstName = profile.firstName.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -1110,8 +1103,10 @@ final class AppState: ObservableObject {
         let payload = RemoteUserProfileRequest(
             // Empty values are sent deliberately on this full form save so
             // the PATCH can remove fields the user cleared. Nil leaves a
-            // field unchanged.
-            ageRange: ageRangeString(for: profile.age) ?? "",
+            // field unchanged. The legacy `ageRange` is never sent: storing
+            // a birth date makes the backend delete it.
+            ageRange: nil,
+            birthDate: profile.birthDate?.isoString,
             firstName: trimmedFirstName,
             checkInTimes: nil,  // TODO: Add UI for custom check-in times
             timezone: timezone
@@ -1122,10 +1117,8 @@ final class AppState: ObservableObject {
             // request payload. The PATCH is a server-side merge, so any field
             // this request omitted (e.g. nil firstName) is preserved remotely;
             // snapshotting the request would record it as nil and hydrate a
-            // blank greeting on the next cold launch. `currentProfile` is
-            // deliberately left untouched here: it was already set
-            // optimistically by `updateProfile()`, and this debounced PATCH
-            // may land after newer in-memory edits.
+            // blank greeting on the next cold launch. `updateProfile()`
+            // publishes `currentProfile` once this returns true.
             let updated = try await apiClient.updateUserProfile(payload, context: context)
             // User switched accounts while the PATCH was in flight — don't
             // persist this user's merged profile into the new user's snapshot.
@@ -1133,30 +1126,15 @@ final class AppState: ObservableObject {
             if let updated {
                 await SnapshotStore.shared.write(updated, kind: .profile, userSub: requestSub)
             }
+            return true
         } catch {
             #if DEBUG
             print("[AppState] Failed to sync profile: \(error)")
             #endif
+            return false
         }
     }
 
-    /// Maps a user-entered age to the backend `AgeRange` bucket stored with
-    /// the profile (it pre-fills the age field when editing). Sign-up is gated
-    /// at 18 (`OnboardingForm.minimumAge`), so every value here lands in a real
-    /// bucket; anything below 18 maps to `nil` purely as a defensive fallback.
-    /// The age gate itself lives in the onboarding form, not here.
-    private func ageRangeString(for age: Int?) -> String? {
-        guard let age else { return nil }
-        switch age {
-        case ..<18: return nil // Unreachable: sign-up requires 18+. Defensive only.
-        case 18...24: return "18-24"
-        case 25...34: return "25-34"
-        case 35...44: return "35-44"
-        case 45...54: return "45-54"
-        case 55...64: return "55-64"
-        default: return "65+"
-        }
-    }
     // MARK: - Mood Tracking Methods
 
     var currentCheckInType: CheckInType? {
