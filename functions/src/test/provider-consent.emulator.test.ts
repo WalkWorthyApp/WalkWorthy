@@ -28,6 +28,7 @@ const legacyProfile = {
 const scenarios = [
   'after-input', 'after-generation', 'during-backoff', 'before-persistence',
   'withdraw-and-regrant', 'consent-read-failure', 'account-deleting', 'provider-failure', 'success',
+  'before-dispatch',
 ] as const;
 
 // Real endpoints, agents, consent revisions, persistence and quota transactions;
@@ -35,6 +36,7 @@ const scenarios = [
 for (const endpoint of ['mood', 'reflection'] as const) {
   for (const scenario of scenarios) {
     if (endpoint === 'reflection' && scenario === 'after-input') continue;
+    if (endpoint === 'mood' && scenario === 'before-dispatch') continue;
     test(`${endpoint}: ${scenario} preserves consent errors, writes and budget accounting`, {
       skip: !process.env.FIRESTORE_EMULATOR_HOST,
     }, async t => {
@@ -45,6 +47,18 @@ for (const endpoint of ['mood', 'reflection'] as const) {
       const realReflection = reflectionAgent.runReflectionAgent;
       const realRequireConsent = consent.requireAiConsent;
       const refund = t.mock.method(limits, 'refundDailyAiBudget');
+      // A pre-dispatch failure whose refund runs after UTC midnight must not
+      // touch the next day's counter.
+      const nextDay = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const realCheckBudget = limits.checkDailyAiBudget;
+      if (scenario === 'before-dispatch') {
+        // UTC midnight passes right after the reservation commits.
+        t.mock.method(limits, 'checkDailyAiBudget', async (...args: Parameters<typeof realCheckBudget>) => {
+          const reserved = await realCheckBudget(...args);
+          t.mock.method(limits, 'getTodayUtcDateString', () => nextDay);
+          return reserved;
+        });
+      }
       let generations = 0;
       let moderations = 0;
       let denyReads = false;
@@ -85,8 +99,8 @@ for (const endpoint of ['mood', 'reflection'] as const) {
       };
       t.mock.method(moodAgent, 'runMoodAgent', (...[input, _key, check, model, _generate, beforeGeneration]: Parameters<typeof realMood>) =>
         realMood(input, 'synthetic-key', check, model, generate, beforeGeneration));
-      t.mock.method(reflectionAgent, 'runReflectionAgent', (...[summaries, _key, check]: Parameters<typeof realReflection>) =>
-        realReflection(summaries, 'synthetic-key', check, generate));
+      t.mock.method(reflectionAgent, 'runReflectionAgent', (...[summaries, _key, check, _generate, beforeGeneration]: Parameters<typeof realReflection>) =>
+        realReflection(summaries, 'synthetic-key', check, generate, beforeGeneration));
       t.mock.method(globalThis, 'fetch', async (url: string | URL | globalThis.Request) => {
         assert.ok(String(url).endsWith('/moderations'), 'Only synthetic moderation transport is expected');
         moderations++;
@@ -118,6 +132,10 @@ for (const endpoint of ['mood', 'reflection'] as const) {
           aiSharing: true, noticeVersion: consent.NOTICE_VERSION, ageGroup: '18+', expectedRevision: 0,
         });
         await db.doc(`users/${uid}/profile/data`).set(legacyProfile);
+        if (scenario === 'before-dispatch') {
+          await db.doc(`_dailyBudgets/${uid}_${nextDay}`).set({ callCount: 1, date: nextDay });
+          await withdraw();
+        }
         const result = await invoke();
         for (const sent of modelInputs) {
           assert.equal('profile' in JSON.parse(sent), false);
@@ -129,7 +147,8 @@ for (const endpoint of ['mood', 'reflection'] as const) {
         if (expectedStatus === 403) {
           assert.equal(result.body.code, scenario === 'account-deleting' ? 'ACCOUNT_DELETING' : 'AI_CONSENT_REQUIRED');
         }
-        assert.equal(generations, scenario === 'after-input' ? 0 : scenario === 'provider-failure' ? 2 : 1);
+        assert.equal(generations, scenario === 'after-input' || scenario === 'before-dispatch' ? 0
+          : scenario === 'provider-failure' ? 2 : 1);
         assert.equal(backoffs, scenario === 'during-backoff' || scenario === 'provider-failure' ? 1 : 0);
         assert.equal(moderations, (endpoint === 'mood' ? 1 : 0) +
           (scenario === 'success' || scenario === 'before-persistence' ? 1 : 0));
@@ -139,13 +158,16 @@ for (const endpoint of ['mood', 'reflection'] as const) {
         if (endpoint === 'mood') {
           assert.equal((await db.doc(`users/${uid}/moodSummaries/${today}`).get()).exists, scenario === 'success');
         }
-        const budgets = (await db.collection('_dailyBudgets').get()).docs.filter(doc => doc.id.startsWith(`${uid}_`));
-        assert.equal(refund.mock.callCount(), endpoint === 'mood' || scenario === 'success' ? 0 : 1);
-        // Mood claims refund only proven unconsumed work. Reflection retains
-        // its existing accounting; deletion barriers block its refund writes.
-        assert.equal(budgets.reduce((sum, doc) => sum + Number(doc.get('callCount')), 0),
-          endpoint === 'mood' ? (generations > 0 ? 1 : 0)
-            : scenario === 'success' || scenario === 'account-deleting' ? 1 : 0);
+        const budgets = (await db.collection('_dailyBudgets').get()).docs
+          .filter(doc => doc.id.startsWith(`${uid}_`) && doc.id !== `${uid}_${nextDay}`);
+        // Both endpoints refund only proven undispatched work: a consent change,
+        // provider failure or write failure after dispatch keeps the charge.
+        assert.equal(refund.mock.callCount(), endpoint === 'reflection' && generations === 0 ? 1 : 0);
+        assert.equal(budgets.reduce((sum, doc) => sum + Number(doc.get('callCount')), 0), generations > 0 ? 1 : 0);
+        if (scenario === 'before-dispatch') {
+          assert.equal(refund.mock.calls[0].arguments[2], budgets[0].get('date'));
+          assert.equal((await db.doc(`_dailyBudgets/${uid}_${nextDay}`).get()).get('callCount'), 1);
+        }
         if (endpoint === 'mood') {
           const claims = await db.collection(`users/${uid}/moodGenerationClaims`).get();
           assert.equal(claims.size, 1);

@@ -17,7 +17,7 @@ export interface RateLimitResult {
   failure?: 'unavailable' | 'accountDeleting';
 }
 
-export interface DailyBudgetResult extends RateLimitResult {
+interface DailyBudgetResultBase extends RateLimitResult {
   remaining: number;
   /**
    * Zero for exhausted daily quota (429). An unavailable check carries a
@@ -25,6 +25,11 @@ export interface DailyBudgetResult extends RateLimitResult {
    */
   retryAfterSeconds: number;
 }
+
+export type DailyBudgetResult =
+  /** `date` is the UTC day charged; a refund must target it, not "today". */
+  | (DailyBudgetResultBase & { allowed: true; date: string })
+  | (DailyBudgetResultBase & { allowed: false });
 
 export type RateLimitScope = 'user' | 'dailyBudget';
 
@@ -164,9 +169,8 @@ export async function checkRateLimit(
 }
 
 /**
- * Returns today's date string in UTC (YYYY-MM-DD). Shared between
- * `checkDailyAiBudget` and `refundDailyAiBudget` to keep the document ID
- * identical across reserve/refund calls.
+ * Returns today's date string in UTC (YYYY-MM-DD), the `_dailyBudgets` day key.
+ * Refunds use the date the reservation returned, never a recomputed today.
  */
 export function getTodayUtcDateString(): string {
   return new Date().toISOString().slice(0, 10);
@@ -200,7 +204,7 @@ export async function checkDailyAiBudget(
       if (!snap.exists) {
         const newDoc: DailyBudgetDoc = { callCount: 1, date: today, expiresAt };
         tx.set(docRef, newDoc);
-        return { allowed: true, remaining: maxCallsPerDay - 1, retryAfterSeconds: 0 };
+        return { allowed: true, remaining: maxCallsPerDay - 1, retryAfterSeconds: 0, date: today };
       }
 
       const data = snap.data() as DailyBudgetDoc;
@@ -209,7 +213,7 @@ export async function checkDailyAiBudget(
         // Stale document from a previous day — reset
         const resetDoc: DailyBudgetDoc = { callCount: 1, date: today, expiresAt };
         tx.set(docRef, resetDoc);
-        return { allowed: true, remaining: maxCallsPerDay - 1, retryAfterSeconds: 0 };
+        return { allowed: true, remaining: maxCallsPerDay - 1, retryAfterSeconds: 0, date: today };
       }
 
       if (data.callCount >= maxCallsPerDay) {
@@ -218,7 +222,7 @@ export async function checkDailyAiBudget(
 
       const updatedCount = data.callCount + 1;
       tx.update(docRef, { callCount: updatedCount, expiresAt });
-      return { allowed: true, remaining: maxCallsPerDay - updatedCount, retryAfterSeconds: 0 };
+      return { allowed: true, remaining: maxCallsPerDay - updatedCount, retryAfterSeconds: 0, date: today };
     });
   } catch (err) {
     if (err instanceof AccountDeletingError) return { allowed: false, remaining: 0, retryAfterSeconds: 0, failure: 'accountDeleting' };
@@ -233,9 +237,9 @@ export async function checkDailyAiBudget(
 /**
  * Compensating decrement for a previously-reserved daily AI budget slot.
  *
- * Called from API handlers when the work that was charged against the budget
- * (OpenAI call, Firestore write) failed, so the user is not penalized by
- * server-side errors. Uses `FieldValue.increment(-1)` for an atomic,
+ * Only for a reservation whose work failed BEFORE any provider request was
+ * sent; dispatched work is never refunded. `todayDate` must be the date the
+ * reservation charged. Uses `FieldValue.increment(-1)` for an atomic,
  * guarded refund; missing documents are ignored (nothing to refund).
  *
  * Intentionally best-effort: a failure here is logged but must not propagate
