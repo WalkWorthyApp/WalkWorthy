@@ -17,16 +17,19 @@ export interface RateLimitResult {
   failure?: 'unavailable' | 'accountDeleting';
 }
 
-export interface DailyBudgetResult extends RateLimitResult {
+interface DailyBudgetResultBase extends RateLimitResult {
   remaining: number;
   /**
    * Zero for exhausted daily quota (429). An unavailable check carries a
    * short retry delay alongside failure:'unavailable' and maps to 503.
    */
   retryAfterSeconds: number;
-  /** UTC day charged when allowed; a refund must target this day, not "today". */
-  date?: string;
 }
+
+export type DailyBudgetResult =
+  /** `date` is the UTC day charged; a refund must target it, not "today". */
+  | (DailyBudgetResultBase & { allowed: true; date: string })
+  | (DailyBudgetResultBase & { allowed: false });
 
 export type RateLimitScope = 'user' | 'dailyBudget';
 

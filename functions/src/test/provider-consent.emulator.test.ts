@@ -50,6 +50,15 @@ for (const endpoint of ['mood', 'reflection'] as const) {
       // A pre-dispatch failure whose refund runs after UTC midnight must not
       // touch the next day's counter.
       const nextDay = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const realCheckBudget = limits.checkDailyAiBudget;
+      if (scenario === 'before-dispatch') {
+        // UTC midnight passes right after the reservation commits.
+        t.mock.method(limits, 'checkDailyAiBudget', async (...args: Parameters<typeof realCheckBudget>) => {
+          const reserved = await realCheckBudget(...args);
+          t.mock.method(limits, 'getTodayUtcDateString', () => nextDay);
+          return reserved;
+        });
+      }
       let generations = 0;
       let moderations = 0;
       let denyReads = false;
@@ -62,7 +71,6 @@ for (const endpoint of ['mood', 'reflection'] as const) {
       t.mock.method(profile, 'getUserProfileOnce', async () => legacyProfile);
       t.mock.method(consent, 'requireAiConsent', async (...args: Parameters<typeof realRequireConsent>) => {
         if (denyReads) throw new TypeError('Synthetic consent read failure');
-        if (scenario === 'before-dispatch') t.mock.method(limits, 'getTodayUtcDateString', () => nextDay);
         return realRequireConsent(...args);
       });
       t.mock.method(config, 'sleep', async () => {

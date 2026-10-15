@@ -133,7 +133,7 @@ async function handleGet(req: Request, res: Response): Promise<void> {
       const consent = await requireAiConsent(db, userId);
       const result = await runReflectionAgent(summaries, openaiApiKey.value(), async () => {
         await requireAiConsent(db, userId, undefined, consent.revision);
-      }, undefined, () => { dispatched = true; });
+      }, undefined, async () => { dispatched = true; });
       const generatedAt = new Date().toISOString();
       const payload = { reflection: result.reflection, isGenerated: result.isGenerated, generatedAt, date: today };
 
@@ -149,7 +149,7 @@ async function handleGet(req: Request, res: Response): Promise<void> {
       // Work already sent to OpenAI keeps its charge, even if consent changed,
       // the provider failed or the cache write failed afterwards. Only a
       // failure before dispatch is refunded, to the day that was charged.
-      if (!dispatched && budgetResult.date) {
+      if (!dispatched) {
         await refundDailyAiBudget(db, userId, budgetResult.date);
       }
       throw aiOrWriteError;

@@ -121,7 +121,7 @@ export async function runReflectionAgent(
   generate: GenerationRunner = async (input, signal) =>
     // Every new model attempt must return through the consent check below.
     (await run(ensureAgent(apiKey), input, { signal, maxTurns: 1 })).finalOutput,
-  beforeGeneration?: () => void,
+  beforeGeneration?: () => Promise<void>,
 ): Promise<ReflectionAgentResult> {
   logger.info("[ReflectionAgent] Generating daily reflection", {
     summaryCount: summaries.length,
@@ -142,7 +142,7 @@ export async function runReflectionAgent(
     await checkConsent();
     // Lets the caller record that provider work has started; sent requests
     // cannot be recalled, so their budget must never be refunded.
-    beforeGeneration?.();
+    if (beforeGeneration) await beforeGeneration();
     let reflection: string;
     try {
       const result = await withTimeout((signal) =>

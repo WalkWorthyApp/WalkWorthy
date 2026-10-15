@@ -60,13 +60,13 @@ test('reflection: beforeGeneration marks every dispatch and never runs after a d
     events.push('generate');
     if (++generations === 1) throw new Error('Synthetic transient failure');
     return reflectionOutput;
-  }, () => { events.push('dispatch'); });
+  }, async () => { events.push('dispatch'); });
   assert.deepEqual(events, ['check', 'dispatch', 'generate', 'check', 'dispatch', 'generate', 'check']);
 
   let dispatches = 0;
   const denied = new AiConsentRequiredError();
   await assert.rejects(runReflectionAgent([], `synthetic-${randomUUID()}`, async () => { throw denied; },
-    async () => reflectionOutput, () => { dispatches++; }), error => error === denied);
+    async () => reflectionOutput, async () => { dispatches++; }), error => error === denied);
   assert.equal(dispatches, 0);
 });
 
