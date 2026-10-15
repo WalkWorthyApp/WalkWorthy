@@ -230,6 +230,11 @@ test('repeated withdrawals stop writing past their own limit but still revoke a 
     await ref.delete();
     assert.equal((await request('PUT', {aiSharing: false})).status, 200);
     assert.equal(await revision(), 1);
+
+    // A failed limit check is not exhaustion: the withdrawal still advances.
+    t.mock.method(rateLimiter, 'checkRateLimit', async () => ({allowed: false, retryAfterSeconds: 60, failure: 'unavailable'}));
+    assert.equal((await request('PUT', {aiSharing: false})).status, 200);
+    assert.equal(await revision(), 2);
   } finally {
     t.mock.restoreAll();
     await db.recursiveDelete(db.doc(`users/${uid}`));

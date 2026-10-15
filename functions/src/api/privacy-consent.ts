@@ -30,11 +30,12 @@ export const privacyConsent = onRequest({maxInstances: 10, invoker: 'public'}, a
       return errorResponse(res, 400, 'Invalid consent data');
     }
     // Withdrawal is never refused. Its own bucket only bounds repeat work: past
-    // it (or if the check fails), a withdrawal while already off writes nothing.
+    // it, a withdrawal while already off writes nothing. A failed check is not
+    // exhaustion, so it still advances the revision to stop in-flight grants.
     let coalesce = false;
     if (input?.aiSharing === false) {
       const limit = await checkRateLimit(db, `user:${auth.userId}:privacyConsent:withdraw`, STANDARD_USER_LIMIT, auth.userId);
-      coalesce = !limit.allowed;
+      coalesce = !limit.allowed && !limit.failure;
     } else {
       const isRead = req.method === 'GET';
       const limit = await checkRateLimit(db, `user:${auth.userId}:privacyConsent:${isRead ? 'read' : 'grant'}`,
