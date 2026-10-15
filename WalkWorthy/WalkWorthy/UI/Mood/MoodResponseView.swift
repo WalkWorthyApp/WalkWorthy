@@ -66,8 +66,6 @@ struct MoodResponseContent: View {
                     .transition(.opacity)
             }
 
-            Spacer(minLength: scaled(40))
-
             if showDoneButton {
                 doneButton
                     .transition(.asymmetric(
