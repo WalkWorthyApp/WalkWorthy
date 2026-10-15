@@ -31,7 +31,7 @@ export interface UserProfileInput {
   ageRange: AgeRange;
 
   /**
-   * OPTIONAL - SENSITIVE: User's first name for Home-view greeting personalization.
+   * OPTIONAL - SENSITIVE: First name for the app's greeting and on-device birthday notification.
    * NOT passed to AI agents. Validated: trimmed, 1–60 chars.
    */
   firstName?: string;
@@ -54,6 +54,39 @@ export function validateAgeRange(value: unknown): AgeRange | undefined {
   if (typeof value !== 'string') return undefined;
   const validRanges: AgeRange[] = ['18-24', '25-34', '35-44', '45-54', '55-64', '65+'];
   return validRanges.includes(value as AgeRange) ? (value as AgeRange) : undefined;
+}
+
+/** WalkWorthy is adults-only; mirrors `OnboardingForm.minimumAge` on iOS. */
+export const MINIMUM_AGE = 18;
+
+/** Hours behind UTC of the last time zone to reach a new day (UTC-12). */
+const LATEST_UTC_OFFSET_HOURS = 12;
+
+/**
+ * Validates a birth date: a real Gregorian "YYYY-MM-DD" day from 1900 on, for
+ * someone at least MINIMUM_AGE. Age is counted on the earliest calendar day
+ * still current anywhere on Earth (UTC-12), so a minor's birth date is never
+ * stored; someone whose 18th birthday has only just begun may be refused for
+ * up to a day.
+ * SENSITIVE: never log the value.
+ *
+ * @param value The untrusted birth date from the client
+ * @param now Current time (injectable for tests)
+ * @returns The validated birth date or undefined if invalid or under age
+ */
+export function validateBirthDate(value: unknown, now: Date = new Date()): string | undefined {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return undefined;
+  const year = Number(value.slice(0, 4));
+  const month = Number(value.slice(5, 7));
+  const day = Number(value.slice(8, 10));
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (year < 1900 || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return undefined;
+
+  const earliest = new Date(now.getTime() - LATEST_UTC_OFFSET_HOURS * 60 * 60 * 1000);
+  const earliestMonth = earliest.getUTCMonth() + 1;
+  const hadBirthday = earliestMonth > month || (earliestMonth === month && earliest.getUTCDate() >= day);
+  const age = earliest.getUTCFullYear() - year - (hadBirthday ? 0 : 1);
+  return age >= MINIMUM_AGE ? value : undefined;
 }
 
 /**

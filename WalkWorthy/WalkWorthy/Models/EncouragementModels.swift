@@ -10,7 +10,7 @@ import Foundation
 struct PrivacyConsent: Codable {
     /// The consent-screen wording in force. Must match the backend
     /// `NOTICE_VERSION`; bump both whenever AIConsentView's wording changes.
-    static let currentNoticeVersion = "2026-10-14"
+    static let currentNoticeVersion = "2026-10-14.2"
 
     var aiSharing: Bool
     var noticeVersion: String
@@ -88,8 +88,11 @@ protocol EncouragementAPI {
 
 struct RemoteUserProfileRequest: Codable {
     var ageRange: String?
-    /// Optional first name used only for Home-view greeting personalization.
-    /// NOT forwarded to AI agents on the backend.
+    /// "YYYY-MM-DD". Supersedes `ageRange`: the backend deletes the legacy
+    /// bucket when it stores a birth date.
+    var birthDate: String?
+    /// Optional first name for the Home greeting and, if turned on, the local
+    /// birthday notification. NOT forwarded to AI agents on the backend.
     var firstName: String?
     var checkInTimes: CheckInTimes?
     var timezone: String?
@@ -110,11 +113,14 @@ nonisolated struct RemoteUserProfileResponse: Codable {
     var firstName: String?
     var timezone: String?
     var checkInTimes: CheckInTimes?
+    var birthDate: String?
 }
 
 struct OnboardingProfile {
-    /// Optional first name. Empty/whitespace means not set. Used only for Home
-    /// greeting personalization — never passed to AI agents.
+    /// Optional first name. Empty/whitespace means not set. Used for the Home
+    /// greeting and the opt-in birthday notification — never passed to AI agents.
     var firstName: String
-    var age: Int?
+    /// Confirms the 18+ minimum and drives the Home birthday greeting and the
+    /// local birthday notification. Never passed to AI agents.
+    var birthDate: BirthDate?
 }

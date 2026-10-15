@@ -35,7 +35,7 @@ enum RegulatoryAgeCheck {
             case .underage:
                 return "Your App Store account shows an age under 18. WalkWorthy is only available to adults."
             case .unconfirmed:
-                return "WalkWorthy needs to confirm with the App Store that you're 18 or older. Share your age range to continue."
+                return "WalkWorthy couldn't confirm with the App Store that you're 18 or older. Share your age range or try again later."
             }
         }
     }

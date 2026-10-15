@@ -71,6 +71,11 @@ struct HomeView: View {
                 await appState.loadMoodStatus()
             }
         }
+        // Re-runs whenever Home appears or the birthday/name changes, keeping
+        // the next birthday notification booked.
+        .task(id: birthdayReminderKey) {
+            await NotificationScheduler.shared.syncBirthdayReminder(using: appState)
+        }
         .sheet(item: $activeCheckInType) { type in
             MoodCheckInView(checkInType: type) {
                 activeCheckInType = nil
@@ -119,7 +124,23 @@ struct HomeView: View {
         .padding(.leading, scaled(8))
     }
 
+    private var displayName: String {
+        (appState.currentProfile?.firstName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var isBirthday: Bool {
+        appState.currentProfile?.birthDate?.isBirthday() ?? false
+    }
+
+    private var birthdayReminderKey: String {
+        guard let profile = appState.currentProfile else { return "unloaded" }
+        return "\(profile.birthDate?.isoString ?? "none")|\(displayName)"
+    }
+
     private var timeBasedGreeting: String {
+        if isBirthday {
+            return displayName.isEmpty ? "Happy Birthday" : "Happy Birthday, \(displayName)"
+        }
         let hour = Calendar.current.component(.hour, from: Date())
         let base: String
         switch hour {
@@ -132,12 +153,13 @@ struct HomeView: View {
         default:
             base = "Good night"
         }
-        let name = (appState.currentProfile?.firstName ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? base : "\(base), \(name)"
+        return displayName.isEmpty ? base : "\(base), \(displayName)"
     }
 
     private var motivationalSubtitle: String {
+        if isBirthday {
+            return "You are fearfully and wonderfully made. We're so glad you're here."
+        }
         switch Calendar.current.component(.hour, from: Date()) {
         case 3..<12:
             return "Let's start the day with intention."

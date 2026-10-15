@@ -18,6 +18,7 @@ final class NotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
     }
     private var activeSession: Session?
     private var scheduleGeneration: UInt64 = 0
+    private var birthdayGeneration: UInt64 = 0
 
     func beginSession(for userSub: String) {
         guard activeSession?.userSub != userSub else { return }
@@ -109,7 +110,7 @@ final class NotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    private var isAuthorized: Bool {
+    var isAuthorized: Bool {
         get async {
             let settings = await center.notificationSettings()
             return settings.authorizationStatus == .authorized || settings.authorizationStatus == .provisional
@@ -137,7 +138,7 @@ final class NotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
         let pending = await center.pendingNotificationRequests()
         guard isCurrent(session), scheduleGeneration == generation, !Task.isCancelled else { return }
         center.removePendingNotificationRequests(withIdentifiers: pending.map(\.identifier).filter {
-            $0.hasPrefix(accountPrefix(session.userSub)) || legacyIdentifiers.contains($0)
+            ($0.hasPrefix(accountPrefix(session.userSub)) && !isBirthdayRequest($0)) || legacyIdentifiers.contains($0)
         })
         guard await isAuthorized else { return }
 
@@ -169,6 +170,75 @@ final class NotificationScheduler: NSObject, UNUserNotificationCenterDelegate {
                 print("[NotificationScheduler] Failed to schedule notification")
                 #endif
             }
+        }
+    }
+
+    // MARK: - Birthday
+
+    /// Ends every birthday request ID, so the daily and birthday schedules can
+    /// each be replaced without touching the other.
+    private static let birthdayReminderID = "birthday"
+    /// Local time the birthday message arrives.
+    private static let birthdayHour = 9
+
+    private func isBirthdayRequest(_ identifier: String) -> Bool {
+        identifier.hasSuffix(".\(Self.birthdayReminderID)")
+    }
+
+    /// Re-derives the signed-in account's birthday message from its profile
+    /// and its Birthday message setting. Safe to call repeatedly; Home calls
+    /// it whenever it appears, which also books the following year's message.
+    func syncBirthdayReminder(using appState: AppState) async {
+        guard let sub = appState.authenticatedUserSub, !appState.accountDeletionPending,
+              let session = session(for: sub) else { return }
+        guard ReminderPreferences.birthdayEnabled(for: sub) else {
+            await replaceBirthdayReminder(birthDate: nil, firstName: "", session: session)
+            return
+        }
+        // No profile yet (cold launch before hydration): keep what is booked.
+        guard let profile = appState.currentProfile else { return }
+        await replaceBirthdayReminder(birthDate: profile.birthDate, firstName: profile.firstName, session: session)
+    }
+
+    /// Replaces the account's birthday request with a one-shot request for the
+    /// next birthday, or only removes it when `birthDate` is nil. A one-shot
+    /// request (rather than a yearly repeat) lets a February 29 birthday fall
+    /// on February 28 in common years.
+    private func replaceBirthdayReminder(birthDate: BirthDate?, firstName: String, session: Session) async {
+        guard isCurrent(session), !Task.isCancelled else { return }
+        birthdayGeneration &+= 1
+        let generation = birthdayGeneration
+        let pending = await center.pendingNotificationRequests()
+        guard isCurrent(session), birthdayGeneration == generation, !Task.isCancelled else { return }
+        center.removePendingNotificationRequests(withIdentifiers: pending.map(\.identifier).filter {
+            $0.hasPrefix(accountPrefix(session.userSub)) && isBirthdayRequest($0)
+        })
+        guard let birthDate,
+              let celebration = birthDate.nextCelebration(atHour: Self.birthdayHour),
+              await isAuthorized,
+              isCurrent(session), birthdayGeneration == generation, !Task.isCancelled else { return }
+
+        let name = firstName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let content = UNMutableNotificationContent()
+        content.title = name.isEmpty ? "Happy Birthday!" : "Happy Birthday, \(name)!"
+        content.body = "\"I am fearfully and wonderfully made.\" Psalm 139:14 (ESV). Thanking God for you today. May this new year overflow with His grace and joy."
+        content.sound = .default
+        // Matched in the device calendar, so the era is included for calendars
+        // (such as Japanese) whose years repeat across eras.
+        let fireDate = Calendar.current.dateComponents([.era, .year, .month, .day, .hour, .minute], from: celebration)
+        let trigger = UNCalendarNotificationTrigger(dateMatching: fireDate, repeats: false)
+        let identifier = "\(sessionPrefix(session))\(UUID().uuidString).\(Self.birthdayReminderID)"
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+        do {
+            try await center.add(request)
+            if !isCurrent(session) || birthdayGeneration != generation || Task.isCancelled {
+                center.removePendingNotificationRequests(withIdentifiers: [identifier])
+            }
+        } catch {
+            center.removePendingNotificationRequests(withIdentifiers: [identifier])
+            #if DEBUG
+            print("[NotificationScheduler] Failed to schedule birthday notification")
+            #endif
         }
     }
 

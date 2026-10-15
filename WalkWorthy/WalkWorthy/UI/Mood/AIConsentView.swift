@@ -41,66 +41,50 @@ struct AIConsentView: View {
 
                     VStack(alignment: .leading, spacing: scaled(14)) {
                         Label {
-                            Text("WalkWorthy saves each check-in — your mood score, emotions, life areas (which can include faith) and any note — in your private account so you can see your history. This information can reveal your mental health and religious beliefs.")
+                            Text("WalkWorthy saves each check-in (everything listed below), daily mood summaries and the responses written for you to your private account, so you can see your history. Life areas can include faith, so this can reveal your mental health and religious beliefs.")
                         } icon: {
                             Image(systemName: "lock.shield")
                         }
 
                         Label {
-                            Text("WalkWorthy uses **OpenAI** to write your encouragement and daily reflection and screen submitted text and generated responses for safety.")
+                            Text("**OpenAI** writes your encouragement and daily reflection and screens text for safety. With AI sharing on, it receives:")
                         } icon: {
                             Image(systemName: "sparkles")
                         }
 
-                        Text("When AI sharing is on, we send OpenAI:")
-                            .fontWeight(.semibold)
-
                         VStack(alignment: .leading, spacing: scaled(6)) {
-                            bulletRow("Your mood score and level, follow-up rating, emotion tags, and check-in period")
-                            bulletRow("The life areas you select")
-                            bulletRow("Your optional note, if you write one — it may reveal sensitive health or religious information")
-                            bulletRow("For daily reflections: a seven-day summary of check-in dates, mood levels, and overall sentiment")
+                            bulletRow("Mood score and level, follow-up rating, emotions, life areas and check-in period")
+                            bulletRow("Your note, if you write one (leave out names and contact details)")
+                            bulletRow("For daily reflections, a seven-day summary of dates, moods and overall sentiment")
                         }
-
-                        Text("OpenAI processes this information for generation and safety screening. Avoid names, contact information, medical records, or details about other people in notes. WalkWorthy disables API response storage and AI tracing, and OpenAI says API data is not used to train its models unless a customer opts in. OpenAI may retain abuse-monitoring logs for up to 30 days, or longer where legally required; disabling response storage does not eliminate that retention. Your generated responses are saved in your WalkWorthy account.")
-                            .foregroundStyle(.white.opacity(0.85))
 
                         // HIG (Generative AI → Transparency): "Set clear
                         // expectations about what your AI-powered feature can
                         // and can't do." Every Scripture quotation comes from a
                         // reviewed server-side catalog, so the passage itself is
                         // never model-written — only the surrounding words are.
-                        Text("What to expect: the encouragement is written by AI, so it can be off or occasionally get something wrong — you can report a concern using the report link beside a response. Scripture quotations are not written by AI; they come from a fixed ESV list. This is general spiritual encouragement, not medical or mental-health care.")
+                        Text("OpenAI says it doesn't train on this data and may keep safety logs for up to 30 days, or longer if the law requires. AI can get things wrong; Scripture comes from a fixed ESV list, never from AI.")
                             .foregroundStyle(.white.opacity(0.85))
                     }
                     .glassCard()
 
-                    VStack(alignment: .leading, spacing: scaled(10)) {
-                        Text("Confirm your age").fontWeight(.semibold)
-                        // A one-option picker is not a control. With WalkWorthy
-                        // adults-only, this is a single affirmative declaration,
-                        // so a Toggle states it plainly and leaves "Agree and
-                        // continue" disabled until it is switched on.
-                        Toggle(isOn: Binding(
-                            get: { ageGroup == "18+" },
-                            set: { ageGroup = $0 ? "18+" : "" }
-                        )) {
-                            Text("I am 18 or older")
-                        }
-                        .accessibilityHint("Required. WalkWorthy is available only to adults.")
-                        Text("No birth date is needed. This is your declaration, not age verification. WalkWorthy is for ages 18 and older.")
-                            .font(.footnote)
+                    // A one-option picker is not a control. With WalkWorthy
+                    // adults-only, this is a single affirmative declaration,
+                    // so a Toggle states it plainly and leaves "Agree and
+                    // continue" disabled until it is switched on.
+                    Toggle(isOn: Binding(
+                        get: { ageGroup == "18+" },
+                        set: { ageGroup = $0 ? "18+" : "" }
+                    )) {
+                        Text("I am 18 or older").fontWeight(.semibold)
                     }
+                    .accessibilityHint("Required. WalkWorthy is available only to adults.")
                     .glassCard()
 
-                    VStack(alignment: .leading, spacing: scaled(8)) {
-                        Label("A gentle reminder", systemImage: "heart.text.square")
-                            .fontWeight(.semibold)
-                        Text("WalkWorthy offers Scripture-based encouragement, not medical or mental-health care. If you're struggling, please talk to a professional — in the U.S., you can call or text 988 anytime.")
-                            .font(.footnote)
-                            .foregroundStyle(.white.opacity(0.85))
-                    }
-                    .glassCard()
+                    Label("Scripture-based encouragement, not medical or mental-health care. If you're struggling, talk to a professional or, in the U.S., call or text 988.", systemImage: "heart.text.square")
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.85))
+                        .glassCard()
 
                     Link(destination: URL(string: "https://walkworthy-app.web.app/privacy")!) {
                         Text("Read the full Privacy Policy")
@@ -118,7 +102,7 @@ struct AIConsentView: View {
                     }
                     .padding(.horizontal, scaled(4))
 
-                    Text("By choosing Agree and continue, you consent to WalkWorthy storing and using your check-ins as described above and to sharing the listed information with OpenAI. You can turn off OpenAI sharing in Settings, and deleting your account removes your check-ins.")
+                    Text("By agreeing, you let WalkWorthy store and use your check-ins as described above and share the items listed with OpenAI. You can turn off OpenAI sharing in Settings; deleting your account removes your check-ins.")
                         .font(.footnote)
                         .foregroundStyle(.white.opacity(0.9))
                         .padding(.horizontal, scaled(4))

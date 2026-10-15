@@ -16,7 +16,7 @@ struct AccountDeletionPresentation: ViewModifier {
                 Button("Delete Account", role: .destructive) { flow.confirm(using: appState) }
                 Button("Cancel", role: .cancel) { flow.cancel() }
             } message: {
-                Text("This permanently removes your profile, mood history, journal entries, daily reflections, and encouragements. Device data removal starts immediately, even if server deletion needs a retry. This cannot be undone.")
+                Text("This permanently removes your profile, mood history, journal entries, daily reflections and encouragements. It can't be undone.")
             }
             .sheet(isPresented: Binding(
                 get: { flow.isPresentingPassword },

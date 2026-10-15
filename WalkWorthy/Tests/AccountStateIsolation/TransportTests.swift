@@ -189,9 +189,8 @@ struct TransportBindingTests {
         let holdToken: (Gate) -> Void = { gate in FakeFirebase.beforeToken = { _ in await gate.pass() } }
         let holdRefresh: (Gate) -> Void = { gate in FakeFirebase.beforeToken = { forcing in if forcing { await gate.pass() } } }
         let holdAppCheck: (Gate) -> Void = { gate in FakeFirebase.beforeAppCheck = { await gate.pass() } }
-        let saveProfile: (AppState) -> Task<Void, Never>? = {
-            $0.updateProfile(firstName: "Alice", age: 30)
-            return nil
+        let saveProfile: (AppState) -> Task<Void, Never>? = { state in
+            Task { _ = await state.updateProfile(firstName: "Alice", birthDate: BirthDate(year: 1996, month: 5, day: 4)) }
         }
 
         try await checkRaces("debounced profile save at token fetch", "userProfile", holdAt: holdToken, start: saveProfile)

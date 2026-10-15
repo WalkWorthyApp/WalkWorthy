@@ -473,7 +473,7 @@ struct ContentReportLink: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Email \(SupportContact.address) with the concern you choose to share. Nothing from this response or your check-in is attached automatically. Avoid sensitive details. This inbox is not an emergency service; in the U.S., call or text 988 for crisis support.")
+            Text("Email \(SupportContact.address) about this \(context.lowercased()). Nothing is attached automatically; avoid sensitive details. This isn't an emergency service; in the U.S., call or text 988.")
         }
     }
 }
