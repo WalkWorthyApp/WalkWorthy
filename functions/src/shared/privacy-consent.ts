@@ -76,8 +76,11 @@ export function validateConsentInput(body: unknown): ConsentInput | null {
   return {aiSharing: true, noticeVersion: NOTICE_VERSION, ageGroup: '18+', expectedRevision: Number(b.expectedRevision)};
 }
 
-/** Grants compare-and-set; withdrawal always stops the current grant. */
-export async function savePrivacyConsent(db: Firestore, uid: string, input: ConsentInput): Promise<PrivacyConsent> {
+/** Grants compare-and-set; withdrawal always stops the current grant.
+ *  `coalesce` (past the withdrawal abuse limit): a withdrawal while sharing is
+ *  already off returns the current record instead of writing a new revision. */
+export async function savePrivacyConsent(db: Firestore, uid: string, input: ConsentInput,
+  options?: {coalesce?: boolean}): Promise<PrivacyConsent> {
   return db.runTransaction(async tx => {
     await assertAccountActive(db, uid, tx);
     const ref = consentRef(db, uid);
@@ -91,6 +94,8 @@ export async function savePrivacyConsent(db: Firestore, uid: string, input: Cons
     // A subsequent grant removes the identity, so delayed retries still revoke it.
     if (!input.aiSharing && input.withdrawalId && raw?.aiSharing === false &&
         raw.withdrawalId === input.withdrawalId && current.revision > 0) return current;
+    // Any stored true (even under an older notice) is still revoked, which is a one-off write.
+    if (!input.aiSharing && options?.coalesce && raw?.aiSharing !== true && current.revision > 0) return current;
     const next: PrivacyConsent = {
       aiSharing: input.aiSharing,
       noticeVersion: NOTICE_VERSION,

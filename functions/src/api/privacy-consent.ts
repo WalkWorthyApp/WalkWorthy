@@ -29,8 +29,14 @@ export const privacyConsent = onRequest({maxInstances: 10, invoker: 'public'}, a
       }
       return errorResponse(res, 400, 'Invalid consent data');
     }
-    // Withdrawal is never delayed by a settings rate limit.
-    if (req.method === 'GET' || input?.aiSharing !== false) {
+    // Withdrawal is never refused. Its own bucket only bounds repeat work: past
+    // it, a withdrawal while already off writes nothing. A failed check is not
+    // exhaustion, so it still advances the revision to stop in-flight grants.
+    let coalesce = false;
+    if (input?.aiSharing === false) {
+      const limit = await checkRateLimit(db, `user:${auth.userId}:privacyConsent:withdraw`, STANDARD_USER_LIMIT, auth.userId);
+      coalesce = !limit.allowed && !limit.failure;
+    } else {
       const isRead = req.method === 'GET';
       const limit = await checkRateLimit(db, `user:${auth.userId}:privacyConsent:${isRead ? 'read' : 'grant'}`,
         isRead ? PRIVACY_CONSENT_READ_LIMIT : STANDARD_USER_LIMIT, auth.userId);
@@ -38,7 +44,7 @@ export const privacyConsent = onRequest({maxInstances: 10, invoker: 'public'}, a
     }
     if (req.method === 'GET') return successResponse(res, parseConsent((await ref.get()).data()));
     if (!input) return errorResponse(res, 400, 'Invalid consent data');
-    const result = await savePrivacyConsent(db, auth.userId, input);
+    const result = await savePrivacyConsent(db, auth.userId, input, {coalesce});
     return successResponse(res, result);
   } catch (error) {
     if (error instanceof ConsentConflict) return errorResponse(res, 409, 'Consent changed; refresh and retry', undefined, 'CONSENT_CONFLICT');

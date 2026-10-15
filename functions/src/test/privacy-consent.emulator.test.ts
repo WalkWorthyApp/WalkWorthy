@@ -9,6 +9,7 @@ import { logger } from 'firebase-functions/v2';
 import firebase = require('../shared/firebase');
 import auth = require('../shared/auth');
 import consent = require('../shared/privacy-consent');
+import rateLimiter = require('../shared/rate-limiter');
 import { privacyConsent, PRIVACY_CONSENT_READ_LIMIT } from '../api/privacy-consent';
 import { deletionRef, AccountDeletingError } from '../shared/account-lifecycle';
 import { consentRef, NOTICE_VERSION, savePrivacyConsent, ConsentConflict, requireAiConsent, AiConsentRequiredError } from '../shared/privacy-consent';
@@ -16,11 +17,26 @@ import { STANDARD_USER_LIMIT } from '../shared/rate-limiter';
 
 const hasEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
 
+/** Calls the real endpoint; tests mock only App Check and Auth. */
+async function request(method: string, body?: unknown) {
+  let status = 200;
+  let payload: unknown;
+  const response = {
+    setHeader: () => response,
+    set: () => response,
+    status: (value: number) => {status = value; return response;},
+    json: (value: unknown) => {payload = value; return response;},
+  };
+  await privacyConsent({method, body} as Request, response as unknown as Response);
+  return {status, payload};
+}
+
 test('unexpected withdrawal failures log only safe diagnostics and return unavailable', async t => {
   t.mock.method(firebase, 'getDb', () => ({}));
   t.mock.method(auth, 'verifyAppCheck', async () => true);
   t.mock.method(auth, 'requireAuth', async (req: Request) => Object.assign(req, {userId: 'synthetic'}));
   t.mock.method(consent, 'consentRef', () => ({}));
+  t.mock.method(rateLimiter, 'checkRateLimit', async () => ({allowed: true, retryAfterSeconds: 0}));
   t.mock.method(consent, 'savePrivacyConsent', async () => {
     throw new TypeError('PRIVATE_SENTINEL: synthetic user data');
   });
@@ -127,18 +143,6 @@ test('foreground consent reads do not starve grants, and withdrawal bypasses bot
   // Authentication is isolated from Firestore behavior; no live Auth/App Check.
   t.mock.method(auth, 'verifyAppCheck', async () => true);
   t.mock.method(auth, 'requireAuth', async (req: Request) => Object.assign(req, {userId: uid}));
-  async function request(method: string, body?: unknown) {
-    let status = 200;
-    let payload: unknown;
-    const response = {
-      setHeader: () => response,
-      set: () => response,
-      status: (value: number) => {status = value; return response;},
-      json: (value: unknown) => {payload = value; return response;},
-    };
-    await privacyConsent({method, body} as Request, response as unknown as Response);
-    return {status, payload};
-  }
   try {
     const grant = {aiSharing: true, noticeVersion: NOTICE_VERSION, ageGroup: '18+', expectedRevision: 0};
     for (let i = 0; i < 29; i++) {
@@ -177,6 +181,65 @@ test('foreground consent reads do not starve grants, and withdrawal bypasses bot
     await db.recursiveDelete(db.doc(`users/${uid}`));
     await readRef.delete();
     await grantRef.delete();
+    await db.collection('_rateLimits').doc(`user:${uid}:privacyConsent:withdraw`).delete();
+    await deleteApp(app);
+  }
+});
+
+test('repeated withdrawals stop writing past their own limit but still revoke a grant', {skip: !hasEmulator}, async t => {
+  const app = initializeApp({projectId: 'demo-walkworthy-compliance'}, randomUUID());
+  const db = getFirestore(app);
+  const uid = `consent-withdraw-${randomUUID()}`;
+  const ref = consentRef(db, uid);
+  const withdrawRef = db.collection('_rateLimits').doc(`user:${uid}:privacyConsent:withdraw`);
+  t.mock.method(firebase, 'getDb', () => db);
+  t.mock.method(auth, 'verifyAppCheck', async () => true);
+  t.mock.method(auth, 'requireAuth', async (req: Request) => Object.assign(req, {userId: uid}));
+  const revision = async () => (await ref.get()).get('revision');
+  try {
+    // Within the limit, ID-less and new-ID withdrawals each advance the revision.
+    assert.equal((await request('PUT', {aiSharing: false})).status, 200);
+    assert.equal((await request('PUT', {aiSharing: false, withdrawalId: randomUUID()})).status, 200);
+    assert.equal(await revision(), 2);
+    assert.equal((await withdrawRef.get()).get('timestamps').length, 2);
+
+    // Seed the rest of the window instead of 28 more round trips.
+    const now = new Date().toISOString();
+    await withdrawRef.set({timestamps: Array(STANDARD_USER_LIMIT.maxRequests).fill(now), updatedAt: now});
+    const before = await ref.get();
+    for (const body of [{aiSharing: false}, {aiSharing: false, withdrawalId: randomUUID()}, {aiSharing: false}]) {
+      const res = await request('PUT', body);
+      assert.equal(res.status, 200); // Never refused...
+      assert.deepEqual(res.payload, consent.parseConsent(before.data()));
+    }
+    assert.ok((await ref.get()).updateTime?.isEqual(before.updateTime!)); // ...but nothing written.
+
+    // An active grant is still revoked past the limit, then repeats coalesce again.
+    const grant = {aiSharing: true, noticeVersion: NOTICE_VERSION, ageGroup: '18+', expectedRevision: 2};
+    assert.equal((await request('PUT', grant)).status, 200);
+    assert.equal((await requireAiConsent(db, uid)).revision, 3);
+    assert.equal((await request('PUT', {aiSharing: false})).status, 200);
+    assert.equal((await ref.get()).get('aiSharing'), false);
+    assert.equal(await revision(), 4);
+    await assert.rejects(requireAiConsent(db, uid), AiConsentRequiredError);
+    const revoked = await ref.get();
+    assert.equal((await request('PUT', {aiSharing: false, withdrawalId: randomUUID()})).status, 200);
+    assert.ok((await ref.get()).updateTime?.isEqual(revoked.updateTime!));
+
+    // A user with no consent record yet still gets one tombstone past the limit.
+    await ref.delete();
+    assert.equal((await request('PUT', {aiSharing: false})).status, 200);
+    assert.equal(await revision(), 1);
+
+    // A failed limit check is not exhaustion: the withdrawal still advances.
+    t.mock.method(rateLimiter, 'checkRateLimit', async () => ({allowed: false, retryAfterSeconds: 60, failure: 'unavailable'}));
+    assert.equal((await request('PUT', {aiSharing: false})).status, 200);
+    assert.equal(await revision(), 2);
+  } finally {
+    t.mock.restoreAll();
+    await db.recursiveDelete(db.doc(`users/${uid}`));
+    await withdrawRef.delete();
+    await db.collection('_rateLimits').doc(`user:${uid}:privacyConsent:grant`).delete();
     await deleteApp(app);
   }
 });
