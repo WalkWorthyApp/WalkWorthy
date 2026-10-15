@@ -20,7 +20,7 @@ import { isCleanStoredAiContent } from "../lib/model-config";
 import { getUserProfileOnce } from "../shared/profile";
 import { getLogicalDateString, shiftLogicalDate } from "../shared/time";
 import type { DailyMoodSummary } from "../shared/types";
-import { checkRateLimit, checkDailyAiBudget, refundDailyAiBudget, getTodayUtcDateString, sendLimitCheckResponse, DAILY_REFLECTION_USER_LIMIT, REFLECTION_DAILY_AI_BUDGET } from '../shared/rate-limiter';
+import { checkRateLimit, checkDailyAiBudget, refundDailyAiBudget, sendLimitCheckResponse, DAILY_REFLECTION_USER_LIMIT, REFLECTION_DAILY_AI_BUDGET } from '../shared/rate-limiter';
 
 initializeFirebase();
 
@@ -118,22 +118,22 @@ async function handleGet(req: Request, res: Response): Promise<void> {
       (d) => d.data() as DailyMoodSummary,
     );
 
-    // Reserve an AI-budget slot BEFORE calling OpenAI. Refund on downstream
-    // failure so server-side errors don't consume the user's daily quota.
+    // Reserve an AI-budget slot BEFORE calling OpenAI. It is refunded only
+    // when a failure happens before any provider request was sent.
     const budgetResult = await checkDailyAiBudget(db, userId, REFLECTION_DAILY_AI_BUDGET);
     if (!budgetResult.allowed) {
       sendLimitCheckResponse(res, 'dailyBudget', budgetResult, { userId, endpoint: 'dailyReflection' });
       return;
     }
 
-    let budgetReserved = true;
+    let dispatched = false;
 
     try {
       // Generate reflection
       const consent = await requireAiConsent(db, userId);
       const result = await runReflectionAgent(summaries, openaiApiKey.value(), async () => {
         await requireAiConsent(db, userId, undefined, consent.revision);
-      });
+      }, undefined, async () => { dispatched = true; });
       const generatedAt = new Date().toISOString();
       const payload = { reflection: result.reflection, isGenerated: result.isGenerated, generatedAt, date: today };
 
@@ -143,17 +143,14 @@ async function handleGet(req: Request, res: Response): Promise<void> {
         tx.set(cacheRef, payload);
       });
 
-      // Success: the slot is earned.
-      budgetReserved = false;
-
       logger.info("dailyReflection: generated and cached");
       return successResponse(res, payload);
     } catch (aiOrWriteError) {
-      // OpenAI call or Firestore write failed after budget was reserved.
-      // Refund so the user isn't charged for a server-side failure. Uses
-      // UTC today for the refund doc — mirrors `checkDailyAiBudget`'s UTC key.
-      if (budgetReserved) {
-        await refundDailyAiBudget(db, userId, getTodayUtcDateString());
+      // Work already sent to OpenAI keeps its charge, even if consent changed,
+      // the provider failed or the cache write failed afterwards. Only a
+      // failure before dispatch is refunded, to the day that was charged.
+      if (!dispatched) {
+        await refundDailyAiBudget(db, userId, budgetResult.date);
       }
       throw aiOrWriteError;
     }
