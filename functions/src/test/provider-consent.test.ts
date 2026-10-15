@@ -51,6 +51,25 @@ test('mood withdrawal after input moderation prevents generation', async t => {
   assert.equal(generations, 0);
 });
 
+test('reflection: beforeGeneration marks every dispatch and never runs after a denied check', async t => {
+  t.mock.method(globalThis, 'fetch', async () => allowed());
+  t.mock.method(config, 'sleep', async () => {});
+  const events: string[] = [];
+  let generations = 0;
+  await runReflectionAgent([], `synthetic-${randomUUID()}`, async () => { events.push('check'); }, async () => {
+    events.push('generate');
+    if (++generations === 1) throw new Error('Synthetic transient failure');
+    return reflectionOutput;
+  }, () => { events.push('dispatch'); });
+  assert.deepEqual(events, ['check', 'dispatch', 'generate', 'check', 'dispatch', 'generate', 'check']);
+
+  let dispatches = 0;
+  const denied = new AiConsentRequiredError();
+  await assert.rejects(runReflectionAgent([], `synthetic-${randomUUID()}`, async () => { throw denied; },
+    async () => reflectionOutput, () => { dispatches++; }), error => error === denied);
+  assert.equal(dispatches, 0);
+});
+
 for (const agent of agents) {
   test(`${agent.name}: guardrail trip stops without retry`, async t => {
     t.mock.method(globalThis, 'fetch', async () => allowed());
