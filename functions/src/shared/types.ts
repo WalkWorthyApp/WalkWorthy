@@ -56,6 +56,26 @@ export function validateAgeRange(value: unknown): AgeRange | undefined {
   return validRanges.includes(value as AgeRange) ? (value as AgeRange) : undefined;
 }
 
+/**
+ * IANA-shaped zone ID ("America/New_York", "Etc/GMT+5", "UTC"): letter-led
+ * segments of safe characters, so no dots, spaces, or empty segments.
+ */
+const TIME_ZONE_RE = /^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/;
+
+/**
+ * Validates a time zone's shape, not its membership in this runtime's tzdata:
+ * the device's tzdata can be newer than the server's, and that must neither
+ * fail the profile save nor lose the user's zone. Every Intl call site already
+ * falls back to UTC for a zone it does not recognize.
+ *
+ * @param value The untrusted time zone from the client
+ * @returns The time zone unchanged, or undefined if malformed
+ */
+export function validateTimeZone(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length > 50 || !TIME_ZONE_RE.test(value)) return undefined;
+  return value;
+}
+
 /** WalkWorthy is adults-only; mirrors `OnboardingForm.minimumAge` on iOS. */
 export const MINIMUM_AGE = 18;
 
@@ -125,11 +145,8 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
     return undefined;
   }
 
-  // REQUIRED: Validate timezone (basic IANA timezone format check)
-  let timezone: string | undefined;
-  if (typeof obj.timezone === 'string' && obj.timezone.length > 0 && obj.timezone.length <= 50) {
-    timezone = obj.timezone;
-  }
+  // REQUIRED: Validate timezone
+  const timezone = validateTimeZone(obj.timezone);
   if (!timezone) {
     logger.error('Profile validation failed: missing or invalid timezone');
     return undefined;

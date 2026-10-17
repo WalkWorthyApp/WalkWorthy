@@ -31,6 +31,8 @@ const httpsOptions: HttpsOptions = {
 const DEFAULT_LIMIT = 20;
 const MAX_LIMIT = 50;
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** Entries were created with randomUUID(). A single safe segment: no `/` can reach nested paths. */
+const ENTRY_ID_RE = /^[A-Za-z0-9_-]{1,128}$/;
 
 /**
  * Journal API Handler
@@ -67,6 +69,9 @@ export const journal = onRequest(httpsOptions, async (req, res) => {
       if (!pathSegment) {
         return errorResponse(res, 400, 'Entry ID required for DELETE');
       }
+      if (!ENTRY_ID_RE.test(pathSegment)) {
+        return errorResponse(res, 400, 'Invalid entry ID');
+      }
       return handleDeleteEntry(req, res, pathSegment);
     default:
       res.setHeader('Allow', 'GET, DELETE');
@@ -86,18 +91,19 @@ async function handleListEntries(req: Request, res: Response): Promise<void> {
   const db = getDb();
 
   try {
-    const dateParam = req.query.date as string | undefined;
-    const limitParam = req.query.limit as string | undefined;
+    // Repeated or bracketed params parse as arrays/objects: reject, don't coerce.
+    const dateParam: unknown = req.query.date;
+    const limitParam: unknown = req.query.limit;
 
     // Validate date param
-    if (dateParam && !ISO_DATE_RE.test(dateParam)) {
+    if (dateParam !== undefined && (typeof dateParam !== 'string' || !ISO_DATE_RE.test(dateParam))) {
       return errorResponse(res, 400, 'date must be in YYYY-MM-DD format');
     }
 
     // Validate and clamp limit
     let limit = DEFAULT_LIMIT;
     if (limitParam !== undefined) {
-      const parsed = parseInt(limitParam, 10);
+      const parsed = typeof limitParam === 'string' ? parseInt(limitParam, 10) : NaN;
       if (isNaN(parsed) || parsed < 1) {
         return errorResponse(res, 400, 'limit must be a positive integer');
       }

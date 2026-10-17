@@ -38,8 +38,9 @@ const httpsOptions: HttpsOptions = {
  * the user's logical "today". Falls back to the user's logical today when the
  * client value is missing, malformed, or out of range.
  */
-function resolveDate(clientDate: string | undefined, userToday: string): string {
-  if (!clientDate || !/^\d{4}-\d{2}-\d{2}$/.test(clientDate)) {
+function resolveDate(clientDate: unknown, userToday: string): string {
+  // A repeated or bracketed param parses as an array/object; never coerce it.
+  if (typeof clientDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(clientDate)) {
     return userToday;
   }
   const userMs = new Date(`${userToday}T00:00:00Z`).getTime();
@@ -85,7 +86,7 @@ async function handleGet(req: Request, res: Response): Promise<void> {
     const profile = await getUserProfileOnce(userId);
     const timezone = profile?.timezone || 'America/New_York';
     const userToday = getLogicalDateString(timezone);
-    const today = resolveDate(req.query.date as string | undefined, userToday);
+    const today = resolveDate(req.query.date, userToday);
 
     // Check Firestore cache first
     const cacheRef = db.doc(`${COLLECTIONS.dailyReflections(userId)}/${today}`);

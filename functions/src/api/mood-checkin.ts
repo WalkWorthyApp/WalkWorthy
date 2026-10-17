@@ -486,6 +486,16 @@ async function handleGetCheckIn(req: Request, res: Response): Promise<void> {
     const profile = await getUserProfileOnce(userId);
     const timezone = profile?.timezone || 'America/New_York';
 
+    // Repeated (?k=a&k=b) or bracketed (?k[]=a) params parse as arrays or
+    // objects, which would slip past the string checks below by coercion.
+    for (const name of ['history', 'fullHistory', 'startDate', 'endDate']) {
+      const value: unknown = req.query[name];
+      if (value !== undefined && typeof value !== 'string') {
+        res.status(400).json({ error: `Invalid ${name} value. Expected a single value.` });
+        return;
+      }
+    }
+
     // Check for history / fullHistory query (mutually exclusive modes)
     const historyDays = req.query.history ? parseInt(req.query.history as string, 10) : undefined;
     const fullHistoryDays = req.query.fullHistory ? parseInt(req.query.fullHistory as string, 10) : undefined;

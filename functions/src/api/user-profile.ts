@@ -5,7 +5,7 @@ import { onRequest, HttpsOptions } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions/v2';
 import { getDb, COLLECTIONS, initializeFirebase } from '../shared/firebase';
 import { requireAuth, verifyAppCheck, errorResponse, successResponse } from '../shared/auth';
-import { validateUserProfileInput, validateAgeRange, validateBirthDate, validateCheckInTimes } from '../shared/types';
+import { validateUserProfileInput, validateAgeRange, validateBirthDate, validateCheckInTimes, validateTimeZone } from '../shared/types';
 import type { UserProfile } from '../shared/profile';
 import { clearUserProfileCache } from '../shared/profile';
 import { FieldValue } from 'firebase-admin/firestore';
@@ -145,8 +145,9 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
         }
 
         if (req.body.timezone !== undefined) {
-          if (typeof req.body.timezone === 'string' && req.body.timezone.length > 0 && req.body.timezone.length <= 50) {
-            updates.timezone = req.body.timezone;
+          const validTimeZone = validateTimeZone(req.body.timezone);
+          if (validTimeZone) {
+            updates.timezone = validTimeZone;
           } else {
             return errorResponse(res, 400, 'Invalid timezone value');
           }
