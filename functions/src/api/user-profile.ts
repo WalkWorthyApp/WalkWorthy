@@ -145,11 +145,18 @@ export const userProfile = onRequest(httpsOptions, async (req, res) => {
         }
 
         if (req.body.timezone !== undefined) {
-          const validTimeZone = validateTimeZone(req.body.timezone);
+          const timezone: unknown = req.body.timezone;
+          if (typeof timezone !== 'string' || timezone.length === 0 || timezone.length > 50) {
+            return errorResponse(res, 400, 'Invalid timezone value');
+          }
+          const validTimeZone = validateTimeZone(timezone);
           if (validTimeZone) {
             updates.timezone = validTimeZone;
           } else {
-            return errorResponse(res, 400, 'Invalid timezone value');
+            // The app sends its zone with birthDate and firstName. A zone this
+            // runtime's tzdata doesn't know must not fail that save; reads
+            // already fall back when no usable zone is stored.
+            logger.warn('Ignoring unrecognized timezone');
           }
         }
 
