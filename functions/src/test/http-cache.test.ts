@@ -7,6 +7,7 @@ import profiles = require('../shared/profile');
 import { errorResponse, requireAuth, successResponse } from '../shared/auth';
 import { moodCheckIn } from '../api/mood-checkin';
 import { journal } from '../api/journal';
+import { dailyReflection } from '../api/daily-reflection';
 
 function responseCapture() {
   const headers: Record<string, string> = {};
@@ -63,6 +64,7 @@ function prepare(t: TestContext, options: { exhausted?: boolean; deleting?: bool
   const transaction = { get: async (ref: { path: string }) => snapshot(ref.path), set: () => {} };
   const db = {
     collection,
+    doc: reference,
     runTransaction: async <T>(run: (tx: typeof transaction) => Promise<T>) => run(transaction),
   };
   t.mock.method(firebase, 'getDb', () => db);
@@ -78,11 +80,11 @@ function prepare(t: TestContext, options: { exhausted?: boolean; deleting?: bool
 
 type Handler = (req: Request, res: Response) => void | Promise<void>;
 
-async function invoke(handler: Handler, method: string, query: Record<string, string> = {}, headers = {
+async function invoke(handler: Handler, method: string, query: Record<string, string | string[]> = {}, headers = {
   authorization: 'Bearer synthetic-token', 'x-firebase-appcheck': 'synthetic-app-check',
-}) {
+}, path = '/entry') {
   const capture = responseCapture();
-  await handler({ method, path: '/entry', query, headers } as unknown as Request, capture.response);
+  await handler({ method, path, query, headers } as unknown as Request, capture.response);
   return capture.result();
 }
 
@@ -168,4 +170,42 @@ test('early method/App Check failures and authenticated denials prohibit storage
     prepare(child, { deleting: true });
     assertPrivate(await invoke(journal, 'GET'), 403);
   });
+});
+
+test('repeated or bracketed query params are rejected, not coerced', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-08T12:00:00Z') });
+  const db = prepare(t);
+  // ['2026-10-01'] passes a date regex by string coercion; it must still be refused.
+  const moodQueries: Record<string, string | string[]>[] = [{ fullHistory: '7', startDate: ['2026-10-01'] },
+    { history: ['7', '8'] }, { history: '7', endDate: ['2026-10-08'] }, { fullHistory: ['7'] }];
+  for (const query of moodQueries) {
+    assertPrivate(await invoke(moodCheckIn, 'GET', query), 400);
+  }
+  const journalQueries: Record<string, string | string[]>[] = [{ date: ['2026-10-08'] }, { limit: ['5', '6'] }];
+  for (const query of journalQueries) {
+    assertPrivate(await invoke(journal, 'GET', query), 400);
+  }
+  assert.ok(!db.reads.includes('users/synthetic-user/moodCheckIns'));
+  assert.ok(!db.reads.includes('users/synthetic-user/moodSummaries'));
+  assert.ok(!db.reads.includes('users/synthetic-user/journalEntries'));
+});
+
+test('a non-string reflection date falls back to the user\'s today', async t => {
+  t.mock.timers.enable({ apis: ['Date'], now: new Date('2026-10-08T12:00:00Z') });
+  const db = prepare(t);
+  // Generation itself is not mocked here; only the cache key matters.
+  await invoke(dailyReflection, 'GET', { date: ['2026-10-09'] });
+  assert.ok(db.reads.includes('users/synthetic-user/dailyReflections/2026-10-08'));
+  assert.ok(!db.reads.some(path => path.includes('dailyReflections/2026-10-09')));
+});
+
+test('journal deletion accepts only a single safe id segment', async t => {
+  const db = prepare(t);
+  for (const path of ['/a/b/c', '/..', '/entry%2Fx', '/' + 'a'.repeat(129)]) {
+    assertPrivate(await invoke(journal, 'DELETE', {}, undefined, path), 400);
+  }
+  assert.deepEqual(db.deletions, []);
+  // A UUID passes validation and reaches the owner-scoped lookup.
+  assertPrivate(await invoke(journal, 'DELETE', {}, undefined, '/3f2b8c1e-9d4a-4e6b-8f1a-2c3d4e5f6a7b'), 404);
+  assert.ok(db.reads.includes('users/synthetic-user/journalEntries/3f2b8c1e-9d4a-4e6b-8f1a-2c3d4e5f6a7b'));
 });

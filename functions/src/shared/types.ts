@@ -56,6 +56,23 @@ export function validateAgeRange(value: unknown): AgeRange | undefined {
   return validRanges.includes(value as AgeRange) ? (value as AgeRange) : undefined;
 }
 
+/**
+ * Validates a time zone: a string of at most 50 characters that Intl accepts
+ * (IANA names and their aliases, e.g. the app's `TimeZone.current.identifier`).
+ *
+ * @param value The untrusted time zone from the client
+ * @returns The time zone unchanged, or undefined if invalid
+ */
+export function validateTimeZone(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.length === 0 || value.length > 50) return undefined;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: value });
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
 /** WalkWorthy is adults-only; mirrors `OnboardingForm.minimumAge` on iOS. */
 export const MINIMUM_AGE = 18;
 
@@ -125,11 +142,8 @@ export function validateUserProfileInput(input: unknown): UserProfileInput | und
     return undefined;
   }
 
-  // REQUIRED: Validate timezone (basic IANA timezone format check)
-  let timezone: string | undefined;
-  if (typeof obj.timezone === 'string' && obj.timezone.length > 0 && obj.timezone.length <= 50) {
-    timezone = obj.timezone;
-  }
+  // REQUIRED: Validate timezone
+  const timezone = validateTimeZone(obj.timezone);
   if (!timezone) {
     logger.error('Profile validation failed: missing or invalid timezone');
     return undefined;

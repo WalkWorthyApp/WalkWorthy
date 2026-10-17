@@ -79,3 +79,14 @@ test('an invalid or under-18 birth date is refused without writing anything', em
   }
   assert.deepEqual((await profile.get()).data(), { ageRange: '18-24', firstName: 'Sam', timezone: 'UTC' });
 });
+
+test('an unknown time zone is refused without writing anything', emulator, async t => {
+  const { profile } = fixture(t);
+  await profile.set({ ageRange: '18-24', firstName: 'Sam', timezone: 'UTC' });
+  for (const timezone of ['Not/AZone', '../../profile', 'x'.repeat(51), '', 42]) {
+    assert.equal(await patch({ timezone, firstName: 'Changed' }), 400, String(timezone));
+  }
+  assert.deepEqual((await profile.get()).data(), { ageRange: '18-24', firstName: 'Sam', timezone: 'UTC' });
+  assert.equal(await patch({ timezone: 'America/Chicago' }), 200);
+  assert.equal((await profile.get()).get('timezone'), 'America/Chicago');
+});
