@@ -57,20 +57,23 @@ export function validateAgeRange(value: unknown): AgeRange | undefined {
 }
 
 /**
- * Validates a time zone: a string of at most 50 characters that Intl accepts
- * (IANA names and their aliases, e.g. the app's `TimeZone.current.identifier`).
+ * IANA-shaped zone ID ("America/New_York", "Etc/GMT+5", "UTC"): letter-led
+ * segments of safe characters, so no dots, spaces, or empty segments.
+ */
+const TIME_ZONE_RE = /^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/;
+
+/**
+ * Validates a time zone's shape, not its membership in this runtime's tzdata:
+ * the device's tzdata can be newer than the server's, and that must neither
+ * fail the profile save nor lose the user's zone. Every Intl call site already
+ * falls back to UTC for a zone it does not recognize.
  *
  * @param value The untrusted time zone from the client
- * @returns The time zone unchanged, or undefined if invalid
+ * @returns The time zone unchanged, or undefined if malformed
  */
 export function validateTimeZone(value: unknown): string | undefined {
-  if (typeof value !== 'string' || value.length === 0 || value.length > 50) return undefined;
-  try {
-    new Intl.DateTimeFormat('en-US', { timeZone: value });
-    return value;
-  } catch {
-    return undefined;
-  }
+  if (typeof value !== 'string' || value.length > 50 || !TIME_ZONE_RE.test(value)) return undefined;
+  return value;
 }
 
 /** WalkWorthy is adults-only; mirrors `OnboardingForm.minimumAge` on iOS. */

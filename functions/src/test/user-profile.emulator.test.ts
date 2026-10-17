@@ -80,20 +80,17 @@ test('an invalid or under-18 birth date is refused without writing anything', em
   assert.deepEqual((await profile.get()).data(), { ageRange: '18-24', firstName: 'Sam', timezone: 'UTC' });
 });
 
-test('malformed time zones are refused; unrecognized ones are skipped without blocking the save', emulator, async t => {
+test('malformed time zones are refused; a zone the runtime may not know is stored', emulator, async t => {
   const { profile } = fixture(t);
   await profile.set({ ageRange: '18-24', firstName: 'Sam', timezone: 'UTC' });
-  for (const timezone of ['x'.repeat(51), '', 42, ['UTC']]) {
+  for (const timezone of ['../../profile', 'America/New York', 'A'.repeat(51), '', 42, ['UTC']]) {
     assert.equal(await patch({ timezone, firstName: 'Changed' }), 400, JSON.stringify(timezone));
   }
   assert.deepEqual((await profile.get()).data(), { ageRange: '18-24', firstName: 'Sam', timezone: 'UTC' });
-  // tzdata drift between the device and the server must not block a birth date save.
-  for (const timezone of ['Not/AZone', '../../profile']) {
-    assert.equal(await patch({ timezone, birthDate: '1999-06-15' }), 200, timezone);
-    assert.equal((await profile.get()).get('timezone'), 'UTC', timezone);
-  }
+  // Device tzdata can be newer than the server's; that must not block a birth date save.
+  assert.equal(await patch({ timezone: 'Not/AZone', birthDate: '1999-06-15' }), 200);
+  assert.equal((await profile.get()).get('timezone'), 'Not/AZone');
   assert.equal((await profile.get()).get('birthDate'), '1999-06-15');
-  assert.equal(await patch({ timezone: 'Not/AZone' }), 400, 'nothing valid to update');
   assert.equal(await patch({ timezone: 'America/Chicago' }), 200);
   assert.equal((await profile.get()).get('timezone'), 'America/Chicago');
 });
