@@ -189,6 +189,15 @@ actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
         Auth.auth().currentUser?.email
     }
 
+    /// First word of the Firebase display name, which Sign in with Apple
+    /// fills from the name the user shared. Onboarding pre-fills with it so
+    /// Apple users aren't asked for a name they already gave.
+    func currentUserGivenName() async -> String? {
+        let name = Auth.auth().currentUser?.displayName?
+            .split(separator: " ").first.map(String.init)
+        return name?.isEmpty == false ? name : nil
+    }
+
     // MARK: - Account deletion (bound to the confirming session)
 
     @MainActor

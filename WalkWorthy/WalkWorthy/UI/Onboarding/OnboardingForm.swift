@@ -174,6 +174,15 @@ struct OnboardingForm: View {
             hasChosenBirthDate = false
         }
         resetValidationMessages()
+
+        // Sign in with Apple already shared the user's name, so don't make
+        // them type it again (App Review flags re-asking after Apple sign-in).
+        if !isEditingExistingProfile && firstName.isEmpty {
+            Task {
+                guard let given = await appState.currentUserGivenName(), firstName.isEmpty else { return }
+                firstName = given
+            }
+        }
     }
 
     private func saveProfile() {
