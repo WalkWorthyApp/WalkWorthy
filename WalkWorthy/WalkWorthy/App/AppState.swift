@@ -934,6 +934,12 @@ final class AppState: ObservableObject {
         await authSession.currentUserEmail()
     }
 
+    /// Given name shared through Sign in with Apple, if any. Used only to
+    /// pre-fill the optional display name during onboarding.
+    func currentUserGivenName() async -> String? {
+        await authSession.currentUserGivenName()
+    }
+
     /// Re-checks verification after the user says they've clicked the link.
     /// On success, forces a bearer-token refresh so the next API call carries
     /// email_verified=true (the backend rejects stale unverified tokens).

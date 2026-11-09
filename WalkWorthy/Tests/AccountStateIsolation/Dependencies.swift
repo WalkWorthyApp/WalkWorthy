@@ -131,6 +131,7 @@ actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
     func sendEmailVerification() throws {}
     func needsEmailVerification(reload: Bool) -> Bool { false }
     func currentUserEmail() -> String? { nil }
+    func currentUserGivenName() -> String? { nil }
 
     // Session-bound deletion steps: same shape as production, which wraps each
     // Firebase call in the shared `SessionCredentialBinding.run`.

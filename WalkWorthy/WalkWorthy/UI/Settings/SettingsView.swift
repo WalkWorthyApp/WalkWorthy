@@ -115,7 +115,7 @@ struct SettingsView: View {
                         .listRowBackground(Color.wwCardBackground)
                     }
 
-                    Section("About") {
+                    Section {
                         LabeledContent("Build", value: Bundle.main.versionString)
                             .listRowBackground(Color.wwCardBackground)
                         Link(destination: URL(string: "https://walkworthy-app.web.app/privacy")!) {
@@ -196,6 +196,13 @@ struct SettingsView: View {
                                 .foregroundStyle(.secondary)
                                 .listRowBackground(Color.wwCardBackground)
                         }
+                    } header: {
+                        Text("About")
+                    } footer: {
+                        // Guideline 5.2.1: the app ships licensed ESV text, so
+                        // the publisher's notice belongs inside the app, not
+                        // only on the website. Keep in sync with public/terms.html.
+                        Text("Scripture quotations are from the ESV® Bible (The Holy Bible, English Standard Version®), © 2001 by Crossway, a publishing ministry of Good News Publishers. Used by permission. All rights reserved.")
                     }
                 }
                 .scrollContentBackground(.hidden)
