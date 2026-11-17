@@ -11,6 +11,8 @@ import DeclaredAgeRange
 
 struct SignInFormView: View {
     @ObservedObject var viewModel: AuthenticationViewModel
+    /// The title screen's scroll view, used to keep the focused field above the keyboard.
+    let scrollProxy: ScrollViewProxy
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.requestAgeRange) private var requestAgeRange
     @FocusState private var focusedField: Field?
@@ -60,6 +62,7 @@ struct SignInFormView: View {
         }
         .padding(.horizontal, scaled(12))
         .padding(.vertical, scaled(16))
+        .keepsFocusedFieldVisible(focusedField, in: scrollProxy)
         .task {
             // Wait for SwiftUI to settle keyboard/focus before requesting email focus.
             // Using `.task` (vs. DispatchQueue.asyncAfter) ensures SwiftUI cancels
@@ -176,6 +179,7 @@ struct SignInFormView: View {
                         .strokeBorder(Color(.systemGray4), lineWidth: 1)
                 )
         }
+        .id(Field.email)
     }
 
     private var passwordSection: some View {
@@ -220,6 +224,7 @@ struct SignInFormView: View {
                     .foregroundStyle(.secondary)
             }
         }
+        .id(Field.password)
     }
 
     private func errorCard(_ error: AuthErrorDetails) -> some View {

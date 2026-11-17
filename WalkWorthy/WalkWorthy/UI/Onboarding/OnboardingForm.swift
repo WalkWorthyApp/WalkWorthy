@@ -56,20 +56,24 @@ struct OnboardingForm: View {
             TimeOfDayTheme.current.backdrop
                 .ignoresSafeArea()
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: scaled(24)) {
-                    header
-                    firstNameSection
-                    birthDateSection
-                    primaryButton
-                    if !appState.onboardingCompleted {
-                        OnboardingAccountActions()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: scaled(24)) {
+                        header
+                        firstNameSection
+                        birthDateSection
+                        primaryButton
+                        if !appState.onboardingCompleted {
+                            OnboardingAccountActions()
+                        }
                     }
+                    .padding(.vertical, scaled(32))
+                    .padding(.horizontal, scaled(12))
                 }
-                .padding(.vertical, scaled(32))
-                .padding(.horizontal, scaled(12))
+                .scrollContentBackground(.hidden)
+                .scrollDismissesKeyboard(.interactively)
+                .keepsFocusedFieldVisible(focusedField, in: proxy)
             }
-            .scrollContentBackground(.hidden)
         }
         .onAppear(perform: loadProfile)
         .navigationTitle("Let's personalize")
@@ -104,6 +108,7 @@ struct OnboardingForm: View {
                 .focused($focusedField, equals: .firstName)
                 .accessibilityLabel("Display name (optional)")
         }
+        .id(Field.firstName)
     }
 
     private var birthDateSection: some View {

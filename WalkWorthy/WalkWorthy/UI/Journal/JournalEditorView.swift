@@ -105,6 +105,10 @@ struct JournalEditorView: View {
                 .padding(.top, scaled(24))
                 .padding(.bottom, scaled(16))
             }
+            // No `keepsFocusedFieldVisible` here: the scroll view already sits
+            // above the keyboard, and jumping to the body editor on focus would
+            // move away from where the user tapped in a long note.
+            .scrollDismissesKeyboard(.interactively)
         .scrollContentBackground(.hidden)
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle("")
