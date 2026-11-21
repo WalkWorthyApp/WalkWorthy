@@ -84,6 +84,20 @@ protocol EncouragementAPI {
     /// Stores a suggestion-box entry for the developer to read.
     func submitSuggestion(_ request: SuggestionRequest) async throws
 
+    /// Emails a fresh 6-digit verification code to the signed-in
+    /// email/password account. Each call replaces the previous code.
+    func sendEmailVerificationCode() async throws
+
+    /// Checks a 6-digit code from the verification email. On success the
+    /// backend marks the account verified; callers must then refresh the ID
+    /// token. A wrong or expired code throws `APIError.server(400, message)`
+    /// whose message is written for the user.
+    func verifyEmailCode(_ code: String) async throws
+
+}
+
+struct EmailVerificationCodeRequest: Encodable {
+    let code: String
 }
 
 struct RemoteUserProfileRequest: Codable {

@@ -128,7 +128,6 @@ actor FirebaseAuthSession: BearerTokenProviding, AppCheckTokenProviding {
     func signOut(ifUserSub expectedSub: String) async throws {
         await MainActor.run { if FakeFirebase.currentUser?.uid == expectedSub { FakeFirebase.currentUser = nil } }
     }
-    func sendEmailVerification() throws {}
     func needsEmailVerification(reload: Bool) -> Bool { false }
     func currentUserEmail() -> String? { nil }
     func currentUserGivenName() -> String? { nil }
@@ -272,4 +271,6 @@ final class TestAPI: EncouragementAPI {
     func fetchDailyReflection() async throws -> DailyReflection { throw APIError.invalidResponse }
     func deleteAccount(context: AuthenticatedRequestContext) async throws { try await deletion?() }
     func submitSuggestion(_ request: SuggestionRequest) async throws {}
+    func sendEmailVerificationCode() async throws {}
+    func verifyEmailCode(_ code: String) async throws {}
 }
