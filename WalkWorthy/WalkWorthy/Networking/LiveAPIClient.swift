@@ -151,6 +151,20 @@ final class LiveAPIClient: EncouragementAPI {
         _ = try await performRequest(path: "suggestion", method: "POST", body: request, endpointKind: .nonAI, decode: EmptyPayload.self)
     }
 
+    func sendEmailVerificationCode() async throws {
+        _ = try await performRequest(path: "sendVerificationCode", method: "POST", endpointKind: .nonAI, decode: EmptyPayload.self)
+    }
+
+    func verifyEmailCode(_ code: String) async throws {
+        _ = try await performRequest(
+            path: "verifyEmailCode",
+            method: "POST",
+            body: EmailVerificationCodeRequest(code: code),
+            endpointKind: .nonAI,
+            decode: EmptyPayload.self
+        )
+    }
+
     // MARK: - Mood API
 
     /// Submit a mood check-in with automatic retry for cold start errors.
