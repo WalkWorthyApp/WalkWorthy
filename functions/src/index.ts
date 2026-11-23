@@ -36,3 +36,6 @@ export { privacyConsent } from './api/privacy-consent';
 
 // Suggestion box - user-written feedback, read in the Firestore console
 export { suggestion } from './api/suggestion';
+
+// Email verification by 6-digit code, entered in the app (replaces the link email)
+export { sendVerificationCode, verifyEmailCode } from './api/email-verification';

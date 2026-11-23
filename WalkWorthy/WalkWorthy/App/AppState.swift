@@ -559,6 +559,12 @@ final class AppState: ObservableObject {
             authenticationNotice = nil
             await refreshAuthenticatedUser()
             needsEmailVerification = await authSession.needsEmailVerification(reload: false)
+            // An unverified account signing in (new device, or a code that
+            // expired) lands on the code gate, so email a fresh code now.
+            // Best effort and not awaited: the gate offers "Send a new code".
+            if needsEmailVerification {
+                Task { [weak self] in try? await self?.apiClient.sendEmailVerificationCode() }
+            }
             await refreshProfileFromBackend()
             if currentProfile != nil {
                 markOnboardingComplete()
@@ -579,13 +585,13 @@ final class AppState: ObservableObject {
             authenticationNotice = nil
             await refreshAuthenticatedUser()
             // New password accounts must verify their address before using
-            // the app (RootView gate + backend 403). Send the email now;
-            // failures aren't fatal — the gate screen offers a resend.
+            // the app (RootView gate + backend 403). Email the 6-digit code
+            // now; failures aren't fatal — the gate screen offers a resend.
             do {
-                try await authSession.sendEmailVerification()
+                try await apiClient.sendEmailVerificationCode()
             } catch {
                 #if DEBUG
-                print("[AppState] sendEmailVerification failed: \(error)")
+                print("[AppState] sendEmailVerificationCode failed: \(error)")
                 #else
                 Crashlytics.crashlytics().record(error: NSError(domain: "WalkWorthy.AuthEmailVerification", code: 1, userInfo: nil))
                 #endif
@@ -923,9 +929,18 @@ final class AppState: ObservableObject {
         !isAuthenticated
     }
 
-    /// Resends the verification email for the signed-in password account.
-    func resendVerificationEmail() async throws {
-        try await authSession.sendEmailVerification()
+    /// Emails a new 6-digit verification code to the signed-in password
+    /// account. The previous code stops working.
+    func resendVerificationCode() async throws {
+        try await apiClient.sendEmailVerificationCode()
+    }
+
+    /// Submits the code the user typed. On success the backend has marked the
+    /// account verified, so reload the user and refresh the bearer token,
+    /// which lifts the RootView gate. Throws when the code is rejected.
+    func verifyEmailCode(_ code: String) async throws {
+        try await apiClient.verifyEmailCode(code)
+        await refreshEmailVerificationStatus()
     }
 
     /// Email address of the signed-in user, for display on the verification
@@ -940,8 +955,8 @@ final class AppState: ObservableObject {
         await authSession.currentUserGivenName()
     }
 
-    /// Re-checks verification after the user says they've clicked the link.
-    /// On success, forces a bearer-token refresh so the next API call carries
+    /// Re-checks verification against fresh Auth state. On success, forces
+    /// a bearer-token refresh so the next API call carries
     /// email_verified=true (the backend rejects stale unverified tokens).
     func refreshEmailVerificationStatus() async {
         needsEmailVerification = await authSession.needsEmailVerification(reload: true)

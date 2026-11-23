@@ -80,6 +80,21 @@ Deploy the scheduled function along with the HTTP endpoints and verify its
 Cloud Scheduler job and recovery logs before release. No retry worker is
 operational merely because it exists in source.
 
+Email/password accounts verify their address with a 6-digit code that the
+user types into the app, so they never have to leave it. The code is sent by
+`sendVerificationCode` through [Resend](https://resend.com), and only a
+salted hash is stored, under `users/{uid}/emailVerification/current`. Codes
+expire after ten minutes, allow five wrong tries, and are consumed on use.
+Before the first deploy that includes these functions, create both secrets,
+or the deploy fails:
+
+```bash
+firebase functions:secrets:set resend-api-key            # Resend API key
+firebase functions:secrets:set verification-email-from   # e.g. WalkWorthy <verify@yourdomain.com>
+```
+
+The sender's domain must be verified in Resend.
+
 ## Project Structure
 
 ```
@@ -102,5 +117,7 @@ functions/src/               Cloud Functions backend
 | `PUT` | `/user-profile` | Create or replace profile |
 | `PATCH` | `/user-profile` | Partially update profile |
 | `DELETE` | `/user-profile` | Delete profile |
+| `POST` | `/sendVerificationCode` | Email a 6-digit verification code |
+| `POST` | `/verifyEmailCode` | Check the code and mark the email verified |
 
 All endpoints require a valid Firebase Auth ID token in the `Authorization` header.
